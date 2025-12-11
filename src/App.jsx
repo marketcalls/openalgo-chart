@@ -16,6 +16,7 @@ import AlertDialog from './components/Alert/AlertDialog';
 import RightToolbar from './components/Toolbar/RightToolbar';
 import AlertsPanel from './components/Alerts/AlertsPanel';
 import ApiKeyDialog from './components/ApiKeyDialog/ApiKeyDialog';
+import SettingsPopup from './components/Settings/SettingsPopup';
 import { initTimeService } from './services/timeService';
 
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
@@ -630,6 +631,17 @@ function App() {
   const [isDrawingsLocked, setIsDrawingsLocked] = useState(false);
   const [isDrawingsHidden, setIsDrawingsHidden] = useState(false);
   const [isTimerVisible, setIsTimerVisible] = useState(false);
+  const [isSessionBreakVisible, setIsSessionBreakVisible] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [websocketUrl, setWebsocketUrl] = useState(() => {
+    return localStorage.getItem('oa_ws_url') || 'localhost:8765';
+  });
+  const [apiKey, setApiKey] = useState(() => {
+    return localStorage.getItem('oa_apikey') || '';
+  });
+  const [hostUrl, setHostUrl] = useState(() => {
+    return localStorage.getItem('oa_host_url') || 'http://localhost:5000';
+  });
 
   const toggleDrawingToolbar = () => {
     setShowDrawingToolbar(prev => !prev);
@@ -1064,6 +1076,34 @@ function App() {
     }
   };
 
+  // Settings handlers
+  const handleSettingsClick = () => {
+    setIsSettingsOpen(true);
+  };
+
+  const handleTimerToggle = () => {
+    setIsTimerVisible(prev => !prev);
+  };
+
+  const handleSessionBreakToggle = () => {
+    setIsSessionBreakVisible(prev => !prev);
+  };
+
+  const handleApiKeySaveFromSettings = (newApiKey) => {
+    setApiKey(newApiKey);
+    localStorage.setItem('oa_apikey', newApiKey);
+  };
+
+  const handleWebsocketUrlSave = (newUrl) => {
+    setWebsocketUrl(newUrl);
+    localStorage.setItem('oa_ws_url', newUrl);
+  };
+
+  const handleHostUrlSave = (newUrl) => {
+    setHostUrl(newUrl);
+    localStorage.setItem('oa_host_url', newUrl);
+  };
+
   // Show loading state while checking auth
   if (isAuthenticated === null) {
     return (
@@ -1142,6 +1182,7 @@ function App() {
             layout={layout}
             onLayoutChange={handleLayoutChange}
             onSaveLayout={handleSaveLayout}
+            onSettingsClick={handleSettingsClick}
           />
         }
         leftToolbar={
@@ -1233,6 +1274,7 @@ function App() {
             isDrawingsLocked={isDrawingsLocked}
             isDrawingsHidden={isDrawingsHidden}
             isTimerVisible={isTimerVisible}
+            isSessionBreakVisible={isSessionBreakVisible}
           />
         }
       />
@@ -1262,6 +1304,21 @@ function App() {
         onSave={handleSaveAlert}
         initialPrice={alertPrice}
         theme={theme}
+      />
+      <SettingsPopup
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        theme={theme}
+        isTimerVisible={isTimerVisible}
+        onTimerToggle={handleTimerToggle}
+        isSessionBreakVisible={isSessionBreakVisible}
+        onSessionBreakToggle={handleSessionBreakToggle}
+        hostUrl={hostUrl}
+        onHostUrlSave={handleHostUrlSave}
+        apiKey={apiKey}
+        onApiKeySave={handleApiKeySaveFromSettings}
+        websocketUrl={websocketUrl}
+        onWebsocketUrlSave={handleWebsocketUrlSave}
       />
     </>
   );

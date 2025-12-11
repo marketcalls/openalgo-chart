@@ -23,7 +23,8 @@ const DrawingToolbar = ({ activeTool, onToolChange, isDrawingsLocked = false, is
                 { id: 'horizontal_ray', icon: Icons.HorizontalRayIcon, label: 'Horizontal Ray' },
                 { id: 'horizontal', icon: Icons.HorizontalLineIcon, label: 'Horizontal Line' },
                 { id: 'vertical', icon: Icons.VerticalLineIcon, label: 'Vertical Line' },
-                { id: 'cross_line', icon: Icons.CrossLineIcon, label: 'Cross Line' }
+                { id: 'cross_line', icon: Icons.CrossLineIcon, label: 'Cross Line' },
+                { id: 'parallel_channel', icon: Icons.ParallelChannelIcon, label: 'Parallel Channel' }
             ]
         },
         {
@@ -213,7 +214,7 @@ const DrawingToolbar = ({ activeTool, onToolChange, isDrawingsLocked = false, is
                         <div className={styles.toolGroupContainer}>
                             <div className={styles.controlWrapper}>
                                 <div
-                                    className={`${styles.toolButton} ${isActive ? styles.active : ''}`}
+                                    className={`${styles.toolButton} ${isActive ? styles.active : ''} ${showArrow ? styles.hasArrow : ''}`}
                                     onClick={(e) => handleGroupClick(group, e)}
                                     title={activeItem.label}
                                 >

@@ -3,9 +3,55 @@
  * Replaces binance.js for OpenAlgo-compatible chart data
  */
 
-const API_BASE = '/api/v1';
-const WS_BASE = 'ws://127.0.0.1:8765';
-const LOGIN_URL = 'http://127.0.0.1:5000/auth/login';
+const DEFAULT_HOST = 'http://localhost:5000';
+const DEFAULT_WS_HOST = 'localhost:8765';
+
+/**
+ * Get Host URL from localStorage settings or use default
+ */
+export const getHostUrl = () => {
+    return localStorage.getItem('oa_host_url') || DEFAULT_HOST;
+};
+
+/**
+ * Check if we should use the Vite proxy (when using default localhost settings)
+ * This avoids CORS issues during development
+ */
+const shouldUseProxy = () => {
+    const hostUrl = getHostUrl();
+    // Use proxy when host is default localhost and we're running on localhost
+    const isDefaultHost = hostUrl === DEFAULT_HOST || hostUrl === 'http://127.0.0.1:5000';
+    const isLocalDev = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+    return isDefaultHost && isLocalDev;
+};
+
+/**
+ * Get API Base URL
+ * Returns relative path for proxy when in dev mode with default host
+ * Returns full URL when using custom host
+ */
+const getApiBase = () => {
+    if (shouldUseProxy()) {
+        return '/api/v1';  // Use Vite proxy
+    }
+    return `${getHostUrl()}/api/v1`;
+};
+
+/**
+ * Get Login URL
+ */
+export const getLoginUrl = () => {
+    return `${getHostUrl()}/auth/login`;
+};
+
+/**
+ * Get WebSocket URL from localStorage settings or use default
+ */
+const getWebSocketUrl = () => {
+    const wsHost = localStorage.getItem('oa_ws_url') || DEFAULT_WS_HOST;
+    return `ws://${wsHost}`;
+};
 
 /**
  * Check if user is authenticated with OpenAlgo
@@ -196,16 +242,31 @@ export const getKlines = async (symbol, exchange = 'NSE', interval = '1d', limit
         const endDate = new Date();
         const startDate = new Date();
 
-        // Adjust start date based on interval
-        if (interval.includes('m') || interval.includes('h')) {
-            startDate.setDate(startDate.getDate() - 30); // 30 days for intraday
+        // Adjust start date based on interval to ensure enough candles (target: 235+)
+        // Indian markets have ~6 trading hours/day (9:15 AM - 3:30 PM)
+        if (interval.includes('h')) {
+            // Hourly intervals need more days to get 235 candles
+            // 4h: ~1.5 bars/day → need 160 days
+            // 3h: ~2 bars/day → need 120 days  
+            // 2h: ~3 bars/day → need 80 days
+            // 1h: ~6 bars/day → need 40 days
+            // Use 180 days (6 months) to cover all hourly cases
+            startDate.setDate(startDate.getDate() - 180);
+        } else if (interval.includes('m')) {
+            // Minute intervals: many candles per day
+            // 1m: ~360 bars/day, 5m: ~72 bars/day, 15m: ~24 bars/day, 30m: ~12 bars/day
+            // 10 days is enough for 235 candles (even 30m gets 120 bars in 10 days)
+            // Additional data loaded via scroll-back if needed
+            startDate.setDate(startDate.getDate() - 10);
+        } else if (/^(W|1w|M|1M)$/i.test(interval)) {
+            startDate.setFullYear(startDate.getFullYear() - 10); // 10 years for weekly/monthly
         } else {
-            startDate.setFullYear(startDate.getFullYear() - 2); // 2 years for daily+
+            startDate.setFullYear(startDate.getFullYear() - 2); // 2 years for daily
         }
 
         const formatDate = (d) => d.toISOString().split('T')[0];
 
-        const response = await fetch(`${API_BASE}/history`, {
+        const response = await fetch(`${getApiBase()}/history`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -226,7 +287,7 @@ export const getKlines = async (symbol, exchange = 'NSE', interval = '1d', limit
 
         if (!response.ok) {
             if (response.status === 401) {
-                window.location.href = LOGIN_URL;
+                window.location.href = getLoginUrl();
                 return [];
             }
             throw new Error(`OpenAlgo history error: ${response.status} ${response.statusText}`);
@@ -283,7 +344,7 @@ export const getKlines = async (symbol, exchange = 'NSE', interval = '1d', limit
  */
 export const getTickerPrice = async (symbol, exchange = 'NSE', signal) => {
     try {
-        const response = await fetch(`${API_BASE}/quotes`, {
+        const response = await fetch(`${getApiBase()}/quotes`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -299,7 +360,7 @@ export const getTickerPrice = async (symbol, exchange = 'NSE', signal) => {
 
         if (!response.ok) {
             if (response.status === 401) {
-                window.location.href = LOGIN_URL;
+                window.location.href = getLoginUrl();
                 return null;
             }
             throw new Error(`OpenAlgo quotes error: ${response.status} ${response.statusText}`);
@@ -355,7 +416,7 @@ export const subscribeToTicker = (symbol, exchange = 'NSE', interval, callback) 
     const subscriptions = [{ symbol, exchange }];
 
     return createManagedWebSocket(
-        () => WS_BASE,
+        getWebSocketUrl,
         {
             subscriptions,
             mode: 2, // Quote mode - includes OHLC, volume, etc.
@@ -418,7 +479,7 @@ export const subscribeToMultiTicker = (symbols, callback) => {
     });
 
     return createManagedWebSocket(
-        () => WS_BASE,
+        getWebSocketUrl,
         {
             subscriptions,
             mode: 2, // Quote mode - includes OHLC, volume, prev_close, etc.
@@ -503,11 +564,12 @@ export const searchSymbols = async (query, exchange, instrumenttype) => {
 };
 
 /**
- * Get available intervals
+ * Get available intervals from broker
+ * Returns: { seconds: [...], minutes: [...], hours: [...], days: [...], weeks: [...], months: [...] }
  */
 export const getIntervals = async () => {
     try {
-        const response = await fetch(`${API_BASE}/intervals`, {
+        const response = await fetch(`${getApiBase()}/intervals`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -519,13 +581,97 @@ export const getIntervals = async () => {
         });
 
         if (!response.ok) {
-            return [];
+            console.warn('[OpenAlgo] Intervals API returned:', response.status);
+            return null;
         }
 
         const data = await response.json();
-        return data.data || data || [];
+        console.log('[OpenAlgo] Intervals response:', data);
+
+        // API returns { data: { seconds: [...], minutes: [...], ... }, status: 'success' }
+        if (data && data.data && data.status === 'success') {
+            return data.data;
+        }
+
+        return null;
     } catch (error) {
         console.error('Error fetching intervals:', error);
+        return null;
+    }
+};
+
+/**
+ * Get historical OHLC data with explicit date range (for pagination/scroll loading)
+ * @param {string} symbol - Trading symbol
+ * @param {string} exchange - Exchange code
+ * @param {string} interval - Interval
+ * @param {string} startDate - Start date (YYYY-MM-DD)
+ * @param {string} endDate - End date (YYYY-MM-DD)
+ * @param {AbortSignal} signal - Optional abort signal
+ */
+export const getHistoricalKlines = async (symbol, exchange = 'NSE', interval = '1d', startDate, endDate, signal) => {
+    try {
+        const response = await fetch(`${getApiBase()}/history`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            signal,
+            body: JSON.stringify({
+                apikey: getApiKey(),
+                symbol,
+                exchange,
+                interval: convertInterval(interval),
+                start_date: startDate,
+                end_date: endDate
+            })
+        });
+
+        console.log('[OpenAlgo] Historical request:', { symbol, exchange, interval: convertInterval(interval), start_date: startDate, end_date: endDate });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                window.location.href = getLoginUrl();
+                return [];
+            }
+            throw new Error(`OpenAlgo history error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        console.log('[OpenAlgo] Historical response:', data);
+
+        // Transform OpenAlgo response to lightweight-charts format
+        const IST_OFFSET_SECONDS = 19800; // 5 hours 30 minutes in seconds
+
+        if (data && data.data && Array.isArray(data.data)) {
+            return data.data.map(d => {
+                let time;
+                if (typeof d.timestamp === 'number') {
+                    time = d.timestamp + IST_OFFSET_SECONDS;
+                } else if (d.date || d.datetime) {
+                    time = new Date(d.date || d.datetime).getTime() / 1000 + IST_OFFSET_SECONDS;
+                } else {
+                    time = 0;
+                }
+
+                return {
+                    time,
+                    open: parseFloat(d.open),
+                    high: parseFloat(d.high),
+                    low: parseFloat(d.low),
+                    close: parseFloat(d.close),
+                };
+            }).filter(candle =>
+                candle.time > 0 && [candle.open, candle.high, candle.low, candle.close].every(value => Number.isFinite(value))
+            );
+        }
+
+        return [];
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Error fetching historical klines:', error);
+        }
         return [];
     }
 };
@@ -533,6 +679,7 @@ export const getIntervals = async () => {
 export default {
     checkAuth,
     getKlines,
+    getHistoricalKlines,
     getTickerPrice,
     subscribeToTicker,
     subscribeToMultiTicker,

@@ -46,12 +46,17 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    border-radius: 4px 0 0 4px;
-    /* Rounded left corners only */
+    border-radius: 4px;
+    /* Fully rounded by default */
     cursor: pointer;
     color: var(--tv-color-toolbar-button-text);
     transition: all 0.1s;
     position: relative;
+}
+
+/* When arrow button is present, only round left corners */
+.toolButton.hasArrow {
+    border-radius: 4px 0 0 4px;
 }
 
 .toolButton:hover {
@@ -158,9 +163,9 @@
 }
 
 .separator {
-    width: 20px;
+    width: 34px;
     height: 1px;
     background-color: var(--tv-color-border);
-    margin: 6px 0;
+    margin: 6px auto;
     flex-shrink: 0;
 }

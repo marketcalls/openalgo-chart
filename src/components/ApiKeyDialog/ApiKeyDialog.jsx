@@ -1,7 +1,14 @@
 import React, { useState } from 'react';
+import { Eye, EyeOff } from 'lucide-react';
+
+const DEFAULT_HOST = 'http://localhost:5000';
 
 const ApiKeyDialog = ({ onSave, onClose }) => {
+    const [hostUrl, setHostUrl] = useState(() => {
+        return localStorage.getItem('oa_host_url') || DEFAULT_HOST;
+    });
     const [apiKey, setApiKey] = useState('');
+    const [showApiKey, setShowApiKey] = useState(false);
     const [error, setError] = useState('');
 
     const handleSubmit = (e) => {
@@ -10,7 +17,36 @@ const ApiKeyDialog = ({ onSave, onClose }) => {
             setError('Please enter your API key');
             return;
         }
+        // Save host URL to localStorage
+        localStorage.setItem('oa_host_url', hostUrl);
         onSave(apiKey.trim());
+    };
+
+    const inputStyle = {
+        width: '100%',
+        padding: '12px',
+        backgroundColor: '#131722',
+        border: '1px solid #363a45',
+        borderRadius: '4px',
+        color: '#d1d4dc',
+        fontSize: '14px',
+        outline: 'none',
+        boxSizing: 'border-box'
+    };
+
+    const labelStyle = {
+        display: 'block',
+        color: '#d1d4dc',
+        fontSize: '13px',
+        marginBottom: '8px',
+        fontWeight: 500
+    };
+
+    const hintStyle = {
+        margin: '6px 0 0 0',
+        color: '#787b86',
+        fontSize: '11px',
+        lineHeight: 1.4
     };
 
     return (
@@ -30,7 +66,7 @@ const ApiKeyDialog = ({ onSave, onClose }) => {
                 backgroundColor: '#1e222d',
                 borderRadius: '8px',
                 padding: '24px',
-                width: '400px',
+                width: '420px',
                 maxWidth: '90%',
                 boxShadow: '0 4px 24px rgba(0, 0, 0, 0.4)'
             }}>
@@ -48,48 +84,86 @@ const ApiKeyDialog = ({ onSave, onClose }) => {
                     fontSize: '13px',
                     lineHeight: 1.5
                 }}>
-                    Enter your OpenAlgo API key to connect. You can find your API key in the
-                    <a
-                        href="http://127.0.0.1:5000/apikey"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: '#2962ff', marginLeft: '4px' }}
-                    >
-                        OpenAlgo Dashboard
-                    </a>.
+                    Configure your OpenAlgo server connection.
                 </p>
 
                 <form onSubmit={handleSubmit}>
-                    <input
-                        type="text"
-                        value={apiKey}
-                        onChange={(e) => {
-                            setApiKey(e.target.value);
-                            setError('');
-                        }}
-                        placeholder="Enter your API key"
-                        autoFocus
-                        style={{
-                            width: '100%',
-                            padding: '12px',
-                            backgroundColor: '#131722',
-                            border: error ? '1px solid #f23645' : '1px solid #363a45',
-                            borderRadius: '4px',
-                            color: '#d1d4dc',
-                            fontSize: '14px',
-                            outline: 'none',
-                            boxSizing: 'border-box'
-                        }}
-                    />
-                    {error && (
-                        <p style={{
-                            margin: '8px 0 0 0',
-                            color: '#f23645',
-                            fontSize: '12px'
-                        }}>
-                            {error}
+                    {/* Host URL Field */}
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={labelStyle}>Host URL</label>
+                        <input
+                            type="text"
+                            value={hostUrl}
+                            onChange={(e) => setHostUrl(e.target.value)}
+                            placeholder="http://localhost:5000"
+                            style={inputStyle}
+                        />
+                        <p style={hintStyle}>
+                            Default: http://localhost:5000
                         </p>
-                    )}
+                    </div>
+
+                    {/* API Key Field */}
+                    <div style={{ marginBottom: '16px' }}>
+                        <label style={labelStyle}>API Key</label>
+                        <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                            <input
+                                type={showApiKey ? "text" : "password"}
+                                value={apiKey}
+                                onChange={(e) => {
+                                    setApiKey(e.target.value);
+                                    setError('');
+                                }}
+                                placeholder="Enter your API key"
+                                autoFocus
+                                style={{
+                                    ...inputStyle,
+                                    paddingRight: '40px',
+                                    border: error ? '1px solid #f23645' : '1px solid #363a45'
+                                }}
+                            />
+                            <button
+                                type="button"
+                                onClick={() => setShowApiKey(!showApiKey)}
+                                title={showApiKey ? "Hide API key" : "Show API key"}
+                                style={{
+                                    position: 'absolute',
+                                    right: '8px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    background: 'none',
+                                    border: 'none',
+                                    color: '#787b86',
+                                    cursor: 'pointer',
+                                    padding: '4px',
+                                    borderRadius: '4px'
+                                }}
+                            >
+                                {showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                            </button>
+                        </div>
+                        {error && (
+                            <p style={{
+                                margin: '8px 0 0 0',
+                                color: '#f23645',
+                                fontSize: '12px'
+                            }}>
+                                {error}
+                            </p>
+                        )}
+                        <p style={hintStyle}>
+                            Find your API key in the{' '}
+                            <a
+                                href={`${hostUrl}/apikey`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                style={{ color: '#2962ff' }}
+                            >
+                                OpenAlgo Dashboard
+                            </a>
+                        </p>
+                    </div>
 
                     <div style={{
                         display: 'flex',
@@ -98,7 +172,7 @@ const ApiKeyDialog = ({ onSave, onClose }) => {
                         justifyContent: 'flex-end'
                     }}>
                         <a
-                            href="http://127.0.0.1:5000/auth/login"
+                            href={`${hostUrl}/auth/login`}
                             style={{
                                 padding: '10px 16px',
                                 backgroundColor: 'transparent',

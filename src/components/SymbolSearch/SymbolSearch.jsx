@@ -20,9 +20,9 @@ const getSymbolIcon = (symbol, exchange, instrumenttype) => {
     if ((sym === 'NIFTY' || sym.includes('NIFTY50')) && !sym.includes('BANK') && !sym.includes('NXT')) {
         return { text: '50', color: '#2962ff', bgColor: '#e3f2fd' };
     }
-    // Bank Nifty - using flag colors
+    // Bank Nifty - bank icon
     if (sym.includes('BANKNIFTY') || sym === 'BANKNIFTY') {
-        return { text: '₿', color: '#ff9800', bgColor: '#fff3e0', isFlag: true };
+        return { text: '🏦', color: null, bgColor: '#fff3e0', isFlag: true };
     }
     // CNX / Other indices with India flag
     if (sym.includes('CNX') || sym.includes('NIFTY_MID') || sym.includes('CNXSMALLCAP')) {

@@ -8,7 +8,7 @@ import {
     BaselineSeries
 } from 'lightweight-charts';
 import styles from './ChartComponent.module.css';
-import { getKlines, subscribeToTicker } from '../../services/openalgo';
+import { getKlines, getHistoricalKlines, subscribeToTicker } from '../../services/openalgo';
 import { getAccurateISTTimestamp, syncTimeWithAPI, shouldResync } from '../../services/timeService';
 import { calculateSMA, calculateEMA } from '../../utils/indicators';
 import { calculateHeikinAshi } from '../../utils/chartUtils';
@@ -81,6 +81,7 @@ const ChartComponent = forwardRef(({
     isDrawingsLocked = false,
     isDrawingsHidden = false,
     isTimerVisible = false,
+    isSessionBreakVisible = false,
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
@@ -117,8 +118,34 @@ const ChartComponent = forwardRef(({
     useEffect(() => { replayIndexRef.current = replayIndex; }, [replayIndex]);
     useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
-    const DEFAULT_CANDLE_WINDOW = 230;
-    const DEFAULT_RIGHT_OFFSET = 10;
+    // Historical data scroll loading refs
+    const isLoadingOlderDataRef = useRef(false);
+    const hasMoreHistoricalDataRef = useRef(true);
+    const oldestLoadedTimeRef = useRef(null);
+    const abortControllerRef = useRef(null);
+
+    // Refs to track current prop values for use in closures (chart initialization useEffect)
+    const symbolRef = useRef(symbol);
+    const exchangeRef = useRef(exchange);
+    const intervalRef = useRef(interval);
+    const indicatorsRef = useRef(indicators);
+
+    // Keep refs in sync with props
+    useEffect(() => { symbolRef.current = symbol; }, [symbol]);
+    useEffect(() => { exchangeRef.current = exchange; }, [exchange]);
+    useEffect(() => { intervalRef.current = interval; }, [interval]);
+    useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
+
+    // ============================================
+    // CONFIGURABLE CHART CONSTANTS
+    // ============================================
+    const DEFAULT_CANDLE_WINDOW = 235;        // Fixed number of candles to show
+    const DEFAULT_RIGHT_OFFSET = 10;           // Right margin in candle units
+    const PREFETCH_THRESHOLD = 126;            // Candles from oldest before prefetching
+    const MIN_CANDLES_FOR_SCROLL_BACK = 50;   // Minimum candles before enabling scroll-back
+
+    // Loading state for scroll-back (shows subtle indicator)
+    const [isLoadingOlderData, setIsLoadingOlderData] = useState(false);
 
     const applyDefaultCandlePosition = (explicitLength, candleWindow = DEFAULT_CANDLE_WINDOW) => {
         if (!chartRef.current) return;
@@ -131,14 +158,23 @@ const ChartComponent = forwardRef(({
             return;
         }
 
+        // Calculate from/to at top level for both branches and setDefaultRange
         const lastIndex = Math.max(inferredLength - 1, 0);
+        const effectiveWindow = Math.min(candleWindow, inferredLength);
         const to = lastIndex + DEFAULT_RIGHT_OFFSET;
-        const from = to - candleWindow;
+        const from = to - effectiveWindow;
 
         try {
             const timeScale = chartRef.current.timeScale();
             timeScale.applyOptions({ rightOffset: DEFAULT_RIGHT_OFFSET });
-            timeScale.setVisibleLogicalRange({ from, to });
+
+            // If we have fewer candles than the window, use fitContent to fill the visible area
+            // This prevents empty space on the left when data is limited
+            if (inferredLength < candleWindow) {
+                timeScale.fitContent();
+            } else {
+                timeScale.setVisibleLogicalRange({ from, to });
+            }
         } catch (err) {
             console.warn('Failed to apply default candle position', err);
         }
@@ -470,6 +506,41 @@ const ChartComponent = forwardRef(({
             }
         }
     }, [isTimerVisible]);
+
+    // Sync session break visibility state from props to LineToolManager
+    useEffect(() => {
+        if (!lineToolManagerRef.current) return;
+        const manager = lineToolManagerRef.current;
+
+        // Always disable first (clear any existing session highlighting)
+        if (typeof manager.disableSessionHighlighting === 'function') {
+            manager.disableSessionHighlighting();
+        }
+
+        // Then enable if requested
+        if (isSessionBreakVisible) {
+            if (typeof manager.enableSessionHighlighting === 'function') {
+                // Session highlighter function - defines colors for different times
+                const sessionHighlighter = (time) => {
+                    // Convert time to date for session detection
+                    const date = new Date(time * 1000);
+                    const hours = date.getHours();
+
+                    // Indian market session: 9:15 AM to 3:30 PM IST
+                    // Color session start (9:15 AM) with a light color
+                    if (hours === 9) {
+                        return 'rgba(41, 98, 255, 0.15)'; // Light blue for market open
+                    }
+                    // Color session end (3:30 PM = 15:30)
+                    if (hours === 15) {
+                        return 'rgba(255, 82, 82, 0.15)'; // Light red for market close
+                    }
+                    return ''; // No highlighting for other times
+                };
+                manager.enableSessionHighlighting(sessionHighlighter);
+            }
+        }
+    }, [isSessionBreakVisible]);
 
     // Handle zoom clicks on chart (both zoom-in and zoom-out)
     useEffect(() => {
@@ -917,16 +988,141 @@ const ChartComponent = forwardRef(({
         const resizeObserver = new ResizeObserver(handleResize);
         resizeObserver.observe(chartContainerRef.current);
 
+        // Load older historical data when user scrolls back to the oldest loaded candle
+        const loadOlderData = async () => {
+            // Guard against concurrent loads and check if more data is available
+            if (isLoadingOlderDataRef.current || !hasMoreHistoricalDataRef.current) return;
+            if (!oldestLoadedTimeRef.current || !mainSeriesRef.current || !dataRef.current) return;
+            if (isReplayModeRef.current) return; // Don't load during replay mode
+
+            isLoadingOlderDataRef.current = true;
+            setIsLoadingOlderData(true); // Show loading indicator
+
+            try {
+                // Calculate date range for older data
+                // Go back further based on interval type
+                const oldestTime = oldestLoadedTimeRef.current;
+                const IST_OFFSET_SECONDS = 19800; // Same offset used in openalgo.js
+                const oldestDate = new Date((oldestTime - IST_OFFSET_SECONDS) * 1000);
+
+                // End date is 1 day before oldest loaded (to avoid overlap)
+                const endDate = new Date(oldestDate);
+                endDate.setDate(endDate.getDate() - 1);
+
+                // Start date: go back based on interval
+                const startDate = new Date(endDate);
+                // Use refs to get current values instead of stale closure values
+                const currentSymbol = symbolRef.current;
+                const currentExchange = exchangeRef.current;
+                const currentInterval = intervalRef.current;
+                const currentIndicators = indicatorsRef.current;
+
+                if (currentInterval.includes('m') || currentInterval.includes('h')) {
+                    startDate.setDate(startDate.getDate() - 30); // 30 days for intraday
+                } else {
+                    startDate.setFullYear(startDate.getFullYear() - 1); // 1 year for daily+
+                }
+
+                const formatDate = (d) => d.toISOString().split('T')[0];
+
+                console.log('[ScrollBack] Loading older data:', {
+                    symbol: currentSymbol,
+                    exchange: currentExchange,
+                    interval: currentInterval,
+                    startDate: formatDate(startDate),
+                    endDate: formatDate(endDate)
+                });
+
+                // Abort any previous request
+                if (abortControllerRef.current) {
+                    abortControllerRef.current.abort();
+                }
+                abortControllerRef.current = new AbortController();
+
+                const olderData = await getHistoricalKlines(
+                    currentSymbol,
+                    currentExchange,
+                    currentInterval,
+                    formatDate(startDate),
+                    formatDate(endDate),
+                    abortControllerRef.current.signal
+                );
+
+                if (!olderData || olderData.length === 0) {
+                    console.log('[ScrollBack] No more historical data available');
+                    hasMoreHistoricalDataRef.current = false;
+                    isLoadingOlderDataRef.current = false;
+                    return;
+                }
+
+                // Filter out any candles that might overlap with existing data
+                const existingOldestTime = dataRef.current[0]?.time || 0;
+                const filteredOlderData = olderData.filter(d => d.time < existingOldestTime);
+
+                if (filteredOlderData.length === 0) {
+                    console.log('[ScrollBack] All fetched data overlaps with existing, no more available');
+                    hasMoreHistoricalDataRef.current = false;
+                    isLoadingOlderDataRef.current = false;
+                    return;
+                }
+
+                console.log('[ScrollBack] Prepending', filteredOlderData.length, 'older candles');
+
+                // Save current visible range before prepending
+                const timeScale = chart.timeScale();
+                let currentLogicalRange = null;
+                try {
+                    currentLogicalRange = timeScale.getVisibleLogicalRange();
+                } catch (e) {
+                    // Ignore
+                }
+
+                // Prepend older data to existing data
+                const prependCount = filteredOlderData.length;
+                const newData = [...filteredOlderData, ...dataRef.current];
+                dataRef.current = newData;
+
+                // Update oldest loaded time
+                oldestLoadedTimeRef.current = newData[0].time;
+
+                // Update the chart with the new combined data
+                const activeType = chartTypeRef.current;
+                const transformedData = transformData(newData, activeType);
+                mainSeriesRef.current.setData(transformedData);
+
+                // Restore visible range shifted by the prepended candle count
+                // This keeps the user's current view stable - they won't see a jump
+                if (currentLogicalRange) {
+                    try {
+                        const newFrom = currentLogicalRange.from + prependCount;
+                        const newTo = currentLogicalRange.to + prependCount;
+                        timeScale.setVisibleLogicalRange({ from: newFrom, to: newTo });
+                    } catch (e) {
+                        console.warn('[ScrollBack] Failed to restore visible range:', e);
+                    }
+                }
+
+                // Also update fullDataRef for replay mode
+                if (fullDataRef.current && fullDataRef.current.length > 0) {
+                    fullDataRef.current = [...filteredOlderData, ...fullDataRef.current];
+                }
+
+                // Update indicators with new data
+                updateIndicators(newData, currentIndicators);
+
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    console.error('[ScrollBack] Error loading older data:', error);
+                }
+            } finally {
+                isLoadingOlderDataRef.current = false;
+                setIsLoadingOlderData(false); // Hide loading indicator
+            }
+        };
+
         // Handle Visible Time Range Change (Scrolling/Panning)
         const handleVisibleTimeRangeChange = (newVisibleRange) => {
             if (!newVisibleRange || !mainSeriesRef.current || !dataRef.current || dataRef.current.length === 0) return;
-
-            // Find the index of the last visible candle
-            // We can approximate the index or search for it. Since data is sorted by time:
-            // The 'to' of visible range is a Logical Range index if we use getVisibleLogicalRange, 
-            // but here we get a TimeRange (from/to as Time). 
-            // However, subscribeVisibleLogicalRangeChange is better for index-based access, but let's see what we have.
-            // Actually, let's use the Logical Range from the chart directly as it maps better to array indices.
 
             const timeScale = chart.timeScale();
             const logicalRange = timeScale.getVisibleLogicalRange();
@@ -946,6 +1142,14 @@ const ChartComponent = forwardRef(({
                             priceScaleTimerRef.current.updateCandleData(candle.open, candle.close);
                         }
                     }
+                }
+
+                // Prefetch older data BEFORE user reaches the oldest candles
+                // Trigger when fromIndex <= PREFETCH_THRESHOLD for seamless continuous scrolling
+                const fromIndex = Math.round(logicalRange.from);
+                if (fromIndex <= PREFETCH_THRESHOLD && hasMoreHistoricalDataRef.current && !isLoadingOlderDataRef.current) {
+                    console.log('[ScrollBack] Prefetching older data (user is', fromIndex, 'candles from oldest)');
+                    loadOlderData();
                 }
             }
         };
@@ -1093,23 +1297,6 @@ const ChartComponent = forwardRef(({
     useEffect(() => {
         if (!chartRef.current) return;
 
-        // Capture current zoom level (visible bar count) before fetching new data
-        // This prevents the chart from resetting to the default narrow zoom on every interval change
-        let preservedCandleWindow = DEFAULT_CANDLE_WINDOW;
-        try {
-            const timeScale = chartRef.current.timeScale();
-            const range = timeScale.getVisibleLogicalRange();
-            if (range) {
-                const count = range.to - range.from;
-                // Only preserve if it's a reasonable number (e.g., > 5 candles)
-                if (count > 5 && Number.isFinite(count)) {
-                    preservedCandleWindow = count;
-                }
-            }
-        } catch (e) {
-            console.warn('Failed to capture current zoom level', e);
-        }
-
         let cancelled = false;
         let indicatorFrame = null;
         const abortController = new AbortController();
@@ -1117,6 +1304,15 @@ const ChartComponent = forwardRef(({
         if (wsRef.current) {
             wsRef.current.close();
             wsRef.current = null;
+        }
+
+        // Reset scroll-back loading refs when symbol/interval changes
+        isLoadingOlderDataRef.current = false;
+        hasMoreHistoricalDataRef.current = true;
+        oldestLoadedTimeRef.current = null;
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+            abortControllerRef.current = null;
         }
 
         const loadData = async () => {
@@ -1130,6 +1326,10 @@ const ChartComponent = forwardRef(({
 
                 if (Array.isArray(data) && data.length > 0 && mainSeriesRef.current) {
                     dataRef.current = data;
+
+                    // Track the oldest loaded timestamp for scroll-back loading
+                    oldestLoadedTimeRef.current = data[0].time;
+
                     const activeType = chartTypeRef.current;
                     const transformedData = transformData(data, activeType);
                     mainSeriesRef.current.setData(transformedData);
@@ -1154,7 +1354,8 @@ const ChartComponent = forwardRef(({
                         }
                     });
 
-                    applyDefaultCandlePosition(transformedData.length, preservedCandleWindow);
+                    // Apply fixed candle window for consistent zoom across all timeframes
+                    applyDefaultCandlePosition(transformedData.length, DEFAULT_CANDLE_WINDOW);
 
                     setTimeout(() => {
                         if (!cancelled) {

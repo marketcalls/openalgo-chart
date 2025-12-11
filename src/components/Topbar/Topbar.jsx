@@ -2,8 +2,9 @@ import React, { useState, useEffect, useRef } from 'react';
 import styles from './Topbar.module.css';
 import classNames from 'classnames';
 import { intervalToSeconds } from '../../utils/timeframes';
+import { getIntervals } from '../../services/openalgo';
 import {
-    Plus, Star, Trash2, X
+    Plus, Star, Trash2, X, AlertCircle, Loader2
 } from 'lucide-react';
 
 const Topbar = ({
@@ -14,7 +15,7 @@ const Topbar = ({
     onUndo, onRedo, onMenuClick, theme, onToggleTheme,
     onDownloadImage, onCopyImage, onFullScreen,
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
-    isReplayMode = false
+    isReplayMode = false, onSettingsClick
 }) => {
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
@@ -24,6 +25,11 @@ const Topbar = ({
     const [showCustomInput, setShowCustomInput] = useState(false);
     const [customValue, setCustomValue] = useState('1');
     const [customUnit, setCustomUnit] = useState('m');
+
+    // Broker-supported intervals state
+    const [brokerIntervals, setBrokerIntervals] = useState(null);
+    const [intervalsLoading, setIntervalsLoading] = useState(true);
+    const [intervalsError, setIntervalsError] = useState(null);
 
     // State for section expansion in dropdown
     const [expandedSections, setExpandedSections] = useState({
@@ -140,8 +146,75 @@ const Topbar = ({
         { label: '1 month', value: '1M', type: 'Days' },
     ];
 
-    // Merge default and custom intervals
-    const allTimeframes = [...defaultTimeframes, ...customIntervals.map(c => ({ ...c, type: 'Custom' }))];
+    // Fetch broker-supported intervals on mount
+    useEffect(() => {
+        let mounted = true;
+        const fetchIntervals = async () => {
+            try {
+                setIntervalsLoading(true);
+                setIntervalsError(null);
+                const data = await getIntervals();
+
+                if (!mounted) return;
+
+                if (data) {
+                    // Flatten the categorized intervals into a Set for quick lookup
+                    // API format: { seconds: ['5s', '10s'], minutes: ['1m', '5m'], hours: ['1h'], days: ['D'], weeks: ['W'], months: ['M'] }
+                    const supported = new Set();
+
+                    if (data.seconds) data.seconds.forEach(v => supported.add(v));
+                    if (data.minutes) data.minutes.forEach(v => supported.add(v));
+                    if (data.hours) data.hours.forEach(v => supported.add(v));
+                    if (data.days) data.days.forEach(v => {
+                        // API returns 'D' for daily, map to '1d'
+                        supported.add(v === 'D' ? '1d' : v);
+                    });
+                    if (data.weeks) data.weeks.forEach(v => {
+                        // API returns 'W' for weekly, map to '1w'
+                        supported.add(v === 'W' ? '1w' : v);
+                    });
+                    if (data.months) data.months.forEach(v => {
+                        // API returns 'M' for monthly, map to '1M'
+                        supported.add(v === 'M' ? '1M' : v);
+                    });
+
+                    setBrokerIntervals(supported);
+                    console.log('[Topbar] Broker supported intervals:', [...supported]);
+                } else {
+                    setIntervalsError('Could not fetch broker intervals');
+                }
+            } catch (error) {
+                if (mounted) {
+                    console.error('Error fetching intervals:', error);
+                    setIntervalsError('Failed to load intervals');
+                }
+            } finally {
+                if (mounted) {
+                    setIntervalsLoading(false);
+                }
+            }
+        };
+
+        fetchIntervals();
+        return () => { mounted = false; };
+    }, []);
+
+    // Helper to check if an interval is supported by broker
+    const isIntervalSupported = (value) => {
+        // Always show custom intervals
+        if (!brokerIntervals) return true; // Show all if no data yet
+        // Ticks are not typically supported by OpenAlgo API
+        if (/^\d+$/.test(value)) return false;
+        return brokerIntervals.has(value);
+    };
+
+    // Filter default timeframes to only show broker-supported intervals
+    const filteredTimeframes = brokerIntervals
+        ? defaultTimeframes.filter(tf => isIntervalSupported(tf.value))
+        : defaultTimeframes;
+
+    // Merge filtered default and custom intervals
+    const allTimeframes = [...filteredTimeframes, ...customIntervals.map(c => ({ ...c, type: 'Custom' }))];
 
     // Group timeframes
     const groupedTimeframes = {
@@ -658,7 +731,7 @@ const Topbar = ({
                                                 <div className={styles.separatorWrap}><div className={styles.separator}></div></div>
 
 
-                                                <button className={classNames(styles.button, styles.iconButton)} aria-label="Settings">
+                                                <button className={classNames(styles.button, styles.iconButton)} aria-label="Settings" onClick={onSettingsClick}>
                                                     <div className={styles.icon}>
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor"><path fillRule="evenodd" d="M18 14a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-1 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"></path><path fillRule="evenodd" d="M8.5 5h11l5 9-5 9h-11l-5-9 5-9Zm-3.86 9L9.1 6h9.82l4.45 8-4.45 8H9.1l-4.45-8Z"></path></svg>
                                                     </div>
