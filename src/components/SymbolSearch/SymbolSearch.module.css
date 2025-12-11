@@ -1,0 +1,282 @@
+.overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-color: rgba(0, 0, 0, 0.5);
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding-top: 40px;
+    z-index: 1000;
+}
+
+.modal {
+    width: 700px;
+    max-height: calc(100vh - 80px);
+    background-color: var(--tv-color-dropdown-background);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    border: 1px solid var(--tv-color-border);
+}
+
+/* Title Header */
+.titleHeader {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px 16px;
+}
+
+.title {
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--tv-color-text-primary);
+    margin: 0;
+}
+
+.closeBtn {
+    color: var(--tv-color-text-secondary);
+    cursor: pointer;
+    padding: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.closeBtn:hover {
+    color: var(--tv-color-text-primary);
+    background-color: var(--tv-color-toolbar-button-background-hover);
+}
+
+/* Search Row */
+.searchRow {
+    padding: 0 24px 16px;
+}
+
+.searchContainer {
+    display: flex;
+    align-items: center;
+    background-color: var(--tv-color-input-background);
+    border-radius: 8px;
+    padding: 12px 16px;
+    border: 1px solid var(--tv-color-border);
+    transition: all 0.15s ease;
+}
+
+.searchContainer:focus-within {
+    border-color: var(--tv-color-brand);
+    box-shadow: 0 0 0 2px rgba(41, 98, 255, 0.15);
+}
+
+.searchIcon {
+    color: var(--tv-color-text-secondary);
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+
+.input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    color: var(--tv-color-text-primary);
+    font-size: 15px;
+    outline: none;
+}
+
+.input::placeholder {
+    color: var(--tv-color-text-secondary);
+}
+
+/* Filter Tabs */
+.filterTabs {
+    display: flex;
+    gap: 8px;
+    padding: 0 24px 16px;
+    flex-wrap: wrap;
+}
+
+.filterTab {
+    padding: 8px 16px;
+    border-radius: 20px;
+    background-color: transparent;
+    border: 1px solid var(--tv-color-border);
+    color: var(--tv-color-text-primary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.filterTab:hover {
+    background-color: var(--tv-color-toolbar-button-background-hover);
+}
+
+.filterTabActive {
+    background-color: var(--tv-color-brand);
+    border-color: var(--tv-color-brand);
+    color: #ffffff;
+}
+
+.filterTabActive:hover {
+    background-color: var(--tv-color-brand);
+    opacity: 0.9;
+}
+
+/* Results List */
+.list {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 380px;
+}
+
+.item {
+    display: flex;
+    align-items: center;
+    padding: 12px 24px;
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+}
+
+.item:hover {
+    background-color: var(--tv-color-toolbar-button-background-hover);
+}
+
+/* Symbol Icon */
+.symbolIcon {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: 700;
+    flex-shrink: 0;
+    margin-right: 14px;
+}
+
+/* Symbol Name */
+.itemSymbol {
+    width: 180px;
+    font-weight: 600;
+    color: var(--tv-color-text-primary);
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.highlight {
+    color: var(--tv-color-brand);
+}
+
+/* Description */
+.itemDesc {
+    flex: 1;
+    color: var(--tv-color-text-secondary);
+    font-size: 14px;
+    padding-right: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.itemDesc .highlight {
+    color: var(--tv-color-brand);
+}
+
+/* Meta (Type + Exchange) */
+.itemMeta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.typeLabel {
+    color: var(--tv-color-text-secondary);
+    font-size: 12px;
+    font-weight: 400;
+}
+
+.exchangeBadge {
+    color: var(--tv-color-text-secondary);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Loading & No Results */
+.loading {
+    padding: 40px 24px;
+    text-align: center;
+    color: var(--tv-color-text-secondary);
+    font-size: 14px;
+}
+
+.noResults {
+    padding: 40px 24px;
+    text-align: center;
+    color: var(--tv-color-text-secondary);
+    font-size: 14px;
+}
+
+/* Scrollbar Styling */
+.list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.list::-webkit-scrollbar-thumb {
+    background-color: var(--tv-color-border);
+    border-radius: 3px;
+}
+
+.list::-webkit-scrollbar-thumb:hover {
+    background-color: var(--tv-color-text-secondary);
+}
+
+/* Section Headers (Compare Mode) */
+.sectionHeader {
+    padding: 12px 24px 8px;
+    color: var(--tv-color-text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+}
+
+.addedSection {
+    border-bottom: 1px solid var(--tv-color-border);
+    margin-bottom: 4px;
+}
+
+/* Added Item Styling */
+.addedItem {
+    background-color: transparent;
+}
+
+/* Check Icon */
+.checkIcon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--tv-color-brand);
+    margin-left: 8px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.15s ease;
+}
+
+.checkIcon:hover {
+    background-color: var(--tv-color-toolbar-button-background-hover);
+    color: var(--tv-color-down);
+}

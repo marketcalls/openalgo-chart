@@ -1,0 +1,83 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.topbarArea {
+  flex: 0 0 auto;
+  height: 48px;
+  border-bottom: 1px solid var(--tv-color-border, #2A2E39);
+  background-color: var(--tv-color-toolbar-background, #1e1e1e);
+}
+
+.mainArea {
+  flex: 1;
+  display: flex;
+  position: relative;
+  overflow: hidden;
+}
+
+.leftToolbarArea {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 48px;
+  background-color: var(--tv-color-toolbar-background, #1e1e1e);
+  border-right: 1px solid var(--tv-color-border, #2A2E39);
+  z-index: 20;
+  transition: opacity 0.15s ease, visibility 0.15s ease;
+}
+
+.leftToolbarHidden {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.centerArea {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  /* Chart extends under the toolbar */
+  margin-left: 0;
+}
+
+.chartArea {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+}
+
+.bottomBarArea {
+  flex: 0 0 auto;
+  height: 32px;
+  border-top: 1px solid var(--tv-color-border, #2A2E39);
+  background-color: var(--tv-color-toolbar-background, #1e1e1e);
+}
+
+.watchlistArea {
+  flex: 0 0 auto;
+  width: 320px;
+  background-color: var(--tv-color-pane-background, #131722);
+  border-left: 1px solid var(--tv-color-border, #2A2E39);
+  overflow: hidden;
+}
+
+.optionsPanelArea {
+  flex: 0 0 auto;
+  width: 320px;
+  background-color: var(--tv-color-pane-background, #131722);
+  border-left: 1px solid var(--tv-color-border, #2A2E39);
+}
+
+.rightToolbarArea {
+  flex: 0 0 auto;
+  width: 48px;
+  background-color: var(--tv-color-toolbar-background, #1e1e1e);
+  border-left: 1px solid var(--tv-color-border, #2A2E39);
+}

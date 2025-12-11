@@ -1,0 +1,235 @@
+.watchlist {
+    width: 100%;
+    height: 100%;
+    background-color: var(--tv-color-platform-background);
+    display: flex;
+    flex-direction: column;
+    color: var(--tv-color-text-primary);
+    overflow: hidden;
+}
+
+.header {
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--tv-color-border);
+}
+
+.title {
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.actions {
+    display: flex;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.icon {
+    color: var(--tv-color-text-secondary);
+    cursor: pointer;
+}
+
+.icon:hover {
+    color: var(--tv-color-text-primary);
+}
+
+.tabs {
+    display: flex;
+    padding: 0 12px;
+    border-bottom: 1px solid var(--tv-color-border);
+    gap: 20px;
+}
+
+.tab {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--tv-color-text-secondary);
+    padding: 8px 0;
+    cursor: pointer;
+    position: relative;
+}
+
+.tab:hover {
+    color: var(--tv-color-text-primary);
+}
+
+.activeTab {
+    color: var(--tv-color-brand);
+}
+
+.activeTab::after {
+    content: '';
+    position: absolute;
+    bottom: -1px;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background-color: var(--tv-color-brand);
+}
+
+.columnHeaders {
+    display: flex;
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--tv-color-text-secondary);
+    border-bottom: 1px solid var(--tv-color-border);
+    gap: 0;
+    align-items: center;
+}
+
+.resizeHandle {
+    width: 8px;
+    height: 100%;
+    min-height: 16px;
+    cursor: col-resize;
+    position: relative;
+    flex-shrink: 0;
+}
+
+.resizeHandle::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 1px;
+    height: 12px;
+    background-color: transparent;
+    transition: background-color 0.15s;
+}
+
+.resizeHandle:hover::before,
+.isResizing .resizeHandle::before {
+    background-color: var(--tv-color-brand);
+}
+
+.isResizing {
+    user-select: none;
+}
+
+.colSymbol {
+    flex-shrink: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.colLast {
+    text-align: right;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.colChg {
+    text-align: right;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.colChgP {
+    text-align: right;
+    justify-content: flex-end;
+    flex-shrink: 0;
+}
+
+.list {
+    flex: 1;
+    overflow-y: auto;
+}
+
+.item {
+    display: flex;
+    padding: 8px 12px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+    position: relative;
+    min-width: 0;
+    overflow: visible;
+    gap: 8px;
+    align-items: center;
+}
+
+.item:hover {
+    background-color: var(--tv-color-toolbar-button-background-hover);
+}
+
+.item.active {
+    background-color: var(--tv-color-toolbar-button-background-hover);
+    border-left: 2px solid var(--tv-color-brand);
+}
+
+.symbolInfo {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.symbolName {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.last,
+.chg,
+.chgP {
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+}
+
+.up {
+    color: var(--tv-color-up);
+}
+
+.down {
+    color: var(--tv-color-down);
+}
+
+.removeBtn {
+    display: none;
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background-color: var(--tv-color-toolbar-button-background-hover);
+    padding: 4px;
+    border-radius: 4px;
+    color: var(--tv-color-text-secondary);
+}
+
+.removeBtn:hover {
+    color: var(--tv-color-text-primary);
+    background-color: var(--tv-color-border);
+}
+
+.item:hover .removeBtn {
+    display: flex;
+}
+
+.columnHeaders span {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 2px;
+}
+
+.columnHeaders span:hover {
+    color: var(--tv-color-text-primary);
+}
+
+.dragging {
+    opacity: 0.5;
+    background-color: var(--tv-color-hover-background);
+}
