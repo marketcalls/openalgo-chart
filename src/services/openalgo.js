@@ -3,6 +3,8 @@
  * Handles chart data fetching and WebSocket connections for OpenAlgo backend
  */
 
+import logger from '../utils/logger.js';
+
 const DEFAULT_HOST = 'http://127.0.0.1:5000';
 const DEFAULT_WS_HOST = '127.0.0.1:8765';
 
