@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styles from './SettingsPopup.module.css';
 import { X, Eye, EyeOff } from 'lucide-react';
+import { LOG_LEVELS, LOG_LEVEL_LABELS, getLogLevel, setLogLevel } from '../../utils/logger';
 
 const SettingsPopup = ({
     isOpen,
@@ -19,6 +20,8 @@ const SettingsPopup = ({
     websocketUrl = 'localhost:8765',
     onWebsocketUrlSave
 }) => {
+    // Logging state
+    const [logLevel, setLocalLogLevel] = useState(getLogLevel);
     const [activeSection, setActiveSection] = useState('scales');
     const [localHostUrl, setLocalHostUrl] = useState(hostUrl);
     const [localApiKey, setLocalApiKey] = useState(apiKey);
@@ -81,6 +84,13 @@ const SettingsPopup = ({
             id: 'openalgo', label: 'OpenAlgo', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor">
                     <path d="M14 5a2 2 0 0 0-2 2v2h4V7a2 2 0 0 0-2-2Zm3 4V7a3 3 0 1 0-6 0v2a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2Zm-8 2a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v8a1 1 0 0 1-1 1h-8a1 1 0 0 1-1-1v-8Zm5 3a1 1 0 0 0-.5.13v-.13a.5.5 0 0 0-1 0v2.5a.5.5 0 0 0 1 0v-.13A1 1 0 1 0 14 14Z"></path>
+                </svg>
+            )
+        },
+        {
+            id: 'logging', label: 'Logging', icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor">
+                    <path d="M4 6h20v2H4V6zm0 5h20v2H4v-2zm0 5h14v2H4v-2zm0 5h10v2H4v-2z"></path>
                 </svg>
             )
         }
@@ -210,6 +220,44 @@ const SettingsPopup = ({
                                     <p className={styles.inputHint}>
                                         Default: localhost:8765. Change to use a custom domain (e.g., openalgo.example.com:8765)
                                     </p>
+                                </div>
+                            </div>
+                        )}
+
+                        {activeSection === 'logging' && (
+                            <div className={styles.section}>
+                                <h3 className={styles.sectionTitle}>CONSOLE LOGGING</h3>
+
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.inputLabel}>Log Level</label>
+                                    <select
+                                        value={logLevel}
+                                        onChange={(e) => {
+                                            const newLevel = parseInt(e.target.value, 10);
+                                            setLocalLogLevel(newLevel);
+                                            setLogLevel(newLevel);
+                                        }}
+                                        className={styles.select}
+                                    >
+                                        {Object.entries(LOG_LEVELS).map(([name, value]) => (
+                                            <option key={name} value={value}>
+                                                {LOG_LEVEL_LABELS[value]}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <p className={styles.inputHint}>
+                                        Controls which messages appear in the browser console. Set to "Debug" for detailed troubleshooting.
+                                    </p>
+                                </div>
+
+                                <div className={styles.optionGroup} style={{ marginTop: '16px' }}>
+                                    <div className={styles.levelDescriptions}>
+                                        <p><strong>Debug:</strong> All messages including detailed tracing</p>
+                                        <p><strong>Info:</strong> General information and above</p>
+                                        <p><strong>Warnings:</strong> Warnings and errors only</p>
+                                        <p><strong>Errors:</strong> Only error messages</p>
+                                        <p><strong>None:</strong> Silent mode - no console output</p>
+                                    </div>
                                 </div>
                             </div>
                         )}

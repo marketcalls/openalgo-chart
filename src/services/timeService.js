@@ -3,6 +3,8 @@
  * Used for candle creation and time-critical operations
  */
 
+import { logger } from '../utils/logger.js';
+
 const TIME_API_URL = 'https://worldtimeapi.org/api/timezone/Asia/Kolkata';
 const SYNC_INTERVAL_MS = 5 * 60 * 1000; // Resync every 5 minutes
 const IST_OFFSET_SECONDS = 19800; // 5 hours 30 minutes in seconds
@@ -12,6 +14,7 @@ let timeOffset = 0;
 let lastSyncTime = 0;
 let isSyncing = false;
 let isSynced = false; // Track if we've successfully synced at least once
+let syncIntervalId = null; // Track interval for cleanup
 
 /**
  * Fetch accurate IST time from WorldTimeAPI and calculate offset
@@ -33,11 +36,11 @@ export const syncTimeWithAPI = async () => {
             lastSyncTime = Date.now();
             isSynced = true;
 
-            console.log('[TimeService] Synced with WorldTimeAPI. Offset:', timeOffset, 'seconds');
+            logger.debug('[TimeService] Synced with WorldTimeAPI. Offset:', timeOffset, 'seconds');
             return true;
         }
     } catch (error) {
-        console.warn('[TimeService] Failed to sync time:', error.message);
+        logger.warn('[TimeService] Failed to sync time:', error.message);
     } finally {
         isSyncing = false;
     }
@@ -82,14 +85,29 @@ export const getTimeOffset = () => timeOffset;
  * Initialize time service - call this on app startup
  */
 export const initTimeService = async () => {
+    // Prevent duplicate intervals
+    if (syncIntervalId !== null) {
+        return;
+    }
+
     await syncTimeWithAPI();
 
     // Set up periodic resync
-    setInterval(() => {
+    syncIntervalId = setInterval(() => {
         syncTimeWithAPI();
     }, SYNC_INTERVAL_MS);
 
     console.log('[TimeService] Initialized with offset:', timeOffset, 'seconds');
+};
+
+/**
+ * Cleanup time service - call this on app shutdown
+ */
+export const destroyTimeService = () => {
+    if (syncIntervalId !== null) {
+        clearInterval(syncIntervalId);
+        syncIntervalId = null;
+    }
 };
 
 export default {
@@ -99,5 +117,6 @@ export default {
     shouldResync,
     getTimeOffset,
     getIsSynced,
-    initTimeService
+    initTimeService,
+    destroyTimeService
 };

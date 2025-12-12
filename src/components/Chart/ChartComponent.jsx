@@ -13,6 +13,7 @@ import { getAccurateISTTimestamp, syncTimeWithAPI, shouldResync } from '../../se
 import { calculateSMA, calculateEMA } from '../../utils/indicators';
 import { calculateHeikinAshi } from '../../utils/chartUtils';
 import { intervalToSeconds } from '../../utils/timeframes';
+import { logger } from '../../utils/logger.js';
 
 import { LineToolManager, PriceScaleTimer } from '../../plugins/line-tools/line-tools.js';
 import '../../plugins/line-tools/line-tools.css';
@@ -684,7 +685,7 @@ const ChartComponent = forwardRef(({
             const lastData = dataRef.current[dataRef.current.length - 1];
             const prevData = dataRef.current.length > 1 ? dataRef.current[dataRef.current.length - 2] : null;
             const change = prevData ? lastData.close - prevData.close : 0;
-            const changePercent = prevData && prevData.close ? ((change / prevData.close) * 100) : 0;
+            const changePercent = prevData && prevData.close !== 0 ? ((change / prevData.close) * 100) : 0;
 
             setOhlcData({
                 open: lastData.open,
@@ -857,6 +858,11 @@ const ChartComponent = forwardRef(({
 
             // Ensure alerts primitive (if present) knows the current symbol
             try {
+                // Set symbol on the manager itself for alert notifications
+                if (typeof manager.setSymbol === 'function') {
+                    manager.setSymbol(symbol);
+                }
+
                 const userAlerts = manager._userPriceAlerts;
                 if (userAlerts && typeof userAlerts.setSymbolName === 'function') {
                     userAlerts.setSymbolName(symbol);
@@ -1025,7 +1031,7 @@ const ChartComponent = forwardRef(({
 
                 const formatDate = (d) => d.toISOString().split('T')[0];
 
-                console.log('[ScrollBack] Loading older data:', {
+                logger.debug('[ScrollBack] Loading older data:', {
                     symbol: currentSymbol,
                     exchange: currentExchange,
                     interval: currentInterval,
@@ -1049,7 +1055,7 @@ const ChartComponent = forwardRef(({
                 );
 
                 if (!olderData || olderData.length === 0) {
-                    console.log('[ScrollBack] No more historical data available');
+                    logger.debug('[ScrollBack] No more historical data available');
                     hasMoreHistoricalDataRef.current = false;
                     isLoadingOlderDataRef.current = false;
                     return;
@@ -1060,13 +1066,13 @@ const ChartComponent = forwardRef(({
                 const filteredOlderData = olderData.filter(d => d.time < existingOldestTime);
 
                 if (filteredOlderData.length === 0) {
-                    console.log('[ScrollBack] All fetched data overlaps with existing, no more available');
+                    logger.debug('[ScrollBack] All fetched data overlaps with existing, no more available');
                     hasMoreHistoricalDataRef.current = false;
                     isLoadingOlderDataRef.current = false;
                     return;
                 }
 
-                console.log('[ScrollBack] Prepending', filteredOlderData.length, 'older candles');
+                logger.debug('[ScrollBack] Prepending', filteredOlderData.length, 'older candles');
 
                 // Save current visible range before prepending
                 const timeScale = chart.timeScale();
@@ -1148,7 +1154,7 @@ const ChartComponent = forwardRef(({
                 // Trigger when fromIndex <= PREFETCH_THRESHOLD for seamless continuous scrolling
                 const fromIndex = Math.round(logicalRange.from);
                 if (fromIndex <= PREFETCH_THRESHOLD && hasMoreHistoricalDataRef.current && !isLoadingOlderDataRef.current) {
-                    console.log('[ScrollBack] Prefetching older data (user is', fromIndex, 'candles from oldest)');
+                    logger.debug('[ScrollBack] Prefetching older data (user is', fromIndex, 'candles from oldest)');
                     loadOlderData();
                 }
             }
@@ -1406,7 +1412,7 @@ const ChartComponent = forwardRef(({
                                 close: closePrice,
                             };
                             currentData.push(candle);
-                            console.log('[WebSocket] Created new candle at time:', currentCandleTime, 'price:', closePrice);
+                            logger.debug('[WebSocket] Created new candle at time:', currentCandleTime, 'price:', closePrice);
                         } else {
                             // Update the last candle using ONLY the close price for high/low
                             // WebSocket high/low are session-wide, not per-interval
@@ -1622,7 +1628,7 @@ const ChartComponent = forwardRef(({
                     const lastData = dataRef.current[dataRef.current.length - 1];
                     const prevData = dataRef.current.length > 1 ? dataRef.current[dataRef.current.length - 2] : null;
                     const change = prevData ? lastData.close - prevData.close : 0;
-                    const changePercent = prevData && prevData.close ? ((change / prevData.close) * 100) : 0;
+                    const changePercent = prevData && prevData.close !== 0 ? ((change / prevData.close) * 100) : 0;
 
                     setOhlcData({
                         open: lastData.open,
@@ -1643,7 +1649,7 @@ const ChartComponent = forwardRef(({
                 const currentIndex = dataRef.current.findIndex(d => d.time === data.time);
                 const prevData = currentIndex > 0 ? dataRef.current[currentIndex - 1] : null;
                 const change = prevData ? data.close - prevData.close : 0;
-                const changePercent = prevData && prevData.close ? ((change / prevData.close) * 100) : 0;
+                const changePercent = prevData && prevData.close !== 0 ? ((change / prevData.close) * 100) : 0;
 
                 setOhlcData({
                     open: data.open,
@@ -1664,7 +1670,7 @@ const ChartComponent = forwardRef(({
             const lastData = dataRef.current[dataRef.current.length - 1];
             const prevData = dataRef.current.length > 1 ? dataRef.current[dataRef.current.length - 2] : null;
             const change = prevData ? lastData.close - prevData.close : 0;
-            const changePercent = prevData && prevData.close ? ((change / prevData.close) * 100) : 0;
+            const changePercent = prevData && prevData.close !== 0 ? ((change / prevData.close) * 100) : 0;
 
             setOhlcData({
                 open: lastData.open,

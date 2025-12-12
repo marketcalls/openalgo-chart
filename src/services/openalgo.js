@@ -1,10 +1,56 @@
 /**
  * OpenAlgo API Service
- * Replaces binance.js for OpenAlgo-compatible chart data
+ * Handles chart data fetching and WebSocket connections for OpenAlgo backend
  */
+
+import { logger } from '../utils/logger.js';
 
 const DEFAULT_HOST = 'http://localhost:5000';
 const DEFAULT_WS_HOST = 'localhost:8765';
+
+/**
+ * Global registry of active WebSocket connections
+ * Used for cleanup on app exit (beforeunload)
+ */
+const activeWebSockets = new Set();
+
+/**
+ * Close all active WebSocket connections
+ * Called on beforeunload to ensure proper cleanup
+ */
+export const closeAllWebSockets = () => {
+    logger.debug('[WebSocket] Closing all active connections:', activeWebSockets.size);
+    activeWebSockets.forEach(ws => {
+        try {
+            if (ws && typeof ws.close === 'function') {
+                ws.close();
+            }
+        } catch (error) {
+            logger.debug('[WebSocket] Error closing connection:', error);
+        }
+    });
+    activeWebSockets.clear();
+};
+
+/**
+ * Force close all WebSocket connections without unsubscribe
+ * Used for immediate cleanup (e.g., page unload)
+ */
+export const forceCloseAllWebSockets = () => {
+    logger.debug('[WebSocket] Force closing all active connections:', activeWebSockets.size);
+    activeWebSockets.forEach(ws => {
+        try {
+            if (ws && typeof ws.forceClose === 'function') {
+                ws.forceClose();
+            } else if (ws && typeof ws.close === 'function') {
+                ws.close();
+            }
+        } catch (error) {
+            // Ignore errors during force close
+        }
+    });
+    activeWebSockets.clear();
+};
 
 /**
  * Get Host URL from localStorage settings or use default
@@ -104,6 +150,7 @@ const convertInterval = (interval) => {
  * - Authentication on connect
  * - Ping/pong heartbeat handling
  * - Auto-reconnect with re-auth and re-subscribe
+ * - Proper unsubscription on close (similar to Python API)
  */
 const createManagedWebSocket = (urlBuilder, options) => {
     const { onMessage, subscriptions = [], mode = 2 } = options;
@@ -125,8 +172,31 @@ const createManagedWebSocket = (urlBuilder, options) => {
                 exchange: sub.exchange || 'NSE',
                 mode: mode
             };
-            console.log('[WebSocket] Subscribing:', subscribeMsg);
+            logger.debug('[WebSocket] Subscribing:', subscribeMsg);
             socket.send(JSON.stringify(subscribeMsg));
+        });
+    };
+
+    /**
+     * Send unsubscribe messages for all subscribed symbols
+     * Similar to Python API: client.unsubscribe_ltp(instruments_list)
+     */
+    const sendUnsubscriptions = () => {
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+        subscriptions.forEach(sub => {
+            const unsubscribeMsg = {
+                action: 'unsubscribe',
+                symbol: sub.symbol,
+                exchange: sub.exchange || 'NSE'
+            };
+            logger.debug('[WebSocket] Unsubscribing:', unsubscribeMsg);
+            try {
+                socket.send(JSON.stringify(unsubscribeMsg));
+            } catch (error) {
+                // Ignore errors during unsubscribe (socket might be closing)
+                logger.debug('[WebSocket] Error sending unsubscribe (expected during close):', error);
+            }
         });
     };
 
@@ -142,7 +212,7 @@ const createManagedWebSocket = (urlBuilder, options) => {
         }
 
         socket.onopen = () => {
-            console.log('[WebSocket] Connected, authenticating...');
+            logger.debug('[WebSocket] Connected, authenticating...');
             reconnectAttempts = 0;
 
             // Send authentication message
@@ -150,7 +220,7 @@ const createManagedWebSocket = (urlBuilder, options) => {
                 action: 'authenticate',
                 api_key: apiKey
             };
-            console.log('[WebSocket] Sending auth:', { action: 'authenticate', api_key: '***' });
+            logger.debug('[WebSocket] Sending auth:', { action: 'authenticate', api_key: '***' });
             socket.send(JSON.stringify(authMsg));
         };
 
@@ -159,7 +229,7 @@ const createManagedWebSocket = (urlBuilder, options) => {
                 const message = JSON.parse(event.data);
 
                 // Log all incoming messages for debugging
-                console.log('[WebSocket] Received message:', message);
+                logger.debug('[WebSocket] Received message:', message);
 
                 // Handle ping - respond with pong
                 if (message.type === 'ping') {
@@ -172,7 +242,7 @@ const createManagedWebSocket = (urlBuilder, options) => {
                 if ((message.type === 'auth' && message.status === 'success') ||
                     message.type === 'authenticated' ||
                     message.status === 'authenticated') {
-                    console.log('[WebSocket] Authenticated successfully, broker:', message.broker);
+                    logger.debug('[WebSocket] Authenticated successfully, broker:', message.broker);
                     authenticated = true;
                     sendSubscriptions();
                     return;
@@ -203,7 +273,7 @@ const createManagedWebSocket = (urlBuilder, options) => {
 
             if (!event.wasClean && reconnectAttempts < maxAttempts) {
                 const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000);
-                console.log(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttempts + 1}/${maxAttempts})`);
+                logger.debug(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttempts + 1}/${maxAttempts})`);
                 reconnectAttempts += 1;
                 setTimeout(connect, delay);
             }
@@ -212,12 +282,61 @@ const createManagedWebSocket = (urlBuilder, options) => {
 
     connect();
 
-    return {
+    // Create the managed WebSocket interface
+    const managedWs = {
+        /**
+         * Properly close the WebSocket connection
+         * Sends unsubscribe messages for all symbols before closing (like Python API)
+         */
         close: () => {
             manualClose = true;
+            // Remove from global registry
+            activeWebSockets.delete(managedWs);
+            if (socket && socket.readyState === WebSocket.OPEN) {
+                // Send unsubscribe messages before closing (similar to Python: client.unsubscribe_ltp())
+                logger.debug('[WebSocket] Sending unsubscribe messages before close...');
+                sendUnsubscriptions();
+                // Close the socket after a brief delay to allow unsubscribe messages to be sent
+                setTimeout(() => {
+                    if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
+                        socket.close();
+                    }
+                }, 100);
+            } else if (socket && socket.readyState === WebSocket.CONNECTING) {
+                socket.close();
+            }
+        },
+        /**
+         * Immediately close without sending unsubscribe messages
+         * Use this when you need to close quickly (e.g., during page unload)
+         */
+        forceClose: () => {
+            manualClose = true;
+            // Remove from global registry
+            activeWebSockets.delete(managedWs);
             if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) {
                 socket.close();
             }
+        },
+        /**
+         * Unsubscribe specific symbols without closing the connection
+         */
+        unsubscribe: (symbols) => {
+            if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
+            symbols.forEach(sub => {
+                const unsubscribeMsg = {
+                    action: 'unsubscribe',
+                    symbol: typeof sub === 'string' ? sub : sub.symbol,
+                    exchange: typeof sub === 'string' ? 'NSE' : (sub.exchange || 'NSE')
+                };
+                logger.debug('[WebSocket] Unsubscribing:', unsubscribeMsg);
+                try {
+                    socket.send(JSON.stringify(unsubscribeMsg));
+                } catch (error) {
+                    console.error('[WebSocket] Error sending unsubscribe:', error);
+                }
+            });
         },
         get readyState() {
             return socket ? socket.readyState : WebSocket.CLOSED;
@@ -226,6 +345,12 @@ const createManagedWebSocket = (urlBuilder, options) => {
             return authenticated;
         }
     };
+
+    // Register in global WebSocket registry for cleanup on app exit
+    activeWebSockets.add(managedWs);
+    logger.debug('[WebSocket] Registered in global registry. Total active:', activeWebSockets.size);
+
+    return managedWs;
 };
 
 /**
@@ -283,7 +408,7 @@ export const getKlines = async (symbol, exchange = 'NSE', interval = '1d', limit
             })
         });
 
-        console.log('[OpenAlgo] History request:', { symbol, exchange, interval: convertInterval(interval), start_date: formatDate(startDate), end_date: formatDate(endDate) });
+        logger.debug('[OpenAlgo] History request:', { symbol, exchange, interval: convertInterval(interval), start_date: formatDate(startDate), end_date: formatDate(endDate) });
 
         if (!response.ok) {
             if (response.status === 401) {
@@ -294,7 +419,7 @@ export const getKlines = async (symbol, exchange = 'NSE', interval = '1d', limit
         }
 
         const data = await response.json();
-        console.log('[OpenAlgo] History response:', data);
+        logger.debug('[OpenAlgo] History response:', data);
 
         // Transform OpenAlgo response to lightweight-charts format
         // OpenAlgo returns: { data: [ { timestamp, open, high, low, close, volume }, ... ] }
@@ -367,8 +492,8 @@ export const getTickerPrice = async (symbol, exchange = 'NSE', signal) => {
         }
 
         const data = await response.json();
-        console.log('[OpenAlgo] Quotes request:', { symbol, exchange });
-        console.log('[OpenAlgo] Quotes response:', data);
+        logger.debug('[OpenAlgo] Quotes request:', { symbol, exchange });
+        logger.debug('[OpenAlgo] Quotes response:', data);
 
         // Transform to match Binance response format expected by App.jsx
         // OpenAlgo returns: { data: { ltp, open, high, low, prev_close, ... }, status: 'success' }
@@ -454,7 +579,7 @@ export const subscribeToTicker = (symbol, exchange = 'NSE', interval, callback) 
                         close: ltp,
                     };
 
-                    console.log('[WebSocket] Quote for', symbol, ':', { time: candle.time, brokerTimestamp: candle.brokerTimestamp, ltp });
+                    logger.debug('[WebSocket] Quote for', symbol, ':', { time: candle.time, brokerTimestamp: candle.brokerTimestamp, ltp });
                     callback(candle);
                 }
             }
@@ -587,7 +712,7 @@ export const getIntervals = async () => {
         }
 
         const data = await response.json();
-        console.log('[OpenAlgo] Intervals response:', data);
+        logger.debug('[OpenAlgo] Intervals response:', data);
 
         // API returns { data: { seconds: [...], minutes: [...], ... }, status: 'success' }
         if (data && data.data && data.status === 'success') {
@@ -629,7 +754,7 @@ export const getHistoricalKlines = async (symbol, exchange = 'NSE', interval = '
             })
         });
 
-        console.log('[OpenAlgo] Historical request:', { symbol, exchange, interval: convertInterval(interval), start_date: startDate, end_date: endDate });
+        logger.debug('[OpenAlgo] Historical request:', { symbol, exchange, interval: convertInterval(interval), start_date: startDate, end_date: endDate });
 
         if (!response.ok) {
             if (response.status === 401) {
@@ -640,7 +765,7 @@ export const getHistoricalKlines = async (symbol, exchange = 'NSE', interval = '
         }
 
         const data = await response.json();
-        console.log('[OpenAlgo] Historical response:', data);
+        logger.debug('[OpenAlgo] Historical response:', data);
 
         // Transform OpenAlgo response to lightweight-charts format
         const IST_OFFSET_SECONDS = 19800; // 5 hours 30 minutes in seconds

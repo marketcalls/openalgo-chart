@@ -80,7 +80,9 @@ const getExchangeBadge = (exchange) => {
 const HighlightText = ({ text, highlight }) => {
     if (!highlight || !text) return <>{text}</>;
 
-    const regex = new RegExp(`(${highlight})`, 'gi');
+    // Escape special regex characters to prevent crashes
+    const escapeRegex = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const regex = new RegExp(`(${escapeRegex(highlight)})`, 'gi');
     const parts = text.split(regex);
 
     return (

@@ -5346,10 +5346,15 @@ class es extends Gt {
   // Double-click detection for text editing
   _lastClickedTool = null;
   _lastToolClickTime = 0;
-  // Hide all drawings state
   _drawingsHidden = !1;
   // Lock all drawings state
   _allDrawingsLocked = !1;
+  // Current symbol for alerts (dynamically set from chart)
+  _currentSymbol = "";
+  // Set current symbol
+  setSymbol(t) {
+    this._currentSymbol = t || "";
+  }
   _setNoneButtonActive() {
     document.querySelectorAll("button").forEach((e) => e.classList.remove("active"));
     const t = document.getElementById("btn-none");
@@ -5418,7 +5423,7 @@ class es extends Gt {
     e && (e.addEventListener("mousedown", this._mouseDownHandler), e.addEventListener("mouseup", this._mouseUpHandler), this._contextMenuHandler = (i) => i.preventDefault(), e.addEventListener("contextmenu", this._contextMenuHandler)), window.addEventListener("mousemove", this._rawMouseMoveHandler), window.addEventListener("keydown", this._keyDownHandler), this._userPriceAlerts = new Di(), this.series.attachPrimitive(this._userPriceAlerts), this._alertNotifications = new Hi(this), this._alertSubscription = this._userPriceAlerts.alertTriggered().subscribe((i) => {
       this._alertNotifications?.show({
         alertId: i.alertId,
-        symbol: "BTCUSD",
+        symbol: this._currentSymbol || "Symbol",
         // TODO: Get actual symbol
         price: this.series.priceFormatter().format(i.alertPrice),
         timestamp: i.timestamp,
