@@ -1,3 +1,36 @@
+/* ============================================
+   Responsive Design System
+   ============================================ */
+
+/* Breakpoint reference (for documentation, CSS can't use vars in media queries)
+   --breakpoint-mobile: 480px;
+   --breakpoint-tablet: 768px;
+   --breakpoint-desktop: 1024px;
+*/
+
+:root {
+  /* Touch targets - minimum 44px per WCAG 2.5.5 */
+  --touch-target-min: 44px;
+
+  /* Mobile navigation height */
+  --mobile-nav-height: 56px;
+
+  /* Topbar heights */
+  --topbar-height-desktop: 48px;
+  --topbar-height-mobile: 56px;
+
+  /* Sidebar widths */
+  --sidebar-width-desktop: 320px;
+  --sidebar-width-tablet: 280px;
+
+  /* Toolbar width */
+  --toolbar-width: 42px;
+}
+
+/* ============================================
+   Theme Variables
+   ============================================ */
+
 /* Dark Theme (default) */
 :root,
 [data-theme="dark"] {
@@ -74,4 +107,128 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: #4A4F5B;
+}
+
+/* ============================================
+   Accessibility Features
+   ============================================ */
+
+/* Reduced Motion - disable animations for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High Contrast Mode - enhanced contrast for users who need it */
+[data-high-contrast="true"] {
+  --tv-color-text-secondary: #B2B5BE;
+  --tv-color-border: #4A4F5B;
+}
+
+[data-theme="light"][data-high-contrast="true"] {
+  --tv-color-text-secondary: #434651;
+  --tv-color-border: #787B86;
+}
+
+/* Focus visibility - clear focus indicators for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--tv-color-brand, #2962FF);
+  outline-offset: 2px;
+}
+
+/* Screen reader only - visually hidden but accessible to screen readers */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Skip link for keyboard users */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: var(--tv-color-brand);
+  color: white;
+  padding: 8px 16px;
+  text-decoration: none;
+  z-index: 100000;
+  font-size: 14px;
+  border-radius: 0 0 4px 0;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* ============================================
+   Touch Device Enhancements
+   ============================================ */
+
+/* Ensure touch targets are at least 44px on touch devices */
+@media (hover: none) and (pointer: coarse) {
+  button,
+  [role="button"],
+  a,
+  input,
+  select,
+  textarea {
+    min-height: var(--touch-target-min);
+  }
+
+  /* Add more touch padding to small buttons */
+  button:not([class*="large"]) {
+    min-width: var(--touch-target-min);
+  }
+}
+
+/* ============================================
+   Responsive Utilities
+   ============================================ */
+
+/* Hide on mobile */
+@media (max-width: 480px) {
+  .hide-mobile {
+    display: none !important;
+  }
+}
+
+/* Hide on tablet */
+@media (min-width: 481px) and (max-width: 768px) {
+  .hide-tablet {
+    display: none !important;
+  }
+}
+
+/* Hide on desktop */
+@media (min-width: 769px) {
+  .hide-desktop {
+    display: none !important;
+  }
+}
+
+/* Show only on mobile */
+@media (min-width: 481px) {
+  .show-mobile-only {
+    display: none !important;
+  }
+}
+
+/* Show only on desktop */
+@media (max-width: 768px) {
+  .show-desktop-only {
+    display: none !important;
+  }
 }

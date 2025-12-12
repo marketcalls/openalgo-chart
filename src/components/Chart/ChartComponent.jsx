@@ -72,6 +72,14 @@ const TOOL_MAP = {
     'remove': 'None'
 };
 
+// Helper to convert hex color to rgba
+const hexToRgba = (hex, alpha) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 const ChartComponent = forwardRef(({
     symbol,
     exchange = 'NSE',
@@ -95,6 +103,7 @@ const ChartComponent = forwardRef(({
     isTimerVisible = false,
     isSessionBreakVisible = false,
     onIndicatorRemove,
+    chartAppearance = {},
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
@@ -316,6 +325,35 @@ const ChartComponent = forwardRef(({
                 return !isVisible;
             }
             return false;
+        },
+        applyDrawingOptions: (options) => {
+            // Apply options to the currently selected drawing
+            const manager = lineToolManagerRef.current;
+            if (manager && manager._selectedTool) {
+                try {
+                    manager._selectedTool.applyOptions(options);
+                    return true;
+                } catch (err) {
+                    console.warn('Failed to apply drawing options:', err);
+                }
+            }
+            return false;
+        },
+        updateDefaultToolOptions: (options) => {
+            // Update default options for future drawings
+            const manager = lineToolManagerRef.current;
+            if (manager && typeof manager.updateToolOptions === 'function') {
+                try {
+                    manager.updateToolOptions(options);
+                } catch (err) {
+                    console.warn('Failed to update default tool options:', err);
+                }
+            }
+        },
+        getSelectedDrawing: () => {
+            // Get the currently selected drawing tool instance
+            const manager = lineToolManagerRef.current;
+            return manager?._selectedTool || null;
         },
         toggleReplay: () => {
             setIsReplayMode(prev => {
@@ -774,32 +812,38 @@ const ChartComponent = forwardRef(({
     const createSeries = (chart, type, title = '') => {
         const commonOptions = { lastValueVisible: true, priceScaleId: 'right', title: title };
 
+        // Use appearance colors or defaults
+        const upColor = chartAppearance.candleUpColor || '#089981';
+        const downColor = chartAppearance.candleDownColor || '#F23645';
+        const wickUpColor = chartAppearance.wickUpColor || upColor;
+        const wickDownColor = chartAppearance.wickDownColor || downColor;
+
         switch (type) {
             case 'candlestick':
                 return chart.addSeries(CandlestickSeries, {
                     ...commonOptions,
-                    upColor: '#089981',
-                    downColor: '#F23645',
+                    upColor,
+                    downColor,
                     borderVisible: false,
-                    wickUpColor: '#089981',
-                    wickDownColor: '#F23645',
+                    wickUpColor,
+                    wickDownColor,
                 });
             case 'bar':
                 return chart.addSeries(BarSeries, {
                     ...commonOptions,
-                    upColor: '#089981',
-                    downColor: '#F23645',
+                    upColor,
+                    downColor,
                     thinBars: false,
                 });
             case 'hollow-candlestick':
                 return chart.addSeries(CandlestickSeries, {
                     ...commonOptions,
                     upColor: 'transparent',
-                    downColor: '#F23645',
-                    borderUpColor: '#089981',
-                    borderDownColor: '#F23645',
-                    wickUpColor: '#089981',
-                    wickDownColor: '#F23645',
+                    downColor,
+                    borderUpColor: upColor,
+                    borderDownColor: downColor,
+                    wickUpColor,
+                    wickDownColor,
                 });
             case 'line':
                 return chart.addSeries(LineSeries, {
@@ -818,30 +862,30 @@ const ChartComponent = forwardRef(({
             case 'baseline':
                 return chart.addSeries(BaselineSeries, {
                     ...commonOptions,
-                    topLineColor: '#089981',
-                    topFillColor1: 'rgba(8, 153, 129, 0.28)',
-                    topFillColor2: 'rgba(8, 153, 129, 0.05)',
-                    bottomLineColor: '#F23645',
-                    bottomFillColor1: 'rgba(242, 54, 69, 0.05)',
-                    bottomFillColor2: 'rgba(242, 54, 69, 0.28)',
+                    topLineColor: upColor,
+                    topFillColor1: hexToRgba(upColor, 0.28),
+                    topFillColor2: hexToRgba(upColor, 0.05),
+                    bottomLineColor: downColor,
+                    bottomFillColor1: hexToRgba(downColor, 0.05),
+                    bottomFillColor2: hexToRgba(downColor, 0.28),
                 });
             case 'heikin-ashi':
                 return chart.addSeries(CandlestickSeries, {
                     ...commonOptions,
-                    upColor: '#089981',
-                    downColor: '#F23645',
+                    upColor,
+                    downColor,
                     borderVisible: false,
-                    wickUpColor: '#089981',
-                    wickDownColor: '#F23645',
+                    wickUpColor,
+                    wickDownColor,
                 });
             default:
                 return chart.addSeries(CandlestickSeries, {
                     ...commonOptions,
-                    upColor: '#089981',
-                    downColor: '#F23645',
+                    upColor,
+                    downColor,
                     borderVisible: false,
-                    wickUpColor: '#089981',
-                    wickDownColor: '#F23645',
+                    wickUpColor,
+                    wickDownColor,
                 });
         }
     };
@@ -953,18 +997,32 @@ const ChartComponent = forwardRef(({
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
+        // Use appearance settings or defaults
+        const backgroundColor = theme === 'dark'
+            ? (chartAppearance.darkBackground || '#131722')
+            : (chartAppearance.lightBackground || '#ffffff');
+        const gridColor = theme === 'dark'
+            ? (chartAppearance.darkGridColor || '#2A2E39')
+            : (chartAppearance.lightGridColor || '#e0e3eb');
+
         const chart = createChart(chartContainerRef.current, {
             watermark: {
                 visible: false,
             },
             layout: {
                 textColor: theme === 'dark' ? '#D1D4DC' : '#131722',
-                background: { color: theme === 'dark' ? '#131722' : '#ffffff' },
+                background: { color: backgroundColor },
                 attributionLogo: false,
             },
             grid: {
-                vertLines: { color: theme === 'dark' ? '#2A2E39' : '#e0e3eb' },
-                horzLines: { color: theme === 'dark' ? '#2A2E39' : '#e0e3eb' },
+                vertLines: {
+                    color: gridColor,
+                    visible: chartAppearance.showVerticalGridLines !== false,
+                },
+                horzLines: {
+                    color: gridColor,
+                    visible: chartAppearance.showHorizontalGridLines !== false,
+                },
             },
             crosshair: {
                 mode: magnetMode ? 1 : 0,
@@ -2086,17 +2144,30 @@ const ChartComponent = forwardRef(({
         };
     }, [comparisonSymbols, interval, isLogScale, isAutoScale]);
 
-    // Handle Theme Changes
+    // Handle Theme and Appearance Changes
     useEffect(() => {
         if (chartRef.current) {
+            const backgroundColor = theme === 'dark'
+                ? (chartAppearance.darkBackground || '#131722')
+                : (chartAppearance.lightBackground || '#ffffff');
+            const gridColor = theme === 'dark'
+                ? (chartAppearance.darkGridColor || '#2A2E39')
+                : (chartAppearance.lightGridColor || '#e0e3eb');
+
             chartRef.current.applyOptions({
                 layout: {
                     textColor: theme === 'dark' ? '#D1D4DC' : '#131722',
-                    background: { color: theme === 'dark' ? '#131722' : '#ffffff' },
+                    background: { color: backgroundColor },
                 },
                 grid: {
-                    vertLines: { color: theme === 'dark' ? '#2A2E39' : '#e0e3eb' },
-                    horzLines: { color: theme === 'dark' ? '#2A2E39' : '#e0e3eb' },
+                    vertLines: {
+                        color: gridColor,
+                        visible: chartAppearance.showVerticalGridLines !== false,
+                    },
+                    horzLines: {
+                        color: gridColor,
+                        visible: chartAppearance.showHorizontalGridLines !== false,
+                    },
                 },
                 crosshair: {
                     vertLine: {
@@ -2109,14 +2180,55 @@ const ChartComponent = forwardRef(({
                     },
                 },
                 timeScale: {
-                    borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
+                    borderColor: gridColor,
                 },
                 rightPriceScale: {
-                    borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
+                    borderColor: gridColor,
                 },
             });
+
+            // Update series colors (real-time preview)
+            if (mainSeriesRef.current) {
+                const upColor = chartAppearance.candleUpColor || '#089981';
+                const downColor = chartAppearance.candleDownColor || '#F23645';
+                const wickUpColor = chartAppearance.wickUpColor || upColor;
+                const wickDownColor = chartAppearance.wickDownColor || downColor;
+
+                const seriesType = chartTypeRef.current;
+
+                if (seriesType === 'candlestick' || seriesType === 'heikin-ashi') {
+                    mainSeriesRef.current.applyOptions({
+                        upColor,
+                        downColor,
+                        wickUpColor,
+                        wickDownColor,
+                    });
+                } else if (seriesType === 'bar') {
+                    mainSeriesRef.current.applyOptions({
+                        upColor,
+                        downColor,
+                    });
+                } else if (seriesType === 'hollow-candlestick') {
+                    mainSeriesRef.current.applyOptions({
+                        downColor,
+                        borderUpColor: upColor,
+                        borderDownColor: downColor,
+                        wickUpColor,
+                        wickDownColor,
+                    });
+                } else if (seriesType === 'baseline') {
+                    mainSeriesRef.current.applyOptions({
+                        topLineColor: upColor,
+                        topFillColor1: hexToRgba(upColor, 0.28),
+                        topFillColor2: hexToRgba(upColor, 0.05),
+                        bottomLineColor: downColor,
+                        bottomFillColor1: hexToRgba(downColor, 0.05),
+                        bottomFillColor2: hexToRgba(downColor, 0.28),
+                    });
+                }
+            }
         }
-    }, [theme]);
+    }, [theme, chartAppearance]);
 
     // Handle Time Range
     useEffect(() => {

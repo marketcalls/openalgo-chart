@@ -36,6 +36,61 @@
     color: var(--tv-color-text-primary);
 }
 
+/* Favorite tag pill in header */
+.favoriteTag {
+    padding: 2px 8px;
+    background: var(--tv-color-toolbar-button-background-hover);
+    border: 1px solid var(--tv-color-border);
+    border-radius: 4px;
+    color: var(--tv-color-text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-left: 6px;
+}
+
+.favoriteTag:hover {
+    background: var(--tv-color-brand);
+    color: white;
+    border-color: var(--tv-color-brand);
+}
+
+/* Quick-access favorites row */
+.quickAccessRow {
+    display: flex;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--tv-color-border);
+    background: var(--tv-color-toolbar-button-background-hover);
+}
+
+.quickAccessBtn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--tv-color-dropdown-background);
+    border: 1px solid var(--tv-color-border);
+    border-radius: 4px;
+    color: var(--tv-color-text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.quickAccessBtn:hover {
+    background: var(--tv-color-toolbar-button-background-expanded);
+    color: var(--tv-color-text-primary);
+}
+
+.quickAccessBtn.active {
+    background: var(--tv-color-brand);
+    color: white;
+    border-color: var(--tv-color-brand);
+}
+
 .tabs {
     display: flex;
     padding: 0 12px;

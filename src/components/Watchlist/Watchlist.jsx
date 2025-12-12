@@ -2,6 +2,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { Plus, X } from 'lucide-react';
 import styles from './Watchlist.module.css';
 import classNames from 'classnames';
+import WatchlistSelector from './WatchlistSelector';
 
 const DEFAULT_COLUMN_WIDTHS = {
     symbol: 80,
@@ -21,7 +22,26 @@ const SkeletonRow = () => (
     </div>
 );
 
-const Watchlist = ({ currentSymbol, items, onSymbolSelect, onAddClick, onRemoveClick, onReorder, isLoading = false }) => {
+const Watchlist = ({
+    currentSymbol,
+    items,
+    onSymbolSelect,
+    onAddClick,
+    onRemoveClick,
+    onReorder,
+    isLoading = false,
+    // Multiple watchlists props
+    watchlists = [],
+    activeWatchlistId = null,
+    onSwitchWatchlist,
+    onCreateWatchlist,
+    onRenameWatchlist,
+    onDeleteWatchlist,
+    // Quick-access favorites props
+    favoriteWatchlists = [],
+    onToggleFavorite,
+}) => {
+    const hasMultipleWatchlists = watchlists.length > 0 && onSwitchWatchlist;
     const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
     const [draggedIndex, setDraggedIndex] = useState(null);
     const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
@@ -121,11 +141,53 @@ const Watchlist = ({ currentSymbol, items, onSymbolSelect, onAddClick, onRemoveC
     return (
         <div className={classNames(styles.watchlist, { [styles.isResizing]: resizing })}>
             <div className={styles.header}>
-                <span className={styles.title}>Watchlist</span>
+                {hasMultipleWatchlists ? (
+                    <WatchlistSelector
+                        watchlists={watchlists}
+                        activeId={activeWatchlistId}
+                        onSwitch={onSwitchWatchlist}
+                        onCreate={onCreateWatchlist}
+                        onRename={onRenameWatchlist}
+                        onDelete={onDeleteWatchlist}
+                        onToggleFavorite={onToggleFavorite}
+                    />
+                ) : (
+                    <span className={styles.title}>Watchlist</span>
+                )}
+
+                {/* Favorite tag pill - quick switch to Favorites watchlist */}
+                {hasMultipleWatchlists && activeWatchlistId !== 'wl_favorites' && watchlists.find(wl => wl.id === 'wl_favorites') && (
+                    <button
+                        className={styles.favoriteTag}
+                        onClick={() => onSwitchWatchlist('wl_favorites')}
+                        title="Switch to Favorites"
+                    >
+                        Favorites
+                    </button>
+                )}
+
                 <div className={styles.actions}>
-                    <Plus size={16} className={styles.icon} onClick={onAddClick} />
+                    <Plus size={16} className={styles.icon} onClick={onAddClick} title="Add symbol" />
                 </div>
             </div>
+
+            {/* Quick-access favorites row */}
+            {favoriteWatchlists.length > 0 && hasMultipleWatchlists && (
+                <div className={styles.quickAccessRow}>
+                    {favoriteWatchlists.map(wl => (
+                        <button
+                            key={wl.id}
+                            className={classNames(styles.quickAccessBtn, {
+                                [styles.active]: wl.id === activeWatchlistId
+                            })}
+                            onClick={() => onSwitchWatchlist(wl.id)}
+                            title={wl.name}
+                        >
+                            {wl.name.charAt(0).toUpperCase()}
+                        </button>
+                    ))}
+                </div>
+            )}
 
             <div className={styles.columnHeaders}>
                 <span

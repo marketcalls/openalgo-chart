@@ -17,7 +17,7 @@ const Topbar = ({
     onUndo, onRedo, onMenuClick, theme, onToggleTheme,
     onDownloadImage, onCopyImage, onFullScreen,
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
-    isReplayMode = false, onSettingsClick
+    isReplayMode = false, onSettingsClick, onTemplatesClick
 }) => {
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
@@ -725,6 +725,15 @@ const Topbar = ({
                                                 <button className={classNames(styles.button)} aria-label="Save" onClick={onSaveLayout}>
                                                     <div className={styles.text}>Save</div>
                                                 </button>
+                                                <Tooltip content="Layout Templates" position="bottom">
+                                                    <button className={classNames(styles.button, styles.iconButton)} aria-label="Templates" onClick={onTemplatesClick}>
+                                                        <div className={styles.icon}>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor">
+                                                                <path d="M6 6h16v2H6V6zm0 4h10v2H6v-2zm0 4h16v2H6v-2zm0 4h10v2H6v-2z"></path>
+                                                            </svg>
+                                                        </div>
+                                                    </button>
+                                                </Tooltip>
 
                                                 <div className={styles.separatorWrap}><div className={styles.separator}></div></div>
 

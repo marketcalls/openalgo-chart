@@ -1,7 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { Search, X, Check } from 'lucide-react';
+import { Search, X, Check, Star } from 'lucide-react';
 import styles from './SymbolSearch.module.css';
 import { searchSymbols } from '../../services/openalgo';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardNav, useListNavigation } from '../../hooks/useKeyboardNav';
+import { useSymbolHistory } from '../../hooks/useSymbolHistory';
+import { fuzzySearch } from '../../utils/fuzzySearch';
 
 // Filter tabs with their corresponding API parameters
 const FILTER_TABS = [
@@ -104,8 +108,28 @@ const SymbolSearch = ({ isOpen, onClose, onSelect, addedSymbols = [], isCompareM
     const [isLoading, setIsLoading] = useState(false);
     const [defaultSymbols, setDefaultSymbols] = useState([]);
     const [activeFilterIndex, setActiveFilterIndex] = useState(0);
+    const [activeResultIndex, setActiveResultIndex] = useState(0);
 
     const activeFilter = FILTER_TABS[activeFilterIndex];
+
+    // Symbol history for favorites and recents
+    const {
+        favorites,
+        recentSymbols,
+        isFavorite,
+        toggleFavorite,
+        addToRecent,
+        getRecentExcludingFavorites,
+    } = useSymbolHistory();
+
+    // Focus trap for accessibility
+    const focusTrapRef = useFocusTrap(isOpen, { autoFocus: false });
+
+    // Escape key to close
+    useKeyboardNav({
+        enabled: isOpen,
+        onEscape: onClose,
+    });
 
     // Load default popular symbols on open
     useEffect(() => {
@@ -251,12 +275,31 @@ const SymbolSearch = ({ isOpen, onClose, onSelect, addedSymbols = [], isCompareM
         return filteredDefaultSymbols;
     }, [searchTerm, symbols, filteredDefaultSymbols]);
 
+    // Reset active result index when results change
+    useEffect(() => {
+        setActiveResultIndex(0);
+    }, [displaySymbols]);
+
     const handleSelect = useCallback((sym) => {
+        // Add to recent history
+        addToRecent(sym);
         onSelect({ symbol: sym.symbol, exchange: sym.exchange });
         if (!isCompareMode) {
             onClose();
         }
-    }, [onSelect, onClose, isCompareMode]);
+    }, [onSelect, onClose, isCompareMode, addToRecent]);
+
+    // List keyboard navigation (after handleSelect is defined)
+    useListNavigation({
+        enabled: isOpen && displaySymbols.length > 0,
+        itemCount: displaySymbols.length,
+        activeIndex: activeResultIndex,
+        setActiveIndex: setActiveResultIndex,
+        onSelect: (index) => {
+            const sym = displaySymbols[index];
+            if (sym) handleSelect(sym);
+        },
+    });
 
     const handleFilterChange = (index) => {
         setActiveFilterIndex(index);
@@ -264,6 +307,63 @@ const SymbolSearch = ({ isOpen, onClose, onSelect, addedSymbols = [], isCompareM
             setSymbols([]);
         }
     };
+
+    // Handle favorite toggle with event stop propagation
+    const handleFavoriteClick = useCallback((e, sym) => {
+        e.stopPropagation();
+        toggleFavorite(sym);
+    }, [toggleFavorite]);
+
+    // Get recent symbols that aren't in favorites (to avoid duplication)
+    const recentExcludingFavorites = useMemo(() => {
+        return getRecentExcludingFavorites();
+    }, [getRecentExcludingFavorites]);
+
+    // Filter favorites based on active filter
+    const filteredFavorites = useMemo(() => {
+        if (!isCompareMode && activeFilter.label === 'All') return favorites;
+
+        return favorites.filter(s => {
+            const instType = s.instrumenttype?.toUpperCase() || '';
+            const exch = s.exchange?.toUpperCase() || '';
+
+            switch (activeFilter.label) {
+                case 'Stocks':
+                    return instType === 'EQ' && (exch === 'NSE' || exch === 'BSE');
+                case 'Futures':
+                    return instType === 'FUT';
+                case 'Options':
+                    return instType === 'CE' || instType === 'PE';
+                case 'Indices':
+                    return exch === 'NSE_INDEX' || exch === 'BSE_INDEX' || exch.includes('INDEX');
+                default:
+                    return true;
+            }
+        });
+    }, [favorites, activeFilter, isCompareMode]);
+
+    // Filter recent symbols based on active filter
+    const filteredRecent = useMemo(() => {
+        if (!isCompareMode && activeFilter.label === 'All') return recentExcludingFavorites;
+
+        return recentExcludingFavorites.filter(s => {
+            const instType = s.instrumenttype?.toUpperCase() || '';
+            const exch = s.exchange?.toUpperCase() || '';
+
+            switch (activeFilter.label) {
+                case 'Stocks':
+                    return instType === 'EQ' && (exch === 'NSE' || exch === 'BSE');
+                case 'Futures':
+                    return instType === 'FUT';
+                case 'Options':
+                    return instType === 'CE' || instType === 'PE';
+                case 'Indices':
+                    return exch === 'NSE_INDEX' || exch === 'BSE_INDEX' || exch.includes('INDEX');
+                default:
+                    return true;
+            }
+        });
+    }, [recentExcludingFavorites, activeFilter, isCompareMode]);
 
     if (!isOpen) return null;
 
@@ -276,22 +376,33 @@ const SymbolSearch = ({ isOpen, onClose, onSelect, addedSymbols = [], isCompareM
     };
 
     return (
-        <div className={styles.overlay}>
-            <div className={styles.modal}>
+        <div className={styles.overlay} onClick={onClose}>
+            <div
+                ref={focusTrapRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="symbol-search-title"
+                className={styles.modal}
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Title Header */}
                 <div className={styles.titleHeader}>
-                    <h2 className={styles.title}>
+                    <h2 id="symbol-search-title" className={styles.title}>
                         {isCompareMode ? 'Compare symbol' : 'Symbol Search'}
                     </h2>
-                    <div className={styles.closeBtn} onClick={onClose}>
+                    <button
+                        className={styles.closeBtn}
+                        onClick={onClose}
+                        aria-label="Close search"
+                    >
                         <X size={20} />
-                    </div>
+                    </button>
                 </div>
 
                 {/* Search Input */}
                 <div className={styles.searchRow}>
                     <div className={styles.searchContainer}>
-                        <Search size={18} className={styles.searchIcon} />
+                        <Search size={18} className={styles.searchIcon} aria-hidden="true" />
                         <input
                             type="text"
                             className={styles.input}
@@ -299,8 +410,13 @@ const SymbolSearch = ({ isOpen, onClose, onSelect, addedSymbols = [], isCompareM
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                             autoFocus
+                            aria-label="Search for symbols"
+                            aria-describedby="search-results-count"
                         />
                     </div>
+                </div>
+                <div id="search-results-count" className="sr-only" aria-live="polite">
+                    {displaySymbols.length} results available
                 </div>
 
                 {/* Added Symbols Section (Compare Mode) */}
@@ -359,28 +475,137 @@ const SymbolSearch = ({ isOpen, onClose, onSelect, addedSymbols = [], isCompareM
                     </div>
                 )}
 
-                {/* Section Header for Results */}
-                {isCompareMode && displaySymbols.length > 0 && (
-                    <div className={styles.sectionHeader}>RECENT SYMBOLS</div>
-                )}
-
-                {/* Results List */}
-                <div className={styles.list}>
+                {/* Results Container */}
+                <div className={styles.list} role="listbox" aria-label="Search results">
                     {isLoading && (
-                        <div className={styles.loading}>Searching...</div>
+                        <div className={styles.loading} role="status">Searching...</div>
                     )}
+
+                    {/* Favorites Section - shown when not searching */}
+                    {!isLoading && !searchTerm && filteredFavorites.length > 0 && !isCompareMode && (
+                        <>
+                            <div className={styles.sectionLabel}>
+                                <Star size={12} className={styles.sectionIcon} />
+                                FAVORITES
+                            </div>
+                            {filteredFavorites.map((s, index) => {
+                                const icon = getSymbolIcon(s.symbol, s.exchange, s.instrumenttype);
+                                const typeLabel = getInstrumentTypeLabel(s.exchange, s.instrumenttype, s.symbol);
+                                const exchangeBadge = getExchangeBadge(s.exchange);
+
+                                return (
+                                    <div
+                                        key={`fav-${s.exchange}-${s.symbol}`}
+                                        className={`${styles.item} ${styles.favoriteItem}`}
+                                        onClick={() => handleSelect(s)}
+                                    >
+                                        <button
+                                            className={`${styles.starButton} ${styles.starActive}`}
+                                            onClick={(e) => handleFavoriteClick(e, s)}
+                                            aria-label="Remove from favorites"
+                                        >
+                                            <Star size={16} fill="currentColor" />
+                                        </button>
+                                        <div
+                                            className={styles.symbolIcon}
+                                            style={{ backgroundColor: icon.bgColor, color: icon.color }}
+                                        >
+                                            {icon.text}
+                                        </div>
+                                        <div className={styles.itemSymbol}>{s.symbol}</div>
+                                        <div className={styles.itemDesc}>{s.name || s.symbol}</div>
+                                        <div className={styles.itemMeta}>
+                                            {typeLabel && <span className={styles.typeLabel}>{typeLabel}</span>}
+                                            <span className={styles.exchangeBadge}>{exchangeBadge}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </>
+                    )}
+
+                    {/* Recent Section - shown when not searching */}
+                    {!isLoading && !searchTerm && filteredRecent.length > 0 && !isCompareMode && (
+                        <>
+                            <div className={styles.sectionLabel}>
+                                RECENT
+                            </div>
+                            {filteredRecent.map((s, index) => {
+                                const icon = getSymbolIcon(s.symbol, s.exchange, s.instrumenttype);
+                                const typeLabel = getInstrumentTypeLabel(s.exchange, s.instrumenttype, s.symbol);
+                                const exchangeBadge = getExchangeBadge(s.exchange);
+                                const symbolIsFavorite = isFavorite(s);
+
+                                return (
+                                    <div
+                                        key={`recent-${s.exchange}-${s.symbol}`}
+                                        className={styles.item}
+                                        onClick={() => handleSelect(s)}
+                                    >
+                                        <button
+                                            className={`${styles.starButton} ${symbolIsFavorite ? styles.starActive : ''}`}
+                                            onClick={(e) => handleFavoriteClick(e, s)}
+                                            aria-label={symbolIsFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                                        >
+                                            <Star size={16} fill={symbolIsFavorite ? 'currentColor' : 'none'} />
+                                        </button>
+                                        <div
+                                            className={styles.symbolIcon}
+                                            style={{ backgroundColor: icon.bgColor, color: icon.color }}
+                                        >
+                                            {icon.text}
+                                        </div>
+                                        <div className={styles.itemSymbol}>{s.symbol}</div>
+                                        <div className={styles.itemDesc}>{s.name || s.symbol}</div>
+                                        <div className={styles.itemMeta}>
+                                            {typeLabel && <span className={styles.typeLabel}>{typeLabel}</span>}
+                                            <span className={styles.exchangeBadge}>{exchangeBadge}</span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </>
+                    )}
+
+                    {/* Default/Popular Section - shown when not searching and no favorites/recent */}
+                    {!isLoading && !searchTerm && (filteredFavorites.length > 0 || filteredRecent.length > 0) && filteredDefaultSymbols.length > 0 && !isCompareMode && (
+                        <div className={styles.sectionLabel}>POPULAR</div>
+                    )}
+
+                    {/* Search Results / Default Symbols */}
                     {!isLoading && displaySymbols.map((s, index) => {
+                        // Skip if already shown in favorites or recent
+                        if (!searchTerm && !isCompareMode) {
+                            const isInFavorites = filteredFavorites.some(f => f.symbol === s.symbol && f.exchange === s.exchange);
+                            const isInRecent = filteredRecent.some(r => r.symbol === s.symbol && r.exchange === s.exchange);
+                            if (isInFavorites || isInRecent) return null;
+                        }
+
                         const icon = getSymbolIcon(s.symbol, s.exchange, s.instrumenttype);
                         const typeLabel = getInstrumentTypeLabel(s.exchange, s.instrumenttype, s.symbol);
                         const exchangeBadge = getExchangeBadge(s.exchange);
                         const isAdded = isCompareMode && isSymbolAdded(s);
+                        const isKeyboardActive = index === activeResultIndex;
+                        const symbolIsFavorite = isFavorite(s);
 
                         return (
                             <div
                                 key={`${s.exchange}-${s.symbol}-${index}`}
-                                className={`${styles.item} ${isAdded ? styles.addedItem : ''}`}
+                                id={`symbol-option-${index}`}
+                                role="option"
+                                aria-selected={isKeyboardActive}
+                                className={`${styles.item} ${isAdded ? styles.addedItem : ''} ${isKeyboardActive ? styles.keyboardActive : ''}`}
                                 onClick={() => handleSelect(s)}
                             >
+                                {/* Star Button */}
+                                <button
+                                    className={`${styles.starButton} ${symbolIsFavorite ? styles.starActive : ''}`}
+                                    onClick={(e) => handleFavoriteClick(e, s)}
+                                    aria-label={symbolIsFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                                >
+                                    <Star size={16} fill={symbolIsFavorite ? 'currentColor' : 'none'} />
+                                </button>
+
                                 {/* Symbol Icon */}
                                 <div
                                     className={styles.symbolIcon}
