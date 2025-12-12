@@ -14,6 +14,12 @@ export default defineConfig({
       '/ws': {
         target: 'ws://127.0.0.1:8765',
         ws: true,
+      },
+      '/npl-time': {
+        target: 'https://www.nplindia.in',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/npl-time/, '/cgi-bin/ntp_client'),
+        secure: true,
       }
     }
   }

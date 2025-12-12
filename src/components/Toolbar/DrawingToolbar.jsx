@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import styles from './DrawingToolbar.module.css';
 import * as Icons from './ToolIcons';
+import FloatingFavoritesToolbar from './FloatingFavoritesToolbar';
 
 const DrawingToolbar = ({ activeTool, onToolChange, isDrawingsLocked = false, isDrawingsHidden = false, isTimerVisible = false }) => {
     // Group definitions
@@ -126,6 +127,34 @@ const DrawingToolbar = ({ activeTool, onToolChange, isDrawingsLocked = false, is
     const [popoverPos, setPopoverPos] = useState({ top: 0, left: 0 });
     const [openPopoverId, setOpenPopoverId] = useState(null);
     const toolbarRef = useRef(null);
+
+    // Favorite tools state (persisted to localStorage)
+    const [favoriteTools, setFavoriteTools] = useState(() => {
+        const saved = localStorage.getItem('tv_favorite_drawing_tools');
+        if (saved) {
+            try {
+                return JSON.parse(saved);
+            } catch {
+                return [];
+            }
+        }
+        return [];
+    });
+
+    // Persist favorites to localStorage
+    useEffect(() => {
+        localStorage.setItem('tv_favorite_drawing_tools', JSON.stringify(favoriteTools));
+    }, [favoriteTools]);
+
+    // Toggle favorite for a tool
+    const handleToggleFavorite = (toolId, e) => {
+        e.stopPropagation(); // Prevent selecting the tool
+        setFavoriteTools(prev =>
+            prev.includes(toolId)
+                ? prev.filter(id => id !== toolId)
+                : [...prev, toolId]
+        );
+    };
 
     // Handle clicking a tool in the main bar
     const handleGroupClick = (group, e) => {
@@ -290,10 +319,25 @@ const DrawingToolbar = ({ activeTool, onToolChange, isDrawingsLocked = false, is
                                 <item.icon size={20} />
                             </div>
                             <span className={styles.popoverLabel}>{item.label}</span>
+                            <div
+                                className={styles.favoriteButton}
+                                onClick={(e) => handleToggleFavorite(item.id, e)}
+                                title={favoriteTools.includes(item.id) ? 'Remove from favorites' : 'Add to favorites'}
+                            >
+                                <Icons.StarIcon size={16} filled={favoriteTools.includes(item.id)} />
+                            </div>
                         </div>
                     ))}
                 </div>
             )}
+
+            {/* Floating Favorites Toolbar */}
+            <FloatingFavoritesToolbar
+                favoriteTools={favoriteTools}
+                activeTool={activeTool}
+                onToolChange={onToolChange}
+                toolGroups={toolGroups}
+            />
         </div>
     );
 };

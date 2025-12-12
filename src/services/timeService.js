@@ -1,12 +1,27 @@
 /**
- * Time Service - Provides accurate IST time synced from WorldTimeAPI
+ * Time Service - Provides accurate IST time synced from NPL India
+ * NPL (National Physical Laboratory) India is the official timekeeping authority
  * Used for candle creation and time-critical operations
  */
 
 import { logger } from '../utils/logger.js';
 
-const TIME_API_URL = 'https://worldtimeapi.org/api/timezone/Asia/Kolkata';
-const SYNC_INTERVAL_MS = 5 * 60 * 1000; // Resync every 5 minutes
+// NPL India's official NTP time API - provides sub-second accuracy for IST
+// Uses Vite proxy in development to bypass CORS
+const getNPLTimeUrl = () => {
+    const clientTimestamp = Date.now() / 1000; // Current time in seconds
+    // Use proxy path in development (Vite rewrites /npl-time to NPL India's endpoint)
+    const isLocalDev = typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+    if (isLocalDev) {
+        return `/npl-time?${clientTimestamp.toFixed(3)}`;
+    }
+    // Production: direct URL (would need server-side proxy or CORS headers)
+    return `https://www.nplindia.in/cgi-bin/ntp_client?${clientTimestamp.toFixed(3)}`;
+};
+
+const SYNC_INTERVAL_MS = 60 * 1000; // Resync every 1 minute for better accuracy
 const IST_OFFSET_SECONDS = 19800; // 5 hours 30 minutes in seconds
 
 // Store the offset between network time and local time
@@ -17,30 +32,48 @@ let isSynced = false; // Track if we've successfully synced at least once
 let syncIntervalId = null; // Track interval for cleanup
 
 /**
- * Fetch accurate IST time from WorldTimeAPI and calculate offset
+ * Fetch accurate time from NPL India's official NTP server and calculate offset
+ * Response format: { id, it, ncrt, nctt, nsrt, nstt }
+ * - nstt: NTP server transmit time (Unix epoch in UTC seconds)
  */
 export const syncTimeWithAPI = async () => {
     if (isSyncing) return isSynced;
     isSyncing = true;
 
     try {
-        const response = await fetch(TIME_API_URL);
+        const requestStartTime = Date.now();
+        const response = await fetch(getNPLTimeUrl(), {
+            headers: {
+                'accept': 'application/json, text/javascript, */*; q=0.01',
+                'x-requested-with': 'XMLHttpRequest'
+            }
+        });
+        const requestEndTime = Date.now();
+
         if (response.ok) {
             const data = await response.json();
-            // data.unixtime is in seconds (UTC)
-            const networkTimestampUTC = data.unixtime;
-            const localTimestampUTC = Math.floor(Date.now() / 1000);
+            // nstt is NTP server transmit time - Unix epoch timestamp in UTC seconds
+            const nplTimestampUTC = data.nstt;
 
-            // Calculate offset between network and local time
-            timeOffset = networkTimestampUTC - localTimestampUTC;
-            lastSyncTime = Date.now();
-            isSynced = true;
+            if (nplTimestampUTC && Number.isFinite(nplTimestampUTC)) {
+                // Account for network round-trip time (RTT/2)
+                const networkLatency = (requestEndTime - requestStartTime) / 2000; // Convert to seconds
+                const adjustedNplTime = nplTimestampUTC + networkLatency;
 
-            logger.debug('[TimeService] Synced with WorldTimeAPI. Offset:', timeOffset, 'seconds');
-            return true;
+                // Compare against local UTC time (Date.now() is UTC milliseconds)
+                const localTimestampUTC = Date.now() / 1000;
+
+                // Offset = NPL time - local time (how much our clock is off from true UTC)
+                timeOffset = adjustedNplTime - localTimestampUTC;
+                lastSyncTime = Date.now();
+                isSynced = true;
+
+                logger.debug('[TimeService] Synced with NPL India. Offset:', timeOffset.toFixed(3), 'seconds, Latency:', (networkLatency * 1000).toFixed(0), 'ms');
+                return true;
+            }
         }
     } catch (error) {
-        logger.warn('[TimeService] Failed to sync time:', error.message);
+        logger.warn('[TimeService] Failed to sync with NPL India:', error.message);
     } finally {
         isSyncing = false;
     }
@@ -54,23 +87,26 @@ export const getIsSynced = () => isSynced;
 
 /**
  * Get current accurate UTC timestamp in seconds
- * Uses the synced offset for accuracy
+ * Uses the NPL-synced offset to correct local clock
  */
 export const getAccurateUTCTimestamp = () => {
-    const localTimestampUTC = Math.floor(Date.now() / 1000);
+    // Local time in UTC + offset correction from NPL sync
+    const localTimestampUTC = Date.now() / 1000;
     return localTimestampUTC + timeOffset;
 };
 
 /**
  * Get current accurate IST timestamp in seconds
- * This includes the IST offset (UTC+5:30) for chart display
+ * Uses the NPL India synced offset for accuracy
+ * This is the primary function for candle creation timing
  */
 export const getAccurateISTTimestamp = () => {
+    // Get accurate UTC first, then add IST offset (5h 30m)
     return getAccurateUTCTimestamp() + IST_OFFSET_SECONDS;
 };
 
 /**
- * Check if resync is needed (5 minutes since last sync)
+ * Check if resync is needed (1 minute since last sync)
  */
 export const shouldResync = () => {
     return Date.now() - lastSyncTime >= SYNC_INTERVAL_MS;
@@ -97,7 +133,7 @@ export const initTimeService = async () => {
         syncTimeWithAPI();
     }, SYNC_INTERVAL_MS);
 
-    console.log('[TimeService] Initialized with offset:', timeOffset, 'seconds');
+    console.log('[TimeService] Initialized with NPL India. Offset:', timeOffset.toFixed(3), 'seconds');
 };
 
 /**

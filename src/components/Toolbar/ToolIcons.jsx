@@ -366,3 +366,17 @@ export const TimerIcon = ({ size = 28, ...props }) => (
     </svg>
 );
 TimerIcon.propTypes = IconPropTypes;
+
+export const StarIcon = ({ size = 18, filled = false, ...props }) => (
+    <svg xmlns='http://www.w3.org/2000/svg' width={size} height={size} viewBox='0 0 18 18' {...props}>
+        {filled ? (
+            <path fill='#FFB800' d='M9 1l2.47 5.01L17 6.76l-4 3.9.94 5.5L9 13.77l-4.94 2.39.94-5.5-4-3.9 5.53-.75L9 1z' />
+        ) : (
+            <path fill='currentColor' d='M9 1l2.47 5.01L17 6.76l-4 3.9.94 5.5L9 13.77l-4.94 2.39.94-5.5-4-3.9 5.53-.75L9 1zm0 2.24L7.18 7.11l-4.01.58 2.9 2.83-.69 4 3.62-1.9 3.62 1.9-.69-4 2.9-2.83-4.01-.58L9 3.24z' />
+        )}
+    </svg>
+);
+StarIcon.propTypes = {
+    ...IconPropTypes,
+    filled: PropTypes.bool
+};
