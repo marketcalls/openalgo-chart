@@ -3,10 +3,8 @@
  * Handles chart data fetching and WebSocket connections for OpenAlgo backend
  */
 
-import { logger } from '../utils/logger.js';
-
-const DEFAULT_HOST = 'http://localhost:5000';
-const DEFAULT_WS_HOST = 'localhost:8765';
+const DEFAULT_HOST = 'http://127.0.0.1:5000';
+const DEFAULT_WS_HOST = '127.0.0.1:8765';
 
 /**
  * Global registry of active WebSocket connections
@@ -66,7 +64,7 @@ export const getHostUrl = () => {
 const shouldUseProxy = () => {
     const hostUrl = getHostUrl();
     // Use proxy when host is default localhost and we're running on localhost
-    const isDefaultHost = hostUrl === DEFAULT_HOST || hostUrl === 'http://127.0.0.1:5000';
+    const isDefaultHost = hostUrl === DEFAULT_HOST || hostUrl === 'http://localhost:5000' || hostUrl === 'http://127.0.0.1:5000';
     const isLocalDev = typeof window !== 'undefined' &&
         (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
     return isDefaultHost && isLocalDev;
