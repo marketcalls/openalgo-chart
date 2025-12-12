@@ -8,7 +8,7 @@ import SymbolSearch from './components/SymbolSearch/SymbolSearch';
 import Toast from './components/Toast/Toast';
 import SnapshotToast from './components/Toast/SnapshotToast';
 import html2canvas from 'html2canvas';
-import { getTickerPrice, subscribeToMultiTicker, checkAuth } from './services/openalgo';
+import { getTickerPrice, subscribeToMultiTicker, checkAuth, closeAllWebSockets, forceCloseAllWebSockets } from './services/openalgo';
 
 import BottomBar from './components/BottomBar/BottomBar';
 import ChartGrid from './components/Chart/ChartGrid';
@@ -193,6 +193,31 @@ function App() {
     return () => {
       if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       if (snapshotToastTimeoutRef.current) clearTimeout(snapshotToastTimeoutRef.current);
+    };
+  }, []);
+
+  // Cleanup all WebSocket connections on app exit (beforeunload)
+  // This ensures proper unsubscription like the Python API: client.unsubscribe_ltp() + client.disconnect()
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      // Use forceClose for immediate cleanup on page unload (no time for unsubscribe delay)
+      forceCloseAllWebSockets();
+    };
+
+    const handleUnload = () => {
+      // Fallback for unload event
+      forceCloseAllWebSockets();
+    };
+
+    // Add event listeners for both beforeunload and unload
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('unload', handleUnload);
+
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('unload', handleUnload);
+      // Also close all WebSockets when App component unmounts
+      closeAllWebSockets();
     };
   }, []);
 
@@ -1124,8 +1149,15 @@ function App() {
 
   // If not authenticated, show API key dialog
   if (isAuthenticated === false) {
-    const handleApiKeySave = (apiKey) => {
-      localStorage.setItem('oa_apikey', apiKey);
+    const handleApiKeySave = (newApiKey) => {
+      localStorage.setItem('oa_apikey', newApiKey);
+      // Also update the apiKey state so Settings dialog reflects the entered key
+      setApiKey(newApiKey);
+      // Update hostUrl state from localStorage (set by ApiKeyDialog.handleSubmit)
+      const savedHostUrl = localStorage.getItem('oa_host_url');
+      if (savedHostUrl) {
+        setHostUrl(savedHostUrl);
+      }
       setIsAuthenticated(true);
     };
 

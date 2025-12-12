@@ -3,6 +3,7 @@ import styles from './Topbar.module.css';
 import classNames from 'classnames';
 import { intervalToSeconds } from '../../utils/timeframes';
 import { getIntervals } from '../../services/openalgo';
+import { logger } from '../../utils/logger.js';
 import {
     Plus, Star, Trash2, X, AlertCircle, Loader2
 } from 'lucide-react';
@@ -179,13 +180,13 @@ const Topbar = ({
                     });
 
                     setBrokerIntervals(supported);
-                    console.log('[Topbar] Broker supported intervals:', [...supported]);
+                    logger.debug('[Topbar] Broker supported intervals:', [...supported]);
                 } else {
                     setIntervalsError('Could not fetch broker intervals');
                 }
             } catch (error) {
                 if (mounted) {
-                    console.error('Error fetching intervals:', error);
+                    logger.error('Error fetching intervals:', error);
                     setIntervalsError('Failed to load intervals');
                 }
             } finally {

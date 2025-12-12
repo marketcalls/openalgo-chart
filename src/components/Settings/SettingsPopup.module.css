@@ -237,6 +237,49 @@
     text-decoration: underline;
 }
 
+.select {
+    width: 100%;
+    padding: 10px 12px;
+    background-color: var(--background-secondary, #131722);
+    border: 1px solid var(--border-color, #363a45);
+    border-radius: 4px;
+    color: var(--text-primary, #d1d4dc);
+    font-size: 13px;
+    outline: none;
+    box-sizing: border-box;
+    transition: border-color 0.2s;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23787b86' d='M2 4l4 4 4-4'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+}
+
+.select:focus {
+    border-color: var(--accent-color, #2962ff);
+}
+
+.select option {
+    background-color: #1e222d;
+    color: #d1d4dc;
+    padding: 8px;
+}
+
+.levelDescriptions {
+    font-size: 12px;
+    color: var(--text-secondary, #787b86);
+    line-height: 1.8;
+}
+
+.levelDescriptions p {
+    margin: 4px 0;
+}
+
+.levelDescriptions strong {
+    color: var(--text-primary, #d1d4dc);
+}
+
 .inputWithIcon {
     position: relative;
     display: flex;

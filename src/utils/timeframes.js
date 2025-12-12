@@ -16,7 +16,7 @@ export const intervalToSeconds = (interval) => {
         h: 3600,
         d: 86400,
         w: 604800,
-        M: 2592000, // Binance months are calendar months, approximate as 30 days
+        M: 2592000, // Monthly timeframe approximated as 30 days
     };
 
     const normalizedUnit = multiplierMap[unit] ? unit : unit.toLowerCase();
