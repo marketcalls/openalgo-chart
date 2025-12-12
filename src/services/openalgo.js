@@ -538,7 +538,8 @@ export const searchSymbols = async (query, exchange, instrumenttype) => {
             requestBody.instrumenttype = instrumenttype;
         }
 
-        const response = await fetch(`${API_BASE}/search`, {
+
+        const response = await fetch(`${getApiBase()}/search`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -549,7 +550,7 @@ export const searchSymbols = async (query, exchange, instrumenttype) => {
 
         if (!response.ok) {
             if (response.status === 401) {
-                window.location.href = LOGIN_URL;
+                window.location.href = getLoginUrl();
                 return [];
             }
             throw new Error(`OpenAlgo search error: ${response.status}`);
