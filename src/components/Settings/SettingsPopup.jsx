@@ -12,11 +12,11 @@ const SettingsPopup = ({
     isSessionBreakVisible = false,
     onSessionBreakToggle,
     // OpenAlgo settings
-    hostUrl = 'http://localhost:5000',
+    hostUrl = 'http://127.0.0.1:5000',
     onHostUrlSave,
     apiKey = '',
     onApiKeySave,
-    websocketUrl = 'localhost:8765',
+    websocketUrl = '127.0.0.1:8765',
     onWebsocketUrlSave
 }) => {
     const [activeSection, setActiveSection] = useState('scales');
@@ -157,11 +157,11 @@ const SettingsPopup = ({
                                         type="text"
                                         value={localHostUrl}
                                         onChange={(e) => setLocalHostUrl(e.target.value)}
-                                        placeholder="http://localhost:5000"
+                                        placeholder="http://127.0.0.1:5000"
                                         className={styles.input}
                                     />
                                     <p className={styles.inputHint}>
-                                        Default: http://localhost:5000. Change to use a custom OpenAlgo server URL.
+                                        Default: http://127.0.0.1:5000. Change to use a custom OpenAlgo server URL.
                                     </p>
                                 </div>
 
@@ -204,11 +204,11 @@ const SettingsPopup = ({
                                         type="text"
                                         value={localWsUrl}
                                         onChange={(e) => setLocalWsUrl(e.target.value)}
-                                        placeholder="localhost:8765"
+                                        placeholder="127.0.0.1:8765"
                                         className={styles.input}
                                     />
                                     <p className={styles.inputHint}>
-                                        Default: localhost:8765. Change to use a custom domain (e.g., openalgo.example.com:8765)
+                                        Default: 127.0.0.1:8765. Change to use a custom domain (e.g., openalgo.example.com:8765)
                                     </p>
                                 </div>
                             </div>

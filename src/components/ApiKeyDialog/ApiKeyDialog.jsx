@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff } from 'lucide-react';
 
-const DEFAULT_HOST = 'http://localhost:5000';
+const DEFAULT_HOST = 'http://127.0.0.1:5000';
 
 const ApiKeyDialog = ({ onSave, onClose }) => {
     const [hostUrl, setHostUrl] = useState(() => {
@@ -95,11 +95,11 @@ const ApiKeyDialog = ({ onSave, onClose }) => {
                             type="text"
                             value={hostUrl}
                             onChange={(e) => setHostUrl(e.target.value)}
-                            placeholder="http://localhost:5000"
+                            placeholder="http://127.0.0.1:5000"
                             style={inputStyle}
                         />
                         <p style={hintStyle}>
-                            Default: http://localhost:5000
+                            Default: http://127.0.0.1:5000
                         </p>
                     </div>
 

@@ -634,13 +634,13 @@ function App() {
   const [isSessionBreakVisible, setIsSessionBreakVisible] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [websocketUrl, setWebsocketUrl] = useState(() => {
-    return localStorage.getItem('oa_ws_url') || 'localhost:8765';
+    return localStorage.getItem('oa_ws_url') || '127.0.0.1:8765';
   });
   const [apiKey, setApiKey] = useState(() => {
     return localStorage.getItem('oa_apikey') || '';
   });
   const [hostUrl, setHostUrl] = useState(() => {
-    return localStorage.getItem('oa_host_url') || 'http://localhost:5000';
+    return localStorage.getItem('oa_host_url') || 'http://127.0.0.1:5000';
   });
 
   const toggleDrawingToolbar = () => {
