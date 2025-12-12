@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import styles from './BottomBar.module.css';
 import classNames from 'classnames';
 import { getAccurateUTCTimestamp, getIsSynced } from '../../services/timeService';
+import { ConnectionState, subscribeToConnectionStatus } from '../../services/connectionStatus';
 
 const BottomBar = ({
     onTimeRangeChange,
@@ -20,6 +21,8 @@ const BottomBar = ({
     const [istTime, setIstTime] = useState(null);
     // Sync status
     const [isSynced, setIsSynced] = useState(false);
+    // WebSocket connection status
+    const [connectionStatus, setConnectionStatus] = useState(ConnectionState.DISCONNECTED);
 
     // Update times every second
     useEffect(() => {
@@ -42,11 +45,32 @@ const BottomBar = ({
         return () => clearInterval(timer);
     }, []);
 
+    // Subscribe to WebSocket connection status
+    useEffect(() => {
+        return subscribeToConnectionStatus(setConnectionStatus);
+    }, []);
+
     // Format time as HH:MM:SS
     const formatTime = (date) => {
         if (!date) return '--:--:--';
         return date.toLocaleTimeString('en-IN', { hour12: false });
     };
+
+    // Get connection status display info
+    const getConnectionInfo = () => {
+        switch (connectionStatus) {
+            case ConnectionState.CONNECTED:
+                return { label: 'Live', className: styles.wsConnected, title: 'WebSocket connected - receiving live data' };
+            case ConnectionState.CONNECTING:
+                return { label: 'Connecting', className: styles.wsConnecting, title: 'Connecting to WebSocket server...' };
+            case ConnectionState.RECONNECTING:
+                return { label: 'Reconnecting', className: styles.wsReconnecting, title: 'Connection lost - attempting to reconnect...' };
+            default:
+                return { label: 'Offline', className: styles.wsDisconnected, title: 'WebSocket disconnected - no live data' };
+        }
+    };
+
+    const wsInfo = getConnectionInfo();
 
     // Each time range has an associated interval for the candles
     const timeRanges = [
@@ -82,6 +106,12 @@ const BottomBar = ({
             </div>
 
             <div className={styles.rightSection}>
+                {/* WebSocket connection status */}
+                <div className={styles.connectionStatus} title={wsInfo.title}>
+                    <span className={classNames(styles.wsDot, wsInfo.className)} />
+                    <span className={classNames(styles.wsLabel, wsInfo.className)}>{wsInfo.label}</span>
+                </div>
+                <div className={styles.separator} />
                 {/* Time display section */}
                 <div className={styles.timeDisplay}>
                     <span className={styles.timeLabel}>Local:</span>

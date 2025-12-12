@@ -91,8 +91,26 @@ function App() {
   const [activeChartId, setActiveChartId] = useState(1);
   const [charts, setCharts] = useState(() => {
     const saved = safeParseJSON(localStorage.getItem('tv_saved_layout'), null);
-    return saved && Array.isArray(saved.charts) ? saved.charts : [
-      { id: 1, symbol: 'RELIANCE', exchange: 'NSE', interval: localStorage.getItem('tv_interval') || '1d', indicators: { sma: false, ema: false }, comparisonSymbols: [] }
+    const defaultIndicators = {
+      sma: false,
+      ema: false,
+      rsi: { enabled: false, period: 14, color: '#7B1FA2' },
+      macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
+      bollingerBands: { enabled: false, period: 20, stdDev: 2 },
+      volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
+      atr: { enabled: false, period: 14, color: '#FF9800' },
+      stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
+      vwap: { enabled: false, color: '#FF9800' }
+    };
+    if (saved && Array.isArray(saved.charts)) {
+      // Merge saved indicators with defaults to ensure new indicators are present
+      return saved.charts.map(chart => ({
+        ...chart,
+        indicators: { ...defaultIndicators, ...chart.indicators }
+      }));
+    }
+    return [
+      { id: 1, symbol: 'RELIANCE', exchange: 'NSE', interval: localStorage.getItem('tv_interval') || '1d', indicators: defaultIndicators, comparisonSymbols: [] }
     ];
   });
 
@@ -114,7 +132,9 @@ function App() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchMode, setSearchMode] = useState('switch'); // 'switch' or 'add'
   // const [indicators, setIndicators] = useState({ sma: false, ema: false }); // Moved to charts state
-  const [toast, setToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const toastIdCounter = React.useRef(0);
+  const MAX_TOASTS = 3;
 
   const [snapshotToast, setSnapshotToast] = useState(null);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -168,16 +188,31 @@ function App() {
   };
 
   // Toast timeout refs for cleanup
-  const toastTimeoutRef = React.useRef(null);
   const snapshotToastTimeoutRef = React.useRef(null);
 
-  // Show toast helper with cleanup to prevent memory leaks
-  const showToast = (message, type = 'error') => {
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-    setToast({ message, type });
-    toastTimeoutRef.current = setTimeout(() => setToast(null), 5000);
+  // Show toast helper with queue management
+  const showToast = (message, type = 'error', action = null) => {
+    const id = ++toastIdCounter.current;
+    const newToast = { id, message, type, action };
+
+    setToasts(prev => {
+      // Add new toast, limit to MAX_TOASTS (oldest removed first)
+      const updated = [...prev, newToast];
+      if (updated.length > MAX_TOASTS) {
+        return updated.slice(-MAX_TOASTS);
+      }
+      return updated;
+    });
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
+
+  // Remove a specific toast
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
   };
 
   const showSnapshotToast = (message) => {
@@ -191,7 +226,6 @@ function App() {
   // Cleanup toast timeouts on unmount
   useEffect(() => {
     return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       if (snapshotToastTimeoutRef.current) clearTimeout(snapshotToastTimeoutRef.current);
     };
   }, []);
@@ -347,6 +381,7 @@ function App() {
   });
 
   const [watchlistData, setWatchlistData] = useState([]);
+  const [watchlistLoading, setWatchlistLoading] = useState(true);
 
   // Initialize TimeService on app mount - syncs time with WorldTimeAPI
   useEffect(() => {
@@ -369,6 +404,7 @@ function App() {
     const abortController = new AbortController();
 
     const hydrateWatchlist = async () => {
+      setWatchlistLoading(true);
       try {
         const promises = watchlistSymbols.map(async (symObj) => {
           // Handle both object format and legacy string format
@@ -392,12 +428,14 @@ function App() {
         const results = await Promise.all(promises);
         if (mounted) {
           setWatchlistData(results.filter(r => r !== null));
+          setWatchlistLoading(false);
           initialDataLoaded = true;
         }
       } catch (error) {
         console.error('Error fetching watchlist data:', error);
         if (mounted) {
           showToast('Failed to load watchlist data', 'error');
+          setWatchlistLoading(false);
           initialDataLoaded = true;
         }
       }
@@ -405,6 +443,7 @@ function App() {
       if (!mounted || watchlistSymbols.length === 0) {
         if (mounted && watchlistSymbols.length === 0) {
           setWatchlistData([]);
+          setWatchlistLoading(false);
           initialDataLoaded = true;
         }
         return;
@@ -644,9 +683,51 @@ function App() {
   };
 
   const toggleIndicator = (name) => {
-    setCharts(prev => prev.map(chart =>
-      chart.id === activeChartId ? { ...chart, indicators: { ...chart.indicators, [name]: !chart.indicators[name] } } : chart
-    ));
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+
+      const currentIndicator = chart.indicators[name];
+
+      // Handle boolean indicators (sma, ema)
+      if (typeof currentIndicator === 'boolean') {
+        return { ...chart, indicators: { ...chart.indicators, [name]: !currentIndicator } };
+      }
+
+      // Handle object indicators (rsi, macd, etc.) - toggle the 'enabled' property
+      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [name]: { ...currentIndicator, enabled: !currentIndicator.enabled }
+          }
+        };
+      }
+
+      return chart;
+    }));
+  };
+
+  // Handler for removing indicator from pane (called from ChartComponent)
+  const handleIndicatorRemove = (indicatorType) => {
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+
+      const currentIndicator = chart.indicators[indicatorType];
+
+      // Only handle object indicators
+      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: { ...currentIndicator, enabled: false }
+          }
+        };
+      }
+
+      return chart;
+    }));
   };
 
   const [activeTool, setActiveTool] = useState(null);
@@ -727,13 +808,24 @@ function App() {
     setCharts(prev => {
       const newCharts = [...prev];
       if (newCharts.length < count) {
-        // Add charts
+        // Add charts with default indicators
+        const defaultIndicators = {
+          sma: false,
+          ema: false,
+          rsi: { enabled: false, period: 14, color: '#7B1FA2' },
+          macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
+          bollingerBands: { enabled: false, period: 20, stdDev: 2 },
+          volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
+          atr: { enabled: false, period: 14, color: '#FF9800' },
+          stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
+          vwap: { enabled: false, color: '#FF9800' }
+        };
         for (let i = newCharts.length; i < count; i++) {
           newCharts.push({
             id: i + 1,
             symbol: activeChart.symbol,
             interval: activeChart.interval,
-            indicators: { sma: false, ema: false },
+            indicators: { ...defaultIndicators },
             comparisonSymbols: []
           });
         }
@@ -1254,6 +1346,7 @@ function App() {
             <Watchlist
               currentSymbol={currentSymbol}
               items={watchlistData}
+              isLoading={watchlistLoading}
               onSymbolSelect={(symData) => {
                 const symbol = typeof symData === 'string' ? symData : symData.symbol;
                 const exchange = typeof symData === 'string' ? 'NSE' : (symData.exchange || 'NSE');
@@ -1307,6 +1400,7 @@ function App() {
             isDrawingsHidden={isDrawingsHidden}
             isTimerVisible={isTimerVisible}
             isSessionBreakVisible={isSessionBreakVisible}
+            onIndicatorRemove={handleIndicatorRemove}
           />
         }
       />
@@ -1317,13 +1411,18 @@ function App() {
         addedSymbols={searchMode === 'compare' ? (activeChart.comparisonSymbols || []).map(s => s.symbol) : []}
         isCompareMode={searchMode === 'compare'}
       />
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+      {/* Toast Queue */}
+      <div style={{ position: 'fixed', top: 70, right: 20, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {toasts.map((toast, index) => (
+          <Toast
+            key={toast.id}
+            message={toast.message}
+            type={toast.type}
+            action={toast.action}
+            onClose={() => removeToast(toast.id)}
+          />
+        ))}
+      </div>
       {snapshotToast && (
         <SnapshotToast
           message={snapshotToast}

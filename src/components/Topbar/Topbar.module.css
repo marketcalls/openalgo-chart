@@ -237,9 +237,26 @@
     border: 1px solid var(--tv-color-border);
     border-radius: 4px;
     padding: 6px 0;
-    min-width: 160px;
+    min-width: 180px;
     z-index: 2000;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.dropdownSection {
+    padding: 4px 12px;
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--tv-color-text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.dropdownDivider {
+    height: 1px;
+    background-color: var(--tv-color-border);
+    margin: 6px 0;
 }
 
 /* Dropdowns */

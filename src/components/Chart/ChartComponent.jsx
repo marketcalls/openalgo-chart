@@ -10,8 +10,19 @@ import {
 import styles from './ChartComponent.module.css';
 import { getKlines, getHistoricalKlines, subscribeToTicker } from '../../services/openalgo';
 import { getAccurateISTTimestamp, syncTimeWithAPI, shouldResync } from '../../services/timeService';
-import { calculateSMA, calculateEMA } from '../../utils/indicators';
+import {
+    calculateSMA,
+    calculateEMA,
+    calculateRSI,
+    calculateMACD,
+    calculateBollingerBands,
+    calculateVolume,
+    calculateATR,
+    calculateStochastic,
+    calculateVWAP
+} from '../../utils/indicators';
 import { calculateHeikinAshi } from '../../utils/chartUtils';
+import { IndicatorPane } from '../IndicatorPane';
 import { intervalToSeconds } from '../../utils/timeframes';
 import { logger } from '../../utils/logger.js';
 
@@ -83,6 +94,7 @@ const ChartComponent = forwardRef(({
     isDrawingsHidden = false,
     isTimerVisible = false,
     isSessionBreakVisible = false,
+    onIndicatorRemove,
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
@@ -91,6 +103,8 @@ const ChartComponent = forwardRef(({
     const mainSeriesRef = useRef(null);
     const smaSeriesRef = useRef(null);
     const emaSeriesRef = useRef(null);
+    const bollingerSeriesRef = useRef({ upper: null, middle: null, lower: null });
+    const vwapSeriesRef = useRef(null);
     const chartReadyRef = useRef(false); // Track when chart is fully stable and ready for indicator additions
     const lineToolManagerRef = useRef(null);
     const priceScaleTimerRef = useRef(null); // Ref for the candle countdown timer
@@ -98,6 +112,23 @@ const ChartComponent = forwardRef(({
     const chartTypeRef = useRef(chartType);
     const dataRef = useRef([]);
     const comparisonSeriesRefs = useRef(new Map());
+
+    // Indicator pane refs and data
+    const indicatorPaneRefs = useRef({});
+    const [indicatorPaneData, setIndicatorPaneData] = useState({
+        rsi: null,
+        macd: null,
+        stochastic: null,
+        volume: null,
+        atr: null
+    });
+    const [indicatorPaneHeights, setIndicatorPaneHeights] = useState({
+        rsi: 120,
+        macd: 120,
+        stochastic: 120,
+        volume: 100,
+        atr: 100
+    });
 
     // Replay State
     const [isReplayMode, setIsReplayMode] = useState(false);
@@ -1163,6 +1194,35 @@ const ChartComponent = forwardRef(({
         // Use Logical Range change for better performance/accuracy mapping to data indices
         chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleTimeRangeChange);
 
+        // Sync indicator panes when main chart time scale changes
+        chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+            if (!range) return;
+            Object.values(indicatorPaneRefs.current).forEach(paneRef => {
+                if (paneRef?.setVisibleLogicalRange) {
+                    paneRef.setVisibleLogicalRange(range);
+                }
+            });
+        });
+
+        // Sync indicator pane crosshairs when main chart crosshair moves
+        chart.subscribeCrosshairMove((param) => {
+            if (!param || !param.time) {
+                // Clear crosshairs on all panes
+                Object.values(indicatorPaneRefs.current).forEach(paneRef => {
+                    if (paneRef?.clearCrosshairPosition) {
+                        paneRef.clearCrosshairPosition();
+                    }
+                });
+                return;
+            }
+            // Set crosshair position on all panes
+            Object.values(indicatorPaneRefs.current).forEach(paneRef => {
+                if (paneRef?.setCrosshairPosition) {
+                    paneRef.setCrosshairPosition(param.time, 0);
+                }
+            });
+        });
+
         // Handle right-click to cancel tool
         const handleContextMenu = (event) => {
             event.preventDefault(); // Prevent default right-click menu
@@ -1578,6 +1638,142 @@ const ChartComponent = forwardRef(({
                 emaSeriesRef.current = null;
             }
         }
+
+        // Bollinger Bands (overlay on main chart)
+        if (indicatorsConfig.bollingerBands?.enabled) {
+            const period = indicatorsConfig.bollingerBands.period || 20;
+            const stdDev = indicatorsConfig.bollingerBands.stdDev || 2;
+            const bbData = calculateBollingerBands(data, period, stdDev);
+
+            if (canAddSeries && bbData.upper && bbData.upper.length > 0) {
+                // Upper band
+                if (!bollingerSeriesRef.current.upper) {
+                    bollingerSeriesRef.current.upper = chartRef.current.addSeries(LineSeries, {
+                        color: 'rgba(33, 150, 243, 0.5)',
+                        lineWidth: 1,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        title: '',
+                    });
+                }
+                bollingerSeriesRef.current.upper.setData(bbData.upper);
+
+                // Middle band (SMA)
+                if (!bollingerSeriesRef.current.middle) {
+                    bollingerSeriesRef.current.middle = chartRef.current.addSeries(LineSeries, {
+                        color: 'rgba(33, 150, 243, 0.8)',
+                        lineWidth: 1,
+                        lineStyle: 2, // Dashed
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        title: 'BB',
+                    });
+                }
+                bollingerSeriesRef.current.middle.setData(bbData.middle);
+
+                // Lower band
+                if (!bollingerSeriesRef.current.lower) {
+                    bollingerSeriesRef.current.lower = chartRef.current.addSeries(LineSeries, {
+                        color: 'rgba(33, 150, 243, 0.5)',
+                        lineWidth: 1,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        title: '',
+                    });
+                }
+                bollingerSeriesRef.current.lower.setData(bbData.lower);
+            }
+        } else {
+            // Remove Bollinger Bands series
+            if (bollingerSeriesRef.current.upper) {
+                chartRef.current.removeSeries(bollingerSeriesRef.current.upper);
+                bollingerSeriesRef.current.upper = null;
+            }
+            if (bollingerSeriesRef.current.middle) {
+                chartRef.current.removeSeries(bollingerSeriesRef.current.middle);
+                bollingerSeriesRef.current.middle = null;
+            }
+            if (bollingerSeriesRef.current.lower) {
+                chartRef.current.removeSeries(bollingerSeriesRef.current.lower);
+                bollingerSeriesRef.current.lower = null;
+            }
+        }
+
+        // VWAP Indicator (overlay on main chart)
+        if (indicatorsConfig.vwap?.enabled) {
+            if (!vwapSeriesRef.current && canAddSeries) {
+                vwapSeriesRef.current = chartRef.current.addSeries(LineSeries, {
+                    color: indicatorsConfig.vwap.color || '#FF9800',
+                    lineWidth: 2,
+                    title: 'VWAP',
+                    priceLineVisible: false,
+                    lastValueVisible: true
+                });
+            }
+            if (vwapSeriesRef.current && typeof calculateVWAP === 'function') {
+                const vwapData = calculateVWAP(data);
+                if (vwapData && vwapData.length > 0) {
+                    vwapSeriesRef.current.setData(vwapData);
+                }
+            }
+        } else {
+            if (vwapSeriesRef.current) {
+                chartRef.current.removeSeries(vwapSeriesRef.current);
+                vwapSeriesRef.current = null;
+            }
+        }
+
+        // Calculate data for separate pane indicators
+        const paneData = {};
+
+        // RSI
+        if (indicatorsConfig.rsi?.enabled) {
+            const period = indicatorsConfig.rsi.period || 14;
+            paneData.rsi = calculateRSI(data, period);
+        } else {
+            paneData.rsi = null;
+        }
+
+        // MACD
+        if (indicatorsConfig.macd?.enabled) {
+            const fast = indicatorsConfig.macd.fast || 12;
+            const slow = indicatorsConfig.macd.slow || 26;
+            const signal = indicatorsConfig.macd.signal || 9;
+            paneData.macd = calculateMACD(data, fast, slow, signal);
+        } else {
+            paneData.macd = null;
+        }
+
+        // Stochastic
+        if (indicatorsConfig.stochastic?.enabled) {
+            const kPeriod = indicatorsConfig.stochastic.kPeriod || 14;
+            const dPeriod = indicatorsConfig.stochastic.dPeriod || 3;
+            const smooth = indicatorsConfig.stochastic.smooth || 3;
+            paneData.stochastic = calculateStochastic(data, kPeriod, dPeriod, smooth);
+        } else {
+            paneData.stochastic = null;
+        }
+
+        // Volume
+        if (indicatorsConfig.volume?.enabled) {
+            const upColor = indicatorsConfig.volume.colorUp || '#089981';
+            const downColor = indicatorsConfig.volume.colorDown || '#F23645';
+            paneData.volume = calculateVolume(data, upColor, downColor);
+        } else {
+            paneData.volume = null;
+        }
+
+        // ATR
+        if (indicatorsConfig.atr?.enabled) {
+            const period = indicatorsConfig.atr.period || 14;
+            paneData.atr = calculateATR(data, period);
+        } else {
+            paneData.atr = null;
+        }
+
+        // Update pane data state
+        setIndicatorPaneData(paneData);
+
     }, []); // Empty dependency array - indicators passed as parameter
 
     // Separate effect for indicators to prevent data reload
@@ -2315,18 +2511,71 @@ const ChartComponent = forwardRef(({
         };
     }, [isSelectingReplayPoint, updateReplayData]);
 
+    // Get list of active indicator panes
+    const activeIndicatorPanes = ['rsi', 'macd', 'stochastic', 'volume', 'atr'].filter(
+        type => indicators[type]?.enabled && indicatorPaneData[type]
+    );
+
+    // Calculate main chart height (remaining after indicator panes)
+    const totalPaneHeight = activeIndicatorPanes.reduce(
+        (sum, type) => sum + indicatorPaneHeights[type],
+        0
+    );
+
+    // Handle indicator pane height change
+    const handlePaneHeightChange = (type, newHeight) => {
+        setIndicatorPaneHeights(prev => ({ ...prev, [type]: newHeight }));
+    };
+
+    // Handle time scale sync from indicator panes
+    const handleIndicatorTimeScaleSync = useCallback((range, sourceType) => {
+        if (!chartRef.current || !range) return;
+        try {
+            chartRef.current.timeScale().setVisibleLogicalRange(range);
+        } catch (e) {
+            // Ignore range errors
+        }
+    }, []);
+
+    // Handle crosshair sync from indicator panes
+    const handleIndicatorCrosshairSync = useCallback((param, sourceType) => {
+        // Indicator panes don't drive main chart crosshair (disabled scroll/scale)
+    }, []);
+
     return (
-        <div className={`${styles.chartWrapper} ${isToolbarVisible ? styles.toolbarVisible : ''}`}>
+        <div className={`${styles.chartWrapper} ${isToolbarVisible ? styles.toolbarVisible : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
             <div
                 id="container"
                 ref={chartContainerRef}
                 className={styles.chartContainer}
                 style={{
                     position: 'relative',
-                    touchAction: 'none'
+                    touchAction: 'none',
+                    flex: activeIndicatorPanes.length > 0 ? `1 1 calc(100% - ${totalPaneHeight}px)` : '1 1 100%',
+                    minHeight: 200,
                 }}
             />
             {isLoading && isActuallyLoadingRef.current && <div className={styles.loadingOverlay}><div className={styles.spinner}></div><div>Loading...</div></div>}
+
+            {/* Indicator Panes */}
+            {activeIndicatorPanes.map(type => (
+                <IndicatorPane
+                    key={type}
+                    ref={el => { indicatorPaneRefs.current[type] = el; }}
+                    type={type}
+                    data={indicatorPaneData[type]}
+                    settings={indicators[type]}
+                    height={indicatorPaneHeights[type]}
+                    theme={theme}
+                    onRemove={(indicatorType) => {
+                        if (onIndicatorRemove) {
+                            onIndicatorRemove(indicatorType);
+                        }
+                    }}
+                    onSyncTimeScale={handleIndicatorTimeScaleSync}
+                    onSyncCrosshair={handleIndicatorCrosshairSync}
+                />
+            ))}
 
             {/* OHLC Header Bar */}
             {ohlcData && (

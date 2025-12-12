@@ -12,7 +12,16 @@ const DEFAULT_COLUMN_WIDTHS = {
 
 const MIN_COLUMN_WIDTH = 40;
 
-const Watchlist = ({ currentSymbol, items, onSymbolSelect, onAddClick, onRemoveClick, onReorder }) => {
+const SkeletonRow = () => (
+    <div className={styles.skeletonItem}>
+        <div className={classNames(styles.skeletonCell, styles.skeletonSymbol)} />
+        <div className={classNames(styles.skeletonCell, styles.skeletonPrice)} />
+        <div className={classNames(styles.skeletonCell, styles.skeletonChange)} />
+        <div className={classNames(styles.skeletonCell, styles.skeletonPercent)} />
+    </div>
+);
+
+const Watchlist = ({ currentSymbol, items, onSymbolSelect, onAddClick, onRemoveClick, onReorder, isLoading = false }) => {
     const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
     const [draggedIndex, setDraggedIndex] = useState(null);
     const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
@@ -162,51 +171,65 @@ const Watchlist = ({ currentSymbol, items, onSymbolSelect, onAddClick, onRemoveC
             </div>
 
             <div className={styles.list}>
-                {sortedItems.map((item, index) => (
-                    <div
-                        key={item.symbol}
-                        className={classNames(styles.item, {
-                            [styles.active]: currentSymbol === item.symbol,
-                            [styles.dragging]: draggedIndex === index
-                        })}
-                        onClick={() => onSymbolSelect({ symbol: item.symbol, exchange: item.exchange })}
-                        draggable={!sortConfig.key}
-                        onDragStart={(e) => handleDragStart(e, index)}
-                        onDragOver={(e) => handleDragOver(e, index)}
-                        onDrop={(e) => handleDrop(e, index)}
-                    >
-                        <span
-                            className={styles.symbolName}
-                            style={{ width: columnWidths.symbol, minWidth: columnWidths.symbol }}
-                        >
-                            {item.symbol}
-                        </span>
-                        <span
-                            className={classNames(styles.last, { [styles.up]: item.up, [styles.down]: !item.up })}
-                            style={{ width: columnWidths.last, minWidth: MIN_COLUMN_WIDTH }}
-                        >
-                            {item.last}
-                        </span>
-                        <span
-                            className={classNames(styles.chg, { [styles.up]: item.up, [styles.down]: !item.up })}
-                            style={{ width: columnWidths.chg, minWidth: MIN_COLUMN_WIDTH }}
-                        >
-                            {item.chg}
-                        </span>
-                        <span
-                            className={classNames(styles.chgP, { [styles.up]: item.up, [styles.down]: !item.up })}
-                            style={{ width: columnWidths.chgP, minWidth: MIN_COLUMN_WIDTH }}
-                        >
-                            {item.chgP}
-                        </span>
-                        <div
-                            className={styles.removeBtn}
-                            onClick={(e) => { e.stopPropagation(); onRemoveClick({ symbol: item.symbol, exchange: item.exchange }); }}
-                        >
-                            <X size={12} />
-                        </div>
+                {isLoading ? (
+                    // Show skeleton rows while loading
+                    Array.from({ length: 5 }).map((_, index) => (
+                        <SkeletonRow key={`skeleton-${index}`} />
+                    ))
+                ) : sortedItems.length === 0 ? (
+                    // Show empty state
+                    <div className={styles.emptyState}>
+                        <Plus size={24} />
+                        <p>No symbols in watchlist</p>
                     </div>
-                ))}
+                ) : (
+                    // Show actual items
+                    sortedItems.map((item, index) => (
+                        <div
+                            key={item.symbol}
+                            className={classNames(styles.item, {
+                                [styles.active]: currentSymbol === item.symbol,
+                                [styles.dragging]: draggedIndex === index
+                            })}
+                            onClick={() => onSymbolSelect({ symbol: item.symbol, exchange: item.exchange })}
+                            draggable={!sortConfig.key}
+                            onDragStart={(e) => handleDragStart(e, index)}
+                            onDragOver={(e) => handleDragOver(e, index)}
+                            onDrop={(e) => handleDrop(e, index)}
+                        >
+                            <span
+                                className={styles.symbolName}
+                                style={{ width: columnWidths.symbol, minWidth: columnWidths.symbol }}
+                            >
+                                {item.symbol}
+                            </span>
+                            <span
+                                className={classNames(styles.last, { [styles.up]: item.up, [styles.down]: !item.up })}
+                                style={{ width: columnWidths.last, minWidth: MIN_COLUMN_WIDTH }}
+                            >
+                                {item.last}
+                            </span>
+                            <span
+                                className={classNames(styles.chg, { [styles.up]: item.up, [styles.down]: !item.up })}
+                                style={{ width: columnWidths.chg, minWidth: MIN_COLUMN_WIDTH }}
+                            >
+                                {item.chg}
+                            </span>
+                            <span
+                                className={classNames(styles.chgP, { [styles.up]: item.up, [styles.down]: !item.up })}
+                                style={{ width: columnWidths.chgP, minWidth: MIN_COLUMN_WIDTH }}
+                            >
+                                {item.chgP}
+                            </span>
+                            <div
+                                className={styles.removeBtn}
+                                onClick={(e) => { e.stopPropagation(); onRemoveClick({ symbol: item.symbol, exchange: item.exchange }); }}
+                            >
+                                <X size={12} />
+                            </div>
+                        </div>
+                    ))
+                )}
             </div>
         </div>
     );
