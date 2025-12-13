@@ -6,9 +6,17 @@
   overflow: hidden;
 }
 
+/* Mobile container - adjust for bottom nav */
+.container.mobile {
+  /* Account for mobile navigation at bottom */
+  height: calc(100vh - var(--mobile-nav-height, 56px));
+  /* Safe area for notched devices */
+  padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
 .topbarArea {
   flex: 0 0 auto;
-  height: 48px;
+  height: var(--topbar-height-desktop, 48px);
   border-bottom: 1px solid var(--tv-color-border, #2A2E39);
   background-color: var(--tv-color-toolbar-background, #1e1e1e);
 }
@@ -53,6 +61,11 @@
   overflow: hidden;
 }
 
+/* Focus outline when skip link targets chart */
+.chartArea:focus {
+  outline: none;
+}
+
 .bottomBarArea {
   flex: 0 0 auto;
   height: 32px;
@@ -62,15 +75,44 @@
 
 .watchlistArea {
   flex: 0 0 auto;
-  width: 320px;
+  width: var(--sidebar-width-desktop, 320px);
   background-color: var(--tv-color-pane-background, #131722);
   border-left: 1px solid var(--tv-color-border, #2A2E39);
   overflow: hidden;
 }
 
+/* Mobile watchlist - slide-out panel */
+.watchlistMobile {
+  position: fixed;
+  top: var(--topbar-height-mobile, 56px);
+  right: 0;
+  bottom: var(--mobile-nav-height, 56px);
+  width: 85vw;
+  max-width: 360px;
+  z-index: 100;
+  transform: translateX(0);
+  transition: transform 0.3s ease;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.3);
+}
+
+.watchlistHidden {
+  transform: translateX(100%);
+}
+
+/* Overlay behind mobile watchlist */
+.watchlistOverlay {
+  position: fixed;
+  top: var(--topbar-height-mobile, 56px);
+  left: 0;
+  right: 0;
+  bottom: var(--mobile-nav-height, 56px);
+  background-color: rgba(0, 0, 0, 0.5);
+  z-index: 99;
+}
+
 .optionsPanelArea {
   flex: 0 0 auto;
-  width: 320px;
+  width: var(--sidebar-width-desktop, 320px);
   background-color: var(--tv-color-pane-background, #131722);
   border-left: 1px solid var(--tv-color-border, #2A2E39);
 }
@@ -80,4 +122,57 @@
   width: 48px;
   background-color: var(--tv-color-toolbar-background, #1e1e1e);
   border-left: 1px solid var(--tv-color-border, #2A2E39);
+}
+
+/* ============================================
+   Tablet Breakpoint (481px - 768px)
+   ============================================ */
+@media (min-width: 481px) and (max-width: 768px) {
+  .watchlistArea {
+    width: var(--sidebar-width-tablet, 280px);
+  }
+
+  .optionsPanelArea {
+    width: var(--sidebar-width-tablet, 280px);
+  }
+}
+
+/* ============================================
+   Mobile Breakpoint (≤480px)
+   ============================================ */
+@media (max-width: 480px) {
+  .topbarArea {
+    height: var(--topbar-height-mobile, 56px);
+  }
+
+  .leftToolbarArea {
+    display: none;
+  }
+
+  .bottomBarArea {
+    display: none;
+  }
+
+  .rightToolbarArea {
+    display: none;
+  }
+
+  /* Full width watchlist on very small screens */
+  .watchlistMobile {
+    width: 100vw;
+    max-width: none;
+  }
+}
+
+/* ============================================
+   Reduced Motion
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  .watchlistMobile {
+    transition: none;
+  }
+
+  .leftToolbarArea {
+    transition: none;
+  }
 }

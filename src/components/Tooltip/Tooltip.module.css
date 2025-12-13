@@ -1,0 +1,170 @@
+.tooltipWrapper {
+    position: relative;
+    display: inline-flex;
+}
+
+.tooltip {
+    position: absolute;
+    z-index: 9999;
+    padding: 6px 10px;
+    background-color: var(--tv-color-dropdown-background);
+    border: 1px solid var(--tv-color-border);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    white-space: nowrap;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    pointer-events: none;
+    animation: fadeIn 0.15s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: scale(0.95);
+    }
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.content {
+    color: var(--tv-color-text-primary);
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.shortcut {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 6px;
+    background-color: var(--tv-color-toolbar-button-background-hover);
+    border-radius: 3px;
+    font-size: 11px;
+    font-family: 'Consolas', 'Monaco', monospace;
+    color: var(--tv-color-text-secondary);
+    font-weight: 600;
+}
+
+/* Position: Top (default) */
+.top {
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 8px;
+}
+
+/* Position: Bottom */
+.bottom {
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 8px;
+}
+
+/* Position: Left */
+.left {
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: 8px;
+}
+
+/* Position: Right */
+.right {
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 8px;
+}
+
+/* Arrow indicators */
+.top::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: var(--tv-color-border);
+}
+
+.top::before {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: -1px;
+    border: 5px solid transparent;
+    border-top-color: var(--tv-color-dropdown-background);
+    z-index: 1;
+}
+
+.bottom::after {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-bottom-color: var(--tv-color-border);
+}
+
+.bottom::before {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: -1px;
+    border: 5px solid transparent;
+    border-bottom-color: var(--tv-color-dropdown-background);
+    z-index: 1;
+}
+
+.left::after {
+    content: '';
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 6px solid transparent;
+    border-left-color: var(--tv-color-border);
+}
+
+.left::before {
+    content: '';
+    position: absolute;
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: -1px;
+    border: 5px solid transparent;
+    border-left-color: var(--tv-color-dropdown-background);
+    z-index: 1;
+}
+
+.right::after {
+    content: '';
+    position: absolute;
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    border: 6px solid transparent;
+    border-right-color: var(--tv-color-border);
+}
+
+.right::before {
+    content: '';
+    position: absolute;
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: -1px;
+    border: 5px solid transparent;
+    border-right-color: var(--tv-color-dropdown-background);
+    z-index: 1;
+}

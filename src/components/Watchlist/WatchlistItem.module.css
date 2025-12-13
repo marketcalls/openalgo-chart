@@ -1,0 +1,132 @@
+.item {
+    display: flex;
+    align-items: center;
+    padding: 8px 12px;
+    padding-left: 4px;
+    font-size: 13px;
+    cursor: pointer;
+    border-bottom: 1px solid transparent;
+    position: relative;
+    min-width: 0;
+    overflow: visible;
+    gap: 4px;
+    transition: background-color 0.1s ease;
+}
+
+.item:hover {
+    background-color: var(--tv-color-toolbar-button-background-hover, #2A2E39);
+}
+
+.item.active {
+    background-color: var(--tv-color-toolbar-button-background-hover, #2A2E39);
+    border-left: 2px solid var(--tv-color-brand, #2962FF);
+}
+
+.item.dragging {
+    opacity: 0.5;
+    background-color: var(--tv-color-toolbar-button-background-hover, #2A2E39);
+}
+
+/* Drag handle - hidden by default, shows on hover */
+.dragHandle {
+    width: 16px;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--tv-color-text-secondary, #787B86);
+    opacity: 0;
+    transition: opacity 0.15s ease;
+    cursor: grab;
+    flex-shrink: 0;
+}
+
+.item:hover .dragHandle {
+    opacity: 0.6;
+}
+
+.dragHandle:hover {
+    opacity: 1 !important;
+}
+
+/* Exchange flag emoji */
+.exchangeFlag {
+    font-size: 12px;
+    margin-right: 6px;
+    flex-shrink: 0;
+}
+
+/* Symbol name */
+.symbolName {
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex-shrink: 0;
+    color: var(--tv-color-text-primary, #D1D4DC);
+}
+
+/* Price columns */
+.last,
+.chg,
+.chgP {
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 0;
+    font-variant-numeric: tabular-nums;
+}
+
+.up {
+    color: var(--tv-color-up, #089981);
+}
+
+.down {
+    color: var(--tv-color-down, #F23645);
+}
+
+/* Remove button - hidden by default */
+.removeBtn {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    opacity: 0;
+    background: transparent;
+    border: none;
+    padding: 4px;
+    border-radius: 4px;
+    cursor: pointer;
+    color: var(--tv-color-text-secondary, #787B86);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.15s ease, background-color 0.1s ease, color 0.1s ease;
+}
+
+.item:hover .removeBtn {
+    opacity: 1;
+}
+
+.removeBtn:hover {
+    color: var(--tv-color-down, #F23645);
+    background-color: rgba(242, 54, 69, 0.1);
+}
+
+/* Light theme */
+[data-theme="light"] .item:hover {
+    background-color: #f0f3fa;
+}
+
+[data-theme="light"] .item.active {
+    background-color: #f0f3fa;
+}
+
+[data-theme="light"] .symbolName {
+    color: #131722;
+}
+
+[data-theme="light"] .dragHandle {
+    color: #787B86;
+}

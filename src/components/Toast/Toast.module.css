@@ -1,7 +1,4 @@
 .toast {
-    position: fixed;
-    top: 70px;
-    right: 20px;
     min-width: 300px;
     max-width: 500px;
     padding: 12px 16px;
@@ -9,9 +6,8 @@
     border-radius: 6px;
     box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
     display: flex;
-    align-items: center;
+    align-items: flex-start;
     gap: 12px;
-    z-index: 1000;
     animation: slideIn 0.3s ease-out;
 }
 
@@ -39,10 +35,15 @@
     border-left: 4px solid #2962FF;
 }
 
+.toast.warning {
+    border-left: 4px solid #ff9800;
+}
+
 .icon {
     display: flex;
     align-items: center;
     justify-content: center;
+    flex-shrink: 0;
 }
 
 .toast.error .icon {
@@ -57,10 +58,38 @@
     color: #2962FF;
 }
 
-.message {
+.toast.warning .icon {
+    color: #ff9800;
+}
+
+.content {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.message {
     color: var(--tv-color-text-primary);
     font-size: 14px;
+}
+
+.actionBtn {
+    align-self: flex-start;
+    padding: 4px 12px;
+    background-color: transparent;
+    border: 1px solid var(--tv-color-brand);
+    color: var(--tv-color-brand);
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.actionBtn:hover {
+    background-color: var(--tv-color-brand);
+    color: white;
 }
 
 .closeBtn {

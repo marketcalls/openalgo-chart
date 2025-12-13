@@ -4,6 +4,7 @@
  */
 
 import logger from '../utils/logger.js';
+import { ConnectionState, setConnectionStatus } from './connectionStatus';
 
 const DEFAULT_HOST = 'http://127.0.0.1:5000';
 const DEFAULT_WS_HOST = '127.0.0.1:8765';
@@ -203,11 +204,13 @@ const createManagedWebSocket = (urlBuilder, options) => {
     const connect = () => {
         const url = typeof urlBuilder === 'function' ? urlBuilder() : urlBuilder;
         authenticated = false;
+        setConnectionStatus(reconnectAttempts > 0 ? ConnectionState.RECONNECTING : ConnectionState.CONNECTING);
 
         try {
             socket = new WebSocket(url);
         } catch (error) {
             console.error('[WebSocket] Failed to create WebSocket:', error);
+            setConnectionStatus(ConnectionState.DISCONNECTED);
             return;
         }
 
@@ -244,6 +247,7 @@ const createManagedWebSocket = (urlBuilder, options) => {
                     message.status === 'authenticated') {
                     logger.debug('[WebSocket] Authenticated successfully, broker:', message.broker);
                     authenticated = true;
+                    setConnectionStatus(ConnectionState.CONNECTED);
                     sendSubscriptions();
                     return;
                 }
@@ -269,13 +273,19 @@ const createManagedWebSocket = (urlBuilder, options) => {
 
         socket.onclose = (event) => {
             authenticated = false;
-            if (manualClose) return;
+            if (manualClose) {
+                setConnectionStatus(ConnectionState.DISCONNECTED);
+                return;
+            }
 
             if (!event.wasClean && reconnectAttempts < maxAttempts) {
                 const delay = Math.min(1000 * 2 ** reconnectAttempts, 10000);
                 logger.debug(`[WebSocket] Reconnecting in ${delay}ms (attempt ${reconnectAttempts + 1}/${maxAttempts})`);
+                setConnectionStatus(ConnectionState.RECONNECTING);
                 reconnectAttempts += 1;
                 setTimeout(connect, delay);
+            } else {
+                setConnectionStatus(ConnectionState.DISCONNECTED);
             }
         };
     };
@@ -446,6 +456,7 @@ export const getKlines = async (symbol, exchange = 'NSE', interval = '1d', limit
                     high: parseFloat(d.high),
                     low: parseFloat(d.low),
                     close: parseFloat(d.close),
+                    volume: parseFloat(d.volume || 0),
                 };
             }).filter(candle =>
                 candle.time > 0 && [candle.open, candle.high, candle.low, candle.close].every(value => Number.isFinite(value))
@@ -577,6 +588,7 @@ export const subscribeToTicker = (symbol, exchange = 'NSE', interval, callback) 
                         high: parseFloat(data.high || ltp),
                         low: parseFloat(data.low || ltp),
                         close: ltp,
+                        volume: parseFloat(data.volume || 0),
                     };
 
                     logger.debug('[WebSocket] Quote for', symbol, ':', { time: candle.time, brokerTimestamp: candle.brokerTimestamp, ltp });
@@ -787,6 +799,7 @@ export const getHistoricalKlines = async (symbol, exchange = 'NSE', interval = '
                     high: parseFloat(d.high),
                     low: parseFloat(d.low),
                     close: parseFloat(d.close),
+                    volume: parseFloat(d.volume || 0),
                 };
             }).filter(candle =>
                 candle.time > 0 && [candle.open, candle.high, candle.low, candle.close].every(value => Number.isFinite(value))

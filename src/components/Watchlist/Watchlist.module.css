@@ -36,6 +36,61 @@
     color: var(--tv-color-text-primary);
 }
 
+/* Favorite tag pill in header */
+.favoriteTag {
+    padding: 2px 8px;
+    background: var(--tv-color-toolbar-button-background-hover);
+    border: 1px solid var(--tv-color-border);
+    border-radius: 4px;
+    color: var(--tv-color-text-secondary);
+    font-size: 11px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    margin-left: 6px;
+}
+
+.favoriteTag:hover {
+    background: var(--tv-color-brand);
+    color: white;
+    border-color: var(--tv-color-brand);
+}
+
+/* Quick-access favorites row */
+.quickAccessRow {
+    display: flex;
+    gap: 4px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--tv-color-border);
+    background: var(--tv-color-toolbar-button-background-hover);
+}
+
+.quickAccessBtn {
+    width: 24px;
+    height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: var(--tv-color-dropdown-background);
+    border: 1px solid var(--tv-color-border);
+    border-radius: 4px;
+    color: var(--tv-color-text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.quickAccessBtn:hover {
+    background: var(--tv-color-toolbar-button-background-expanded);
+    color: var(--tv-color-text-primary);
+}
+
+.quickAccessBtn.active {
+    background: var(--tv-color-brand);
+    color: white;
+    border-color: var(--tv-color-brand);
+}
+
 .tabs {
     display: flex;
     padding: 0 12px;
@@ -232,4 +287,67 @@
 .dragging {
     opacity: 0.5;
     background-color: var(--tv-color-hover-background);
+}
+
+/* Skeleton Loading Styles */
+@keyframes shimmer {
+    0% {
+        background-position: -200px 0;
+    }
+    100% {
+        background-position: 200px 0;
+    }
+}
+
+.skeletonItem {
+    display: flex;
+    padding: 8px 12px;
+    gap: 8px;
+    align-items: center;
+    border-bottom: 1px solid transparent;
+}
+
+.skeletonCell {
+    height: 14px;
+    border-radius: 4px;
+    background: linear-gradient(
+        90deg,
+        var(--tv-color-toolbar-button-background-hover) 0%,
+        var(--tv-color-border) 50%,
+        var(--tv-color-toolbar-button-background-hover) 100%
+    );
+    background-size: 400px 100%;
+    animation: shimmer 1.5s ease-in-out infinite;
+}
+
+.skeletonSymbol {
+    width: 60px;
+}
+
+.skeletonPrice {
+    width: 50px;
+    margin-left: auto;
+}
+
+.skeletonChange {
+    width: 40px;
+}
+
+.skeletonPercent {
+    width: 45px;
+}
+
+.emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 20px;
+    color: var(--tv-color-text-secondary);
+    text-align: center;
+}
+
+.emptyState p {
+    margin: 8px 0 0;
+    font-size: 13px;
 }

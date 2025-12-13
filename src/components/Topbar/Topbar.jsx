@@ -4,8 +4,9 @@ import classNames from 'classnames';
 import { intervalToSeconds } from '../../utils/timeframes';
 import { getIntervals } from '../../services/openalgo';
 import { logger } from '../../utils/logger.js';
+import Tooltip from '../Tooltip/Tooltip';
 import {
-    Plus, Star, Trash2, X, AlertCircle, Loader2
+    Plus, Star, Trash2, X, AlertCircle, Loader2, Layout as LayoutIcon
 } from 'lucide-react';
 
 const Topbar = ({
@@ -16,7 +17,7 @@ const Topbar = ({
     onUndo, onRedo, onMenuClick, theme, onToggleTheme,
     onDownloadImage, onCopyImage, onFullScreen,
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
-    isReplayMode = false, onSettingsClick
+    isReplayMode = false, onSettingsClick, onTemplatesClick
 }) => {
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
@@ -622,8 +623,24 @@ const Topbar = ({
                                                             className={styles.indicatorDropdown}
                                                             style={{ top: indicatorPos.top, left: indicatorPos.left }}
                                                         >
+                                                            <div className={styles.dropdownSection}>Moving Averages</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.sma })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('sma'); }}>SMA (20)</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.ema })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('ema'); }}>EMA (20)</div>
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div className={styles.dropdownSection}>Oscillators</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.rsi?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('rsi'); }}>RSI (14)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.stochastic?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('stochastic'); }}>Stochastic (14, 3)</div>
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div className={styles.dropdownSection}>Momentum</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.macd?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('macd'); }}>MACD (12, 26, 9)</div>
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div className={styles.dropdownSection}>Volatility</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.bollingerBands?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('bollingerBands'); }}>Bollinger Bands (20, 2)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.atr?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('atr'); }}>ATR (14)</div>
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div className={styles.dropdownSection}>Volume</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.volume?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('volume'); }}>Volume</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.vwap?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('vwap'); }}>VWAP</div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -649,16 +666,20 @@ const Topbar = ({
                                             {/* Undo / Redo */}
                                             <div className={styles.separatorWrap}><div className={styles.separator}></div></div>
                                             <div className={styles.group}>
-                                                <button className={classNames(styles.button, styles.iconButton)} onClick={onUndo} aria-label="Undo">
-                                                    <div className={styles.icon}>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M8.707 13l2.647 2.646-.707.708L6.792 12.5l3.853-3.854.708.708L8.707 12H14.5a5.5 5.5 0 0 1 5.5 5.5V19h-1v-1.5a4.5 4.5 0 0 0-4.5-4.5H8.707z"></path></svg>
-                                                    </div>
-                                                </button>
-                                                <button className={classNames(styles.button, styles.iconButton)} onClick={onRedo} aria-label="Redo">
-                                                    <div className={styles.icon}>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M18.293 13l-2.647 2.646.707.708 3.854-3.854-3.854-3.854-.707.708L18.293 12H12.5A5.5 5.5 0 0 0 7 17.5V19h1v-1.5a4.5 4.5 0 0 1 4.5-4.5h5.793z"></path></svg>
-                                                    </div>
-                                                </button>
+                                                <Tooltip content="Undo" shortcut="Ctrl+Z" position="bottom">
+                                                    <button className={classNames(styles.button, styles.iconButton)} onClick={onUndo} aria-label="Undo">
+                                                        <div className={styles.icon}>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M8.707 13l2.647 2.646-.707.708L6.792 12.5l3.853-3.854.708.708L8.707 12H14.5a5.5 5.5 0 0 1 5.5 5.5V19h-1v-1.5a4.5 4.5 0 0 0-4.5-4.5H8.707z"></path></svg>
+                                                        </div>
+                                                    </button>
+                                                </Tooltip>
+                                                <Tooltip content="Redo" shortcut="Ctrl+Y" position="bottom">
+                                                    <button className={classNames(styles.button, styles.iconButton)} onClick={onRedo} aria-label="Redo">
+                                                        <div className={styles.icon}>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M18.293 13l-2.647 2.646.707.708 3.854-3.854-3.854-3.854-.707.708L18.293 12H12.5A5.5 5.5 0 0 0 7 17.5V19h1v-1.5a4.5 4.5 0 0 1 4.5-4.5h5.793z"></path></svg>
+                                                        </div>
+                                                    </button>
+                                                </Tooltip>
                                             </div>
 
                                             <div className={styles.fill}></div>
@@ -704,6 +725,13 @@ const Topbar = ({
                                                 <button className={classNames(styles.button)} aria-label="Save" onClick={onSaveLayout}>
                                                     <div className={styles.text}>Save</div>
                                                 </button>
+                                                <Tooltip content="Layout Templates" position="bottom">
+                                                    <button className={classNames(styles.button, styles.iconButton)} aria-label="Templates" onClick={onTemplatesClick}>
+                                                        <div className={styles.icon}>
+                                                            <LayoutIcon size={20} strokeWidth={1.5} />
+                                                        </div>
+                                                    </button>
+                                                </Tooltip>
 
                                                 <div className={styles.separatorWrap}><div className={styles.separator}></div></div>
 
@@ -722,8 +750,8 @@ const Topbar = ({
                                                             </svg>
                                                         ) : (
                                                             /* Moon icon for switching to dark */
-                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor">
-                                                                <path d="M14.5 3a.5.5 0 0 0-.46.7 8.93 8.93 0 0 1 .96 4.05c0 4.97-4.03 9-9 9a8.93 8.93 0 0 1-2.59-.38.5.5 0 0 0-.64.6A10 10 0 1 0 22 7.5a10 10 0 0 0-7-4.46.5.5 0 0 0-.5.46Zm6.5 11.5a9 9 0 0 1-9 9 9 9 0 0 1-7.85-4.62 9.94 9.94 0 0 0 1.85.17c5.52 0 10-4.48 10-10 0-.63-.06-1.24-.17-1.85A9 9 0 0 1 21 14.5Z"></path>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                                                             </svg>
                                                         )}
                                                     </div>
@@ -732,26 +760,32 @@ const Topbar = ({
                                                 <div className={styles.separatorWrap}><div className={styles.separator}></div></div>
 
 
-                                                <button className={classNames(styles.button, styles.iconButton)} aria-label="Settings" onClick={onSettingsClick}>
-                                                    <div className={styles.icon}>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor"><path fillRule="evenodd" d="M18 14a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-1 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"></path><path fillRule="evenodd" d="M8.5 5h11l5 9-5 9h-11l-5-9 5-9Zm-3.86 9L9.1 6h9.82l4.45 8-4.45 8H9.1l-4.45-8Z"></path></svg>
-                                                    </div>
-                                                </button>
-                                                <button className={classNames(styles.button, styles.iconButton)} aria-label="Fullscreen" onClick={onFullScreen}>
-                                                    <div className={styles.icon}>
-                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M8.5 6A2.5 2.5 0 0 0 6 8.5V11h1V8.5C7 7.67 7.67 7 8.5 7H11V6H8.5zM6 17v2.5A2.5 2.5 0 0 0 8.5 22H11v-1H8.5A1.5 1.5 0 0 1 7 19.5V17H6zM19.5 7H17V6h2.5A2.5 2.5 0 0 1 22 8.5V11h-1V8.5c0-.83-.67-1.5-1.5-1.5zM22 19.5V17h-1v2.5c0 .83-.67 1.5-1.5 1.5H17v1h2.5a2.5 2.5 0 0 0 2.5-2.5z"></path></svg>
-                                                    </div>
-                                                </button>
-                                                <div className={styles.snapshotSection} ref={snapshotRef}>
-                                                    <button
-                                                        className={classNames(styles.button, styles.iconButton)}
-                                                        aria-label="Snapshot"
-                                                        onClick={toggleSnapshotMenu}
-                                                    >
+                                                <Tooltip content="Settings" position="bottom">
+                                                    <button className={classNames(styles.button, styles.iconButton)} aria-label="Settings" onClick={onSettingsClick}>
                                                         <div className={styles.icon}>
-                                                            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor"><path fillRule="evenodd" clipRule="evenodd" d="M11.118 6a.5.5 0 0 0-.447.276L9.809 8H5.5A1.5 1.5 0 0 0 4 9.5v10A1.5 1.5 0 0 0 5.5 21h16a1.5 1.5 0 0 0 1.5-1.5v-10A1.5 1.5 0 0 0 21.5 8h-4.309l-.862-1.724A.5.5 0 0 0 15.882 6h-4.764zm-1.342-.17A1.5 1.5 0 0 1 11.118 5h4.764a1.5 1.5 0 0 1 1.342.83L17.809 7H21.5A2.5 2.5 0 0 1 24 9.5v10a2.5 2.5 0 0 1-2.5 2.5h-16A2.5 2.5 0 0 1 3 19.5v-10A2.5 2.5 0 0 1 5.5 7h3.691l.585-1.17z"></path><path fillRule="evenodd" clipRule="evenodd" d="M13.5 18a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm0 1a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z"></path></svg>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor"><path fillRule="evenodd" d="M18 14a4 4 0 1 1-8 0 4 4 0 0 1 8 0Zm-1 0a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"></path><path fillRule="evenodd" d="M8.5 5h11l5 9-5 9h-11l-5-9 5-9Zm-3.86 9L9.1 6h9.82l4.45 8-4.45 8H9.1l-4.45-8Z"></path></svg>
                                                         </div>
                                                     </button>
+                                                </Tooltip>
+                                                <Tooltip content="Fullscreen" shortcut="F11" position="bottom">
+                                                    <button className={classNames(styles.button, styles.iconButton)} aria-label="Fullscreen" onClick={onFullScreen}>
+                                                        <div className={styles.icon}>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M8.5 6A2.5 2.5 0 0 0 6 8.5V11h1V8.5C7 7.67 7.67 7 8.5 7H11V6H8.5zM6 17v2.5A2.5 2.5 0 0 0 8.5 22H11v-1H8.5A1.5 1.5 0 0 1 7 19.5V17H6zM19.5 7H17V6h2.5A2.5 2.5 0 0 1 22 8.5V11h-1V8.5c0-.83-.67-1.5-1.5-1.5zM22 19.5V17h-1v2.5c0 .83-.67 1.5-1.5 1.5H17v1h2.5a2.5 2.5 0 0 0 2.5-2.5z"></path></svg>
+                                                        </div>
+                                                    </button>
+                                                </Tooltip>
+                                                <div className={styles.snapshotSection} ref={snapshotRef}>
+                                                    <Tooltip content="Chart Snapshot" position="bottom">
+                                                        <button
+                                                            className={classNames(styles.button, styles.iconButton)}
+                                                            aria-label="Snapshot"
+                                                            onClick={toggleSnapshotMenu}
+                                                        >
+                                                            <div className={styles.icon}>
+                                                                <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" fill="currentColor"><path fillRule="evenodd" clipRule="evenodd" d="M11.118 6a.5.5 0 0 0-.447.276L9.809 8H5.5A1.5 1.5 0 0 0 4 9.5v10A1.5 1.5 0 0 0 5.5 21h16a1.5 1.5 0 0 0 1.5-1.5v-10A1.5 1.5 0 0 0 21.5 8h-4.309l-.862-1.724A.5.5 0 0 0 15.882 6h-4.764zm-1.342-.17A1.5 1.5 0 0 1 11.118 5h4.764a1.5 1.5 0 0 1 1.342.83L17.809 7H21.5A2.5 2.5 0 0 1 24 9.5v10a2.5 2.5 0 0 1-2.5 2.5h-16A2.5 2.5 0 0 1 3 19.5v-10A2.5 2.5 0 0 1 5.5 7h3.691l.585-1.17z"></path><path fillRule="evenodd" clipRule="evenodd" d="M13.5 18a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7zm0 1a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9z"></path></svg>
+                                                            </div>
+                                                        </button>
+                                                    </Tooltip>
                                                     {showSnapshotMenu && (
                                                         <div
                                                             className={styles.snapshotDropdown}

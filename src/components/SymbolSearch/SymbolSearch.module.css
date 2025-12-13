@@ -48,6 +48,8 @@
     justify-content: center;
     border-radius: 4px;
     transition: all 0.15s ease;
+    background: transparent;
+    border: none;
 }
 
 .closeBtn:hover {
@@ -146,6 +148,11 @@
 
 .item:hover {
     background-color: var(--tv-color-toolbar-button-background-hover);
+}
+
+/* Keyboard navigation active state - removed to match clean design */
+.item.keyboardActive {
+    /* No special styling for keyboard-active items */
 }
 
 /* Symbol Icon */
@@ -279,4 +286,195 @@
 .checkIcon:hover {
     background-color: var(--tv-color-toolbar-button-background-hover);
     color: var(--tv-color-down);
+}
+
+/* ================================ */
+/* Star Button (Favorites Toggle)   */
+/* ================================ */
+
+.starButton {
+    display: none;
+}
+
+.starButton:hover {
+    color: #FFB800;
+    background-color: var(--tv-color-toolbar-button-background-hover);
+}
+
+.starButton:focus {
+    outline: none;
+}
+
+.starButton:focus-visible {
+    outline: 2px solid var(--tv-color-brand);
+    outline-offset: 2px;
+}
+
+.starActive {
+    color: #FFB800;
+}
+
+.starActive:hover {
+    color: #FFA000;
+}
+
+/* ================================ */
+/* Section Labels                   */
+/* ================================ */
+
+.sectionLabel {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 14px 24px 10px;
+    color: var(--tv-color-text-secondary);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    border-top: 1px solid var(--tv-color-border);
+}
+
+.sectionLabel:first-child {
+    border-top: none;
+}
+
+.sectionIcon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--tv-color-text-secondary);
+}
+
+/* Favorites section icon color */
+.sectionLabel .sectionIcon svg[data-section="favorites"] {
+    color: #FFB800;
+}
+
+/* ================================ */
+/* Favorite Items                   */
+/* ================================ */
+
+.favoriteItem {
+    background-color: rgba(255, 184, 0, 0.03);
+}
+
+.favoriteItem:hover {
+    background-color: rgba(255, 184, 0, 0.08);
+}
+
+/* ================================ */
+/* Recent Items                     */
+/* ================================ */
+
+.recentItem {
+    opacity: 0.95;
+}
+
+.recentItem:hover {
+    opacity: 1;
+}
+
+/* ================================ */
+/* Results Container                */
+/* ================================ */
+
+.resultsContainer {
+    flex: 1;
+    overflow-y: auto;
+    max-height: 420px;
+}
+
+.resultsContainer::-webkit-scrollbar {
+    width: 6px;
+}
+
+.resultsContainer::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.resultsContainer::-webkit-scrollbar-thumb {
+    background-color: var(--tv-color-border);
+    border-radius: 3px;
+}
+
+.resultsContainer::-webkit-scrollbar-thumb:hover {
+    background-color: var(--tv-color-text-secondary);
+}
+
+/* ================================ */
+/* Empty State                      */
+/* ================================ */
+
+.emptyState {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px 24px;
+    text-align: center;
+}
+
+.emptyIcon {
+    color: var(--tv-color-text-secondary);
+    opacity: 0.5;
+    margin-bottom: 12px;
+}
+
+.emptyText {
+    color: var(--tv-color-text-secondary);
+    font-size: 14px;
+}
+
+/* ================================ */
+/* Mobile Responsive                */
+/* ================================ */
+
+@media (max-width: 768px) {
+    .modal {
+        width: 100%;
+        max-width: 100%;
+        height: 100vh;
+        max-height: 100vh;
+        border-radius: 0;
+    }
+
+    .itemSymbol {
+        width: 120px;
+    }
+
+    .itemDesc {
+        display: none;
+    }
+
+    .starButton {
+        width: 44px;
+        height: 44px;
+    }
+}
+
+@media (max-width: 480px) {
+    .searchRow {
+        padding: 0 16px 12px;
+    }
+
+    .filterTabs {
+        padding: 0 16px 12px;
+    }
+
+    .item {
+        padding: 12px 16px;
+    }
+
+    .sectionLabel {
+        padding: 12px 16px 8px;
+    }
+
+    .itemMeta {
+        gap: 6px;
+    }
+
+    .typeLabel {
+        display: none;
+    }
 }

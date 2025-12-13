@@ -5,12 +5,23 @@ import {
     BarSeries,
     LineSeries,
     AreaSeries,
-    BaselineSeries
+    BaselineSeries,
+    HistogramSeries
 } from 'lightweight-charts';
 import styles from './ChartComponent.module.css';
 import { getKlines, getHistoricalKlines, subscribeToTicker } from '../../services/openalgo';
 import { getAccurateISTTimestamp, syncTimeWithAPI, shouldResync } from '../../services/timeService';
-import { calculateSMA, calculateEMA } from '../../utils/indicators';
+import {
+    calculateSMA,
+    calculateEMA,
+    calculateRSI,
+    calculateMACD,
+    calculateBollingerBands,
+    calculateVolume,
+    calculateATR,
+    calculateStochastic,
+    calculateVWAP
+} from '../../utils/indicators';
 import { calculateHeikinAshi } from '../../utils/chartUtils';
 import { intervalToSeconds } from '../../utils/timeframes';
 import { logger } from '../../utils/logger.js';
@@ -61,6 +72,14 @@ const TOOL_MAP = {
     'remove': 'None'
 };
 
+// Helper to convert hex color to rgba
+const hexToRgba = (hex, alpha) => {
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
 const ChartComponent = forwardRef(({
     symbol,
     exchange = 'NSE',
@@ -83,6 +102,8 @@ const ChartComponent = forwardRef(({
     isDrawingsHidden = false,
     isTimerVisible = false,
     isSessionBreakVisible = false,
+    onIndicatorRemove,
+    chartAppearance = {},
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
@@ -91,6 +112,19 @@ const ChartComponent = forwardRef(({
     const mainSeriesRef = useRef(null);
     const smaSeriesRef = useRef(null);
     const emaSeriesRef = useRef(null);
+    const bollingerSeriesRef = useRef({ upper: null, middle: null, lower: null });
+    const vwapSeriesRef = useRef(null);
+    // Integrated indicator series refs (displayed within main chart)
+    const volumeSeriesRef = useRef(null);
+    const rsiSeriesRef = useRef(null);
+    const macdSeriesRef = useRef({ macd: null, signal: null, histogram: null });
+    const stochasticSeriesRef = useRef({ k: null, d: null });
+    const atrSeriesRef = useRef(null);
+    // Pane refs for oscillator indicators (v5 multi-pane support)
+    const rsiPaneRef = useRef(null);
+    const macdPaneRef = useRef(null);
+    const stochasticPaneRef = useRef(null);
+    const atrPaneRef = useRef(null);
     const chartReadyRef = useRef(false); // Track when chart is fully stable and ready for indicator additions
     const lineToolManagerRef = useRef(null);
     const priceScaleTimerRef = useRef(null); // Ref for the candle countdown timer
@@ -296,6 +330,35 @@ const ChartComponent = forwardRef(({
                 return !isVisible;
             }
             return false;
+        },
+        applyDrawingOptions: (options) => {
+            // Apply options to the currently selected drawing
+            const manager = lineToolManagerRef.current;
+            if (manager && manager._selectedTool) {
+                try {
+                    manager._selectedTool.applyOptions(options);
+                    return true;
+                } catch (err) {
+                    console.warn('Failed to apply drawing options:', err);
+                }
+            }
+            return false;
+        },
+        updateDefaultToolOptions: (options) => {
+            // Update default options for future drawings
+            const manager = lineToolManagerRef.current;
+            if (manager && typeof manager.updateToolOptions === 'function') {
+                try {
+                    manager.updateToolOptions(options);
+                } catch (err) {
+                    console.warn('Failed to update default tool options:', err);
+                }
+            }
+        },
+        getSelectedDrawing: () => {
+            // Get the currently selected drawing tool instance
+            const manager = lineToolManagerRef.current;
+            return manager?._selectedTool || null;
         },
         toggleReplay: () => {
             setIsReplayMode(prev => {
@@ -754,32 +817,38 @@ const ChartComponent = forwardRef(({
     const createSeries = (chart, type, title = '') => {
         const commonOptions = { lastValueVisible: true, priceScaleId: 'right', title: title };
 
+        // Use appearance colors or defaults
+        const upColor = chartAppearance.candleUpColor || '#089981';
+        const downColor = chartAppearance.candleDownColor || '#F23645';
+        const wickUpColor = chartAppearance.wickUpColor || upColor;
+        const wickDownColor = chartAppearance.wickDownColor || downColor;
+
         switch (type) {
             case 'candlestick':
                 return chart.addSeries(CandlestickSeries, {
                     ...commonOptions,
-                    upColor: '#089981',
-                    downColor: '#F23645',
+                    upColor,
+                    downColor,
                     borderVisible: false,
-                    wickUpColor: '#089981',
-                    wickDownColor: '#F23645',
+                    wickUpColor,
+                    wickDownColor,
                 });
             case 'bar':
                 return chart.addSeries(BarSeries, {
                     ...commonOptions,
-                    upColor: '#089981',
-                    downColor: '#F23645',
+                    upColor,
+                    downColor,
                     thinBars: false,
                 });
             case 'hollow-candlestick':
                 return chart.addSeries(CandlestickSeries, {
                     ...commonOptions,
                     upColor: 'transparent',
-                    downColor: '#F23645',
-                    borderUpColor: '#089981',
-                    borderDownColor: '#F23645',
-                    wickUpColor: '#089981',
-                    wickDownColor: '#F23645',
+                    downColor,
+                    borderUpColor: upColor,
+                    borderDownColor: downColor,
+                    wickUpColor,
+                    wickDownColor,
                 });
             case 'line':
                 return chart.addSeries(LineSeries, {
@@ -798,30 +867,30 @@ const ChartComponent = forwardRef(({
             case 'baseline':
                 return chart.addSeries(BaselineSeries, {
                     ...commonOptions,
-                    topLineColor: '#089981',
-                    topFillColor1: 'rgba(8, 153, 129, 0.28)',
-                    topFillColor2: 'rgba(8, 153, 129, 0.05)',
-                    bottomLineColor: '#F23645',
-                    bottomFillColor1: 'rgba(242, 54, 69, 0.05)',
-                    bottomFillColor2: 'rgba(242, 54, 69, 0.28)',
+                    topLineColor: upColor,
+                    topFillColor1: hexToRgba(upColor, 0.28),
+                    topFillColor2: hexToRgba(upColor, 0.05),
+                    bottomLineColor: downColor,
+                    bottomFillColor1: hexToRgba(downColor, 0.05),
+                    bottomFillColor2: hexToRgba(downColor, 0.28),
                 });
             case 'heikin-ashi':
                 return chart.addSeries(CandlestickSeries, {
                     ...commonOptions,
-                    upColor: '#089981',
-                    downColor: '#F23645',
+                    upColor,
+                    downColor,
                     borderVisible: false,
-                    wickUpColor: '#089981',
-                    wickDownColor: '#F23645',
+                    wickUpColor,
+                    wickDownColor,
                 });
             default:
                 return chart.addSeries(CandlestickSeries, {
                     ...commonOptions,
-                    upColor: '#089981',
-                    downColor: '#F23645',
+                    upColor,
+                    downColor,
                     borderVisible: false,
-                    wickUpColor: '#089981',
-                    wickDownColor: '#F23645',
+                    wickUpColor,
+                    wickDownColor,
                 });
         }
     };
@@ -933,18 +1002,32 @@ const ChartComponent = forwardRef(({
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
+        // Use appearance settings or defaults
+        const backgroundColor = theme === 'dark'
+            ? (chartAppearance.darkBackground || '#131722')
+            : (chartAppearance.lightBackground || '#ffffff');
+        const gridColor = theme === 'dark'
+            ? (chartAppearance.darkGridColor || '#2A2E39')
+            : (chartAppearance.lightGridColor || '#e0e3eb');
+
         const chart = createChart(chartContainerRef.current, {
             watermark: {
                 visible: false,
             },
             layout: {
                 textColor: theme === 'dark' ? '#D1D4DC' : '#131722',
-                background: { color: theme === 'dark' ? '#131722' : '#ffffff' },
+                background: { color: backgroundColor },
                 attributionLogo: false,
             },
             grid: {
-                vertLines: { color: theme === 'dark' ? '#2A2E39' : '#e0e3eb' },
-                horzLines: { color: theme === 'dark' ? '#2A2E39' : '#e0e3eb' },
+                vertLines: {
+                    color: gridColor,
+                    visible: chartAppearance.showVerticalGridLines !== false,
+                },
+                horzLines: {
+                    color: gridColor,
+                    visible: chartAppearance.showHorizontalGridLines !== false,
+                },
             },
             crosshair: {
                 mode: magnetMode ? 1 : 0,
@@ -1578,6 +1661,351 @@ const ChartComponent = forwardRef(({
                 emaSeriesRef.current = null;
             }
         }
+
+        // Bollinger Bands (overlay on main chart)
+        if (indicatorsConfig.bollingerBands?.enabled) {
+            const period = indicatorsConfig.bollingerBands.period || 20;
+            const stdDev = indicatorsConfig.bollingerBands.stdDev || 2;
+            const bbData = calculateBollingerBands(data, period, stdDev);
+
+            if (canAddSeries && bbData.upper && bbData.upper.length > 0) {
+                // Upper band
+                if (!bollingerSeriesRef.current.upper) {
+                    bollingerSeriesRef.current.upper = chartRef.current.addSeries(LineSeries, {
+                        color: 'rgba(33, 150, 243, 0.5)',
+                        lineWidth: 1,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        title: '',
+                    });
+                }
+                bollingerSeriesRef.current.upper.setData(bbData.upper);
+
+                // Middle band (SMA)
+                if (!bollingerSeriesRef.current.middle) {
+                    bollingerSeriesRef.current.middle = chartRef.current.addSeries(LineSeries, {
+                        color: 'rgba(33, 150, 243, 0.8)',
+                        lineWidth: 1,
+                        lineStyle: 2, // Dashed
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        title: 'BB',
+                    });
+                }
+                bollingerSeriesRef.current.middle.setData(bbData.middle);
+
+                // Lower band
+                if (!bollingerSeriesRef.current.lower) {
+                    bollingerSeriesRef.current.lower = chartRef.current.addSeries(LineSeries, {
+                        color: 'rgba(33, 150, 243, 0.5)',
+                        lineWidth: 1,
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                        title: '',
+                    });
+                }
+                bollingerSeriesRef.current.lower.setData(bbData.lower);
+            }
+        } else {
+            // Remove Bollinger Bands series
+            if (bollingerSeriesRef.current.upper) {
+                chartRef.current.removeSeries(bollingerSeriesRef.current.upper);
+                bollingerSeriesRef.current.upper = null;
+            }
+            if (bollingerSeriesRef.current.middle) {
+                chartRef.current.removeSeries(bollingerSeriesRef.current.middle);
+                bollingerSeriesRef.current.middle = null;
+            }
+            if (bollingerSeriesRef.current.lower) {
+                chartRef.current.removeSeries(bollingerSeriesRef.current.lower);
+                bollingerSeriesRef.current.lower = null;
+            }
+        }
+
+        // VWAP Indicator (overlay on main chart)
+        if (indicatorsConfig.vwap?.enabled) {
+            if (!vwapSeriesRef.current && canAddSeries) {
+                vwapSeriesRef.current = chartRef.current.addSeries(LineSeries, {
+                    color: indicatorsConfig.vwap.color || '#FF9800',
+                    lineWidth: 2,
+                    title: 'VWAP',
+                    priceLineVisible: false,
+                    lastValueVisible: true
+                });
+            }
+            if (vwapSeriesRef.current && typeof calculateVWAP === 'function') {
+                const vwapData = calculateVWAP(data);
+                if (vwapData && vwapData.length > 0) {
+                    vwapSeriesRef.current.setData(vwapData);
+                }
+            }
+        } else {
+            if (vwapSeriesRef.current) {
+                chartRef.current.removeSeries(vwapSeriesRef.current);
+                vwapSeriesRef.current = null;
+            }
+        }
+
+        // ========== VOLUME INDICATOR (Overlay at bottom of chart) ==========
+        if (indicatorsConfig.volume?.enabled) {
+            if (!volumeSeriesRef.current && canAddSeries) {
+                volumeSeriesRef.current = chartRef.current.addSeries(HistogramSeries, {
+                    priceFormat: { type: 'volume' },
+                    priceScaleId: 'volume',
+                    priceLineVisible: false,
+                    lastValueVisible: false,
+                });
+                volumeSeriesRef.current.priceScale().applyOptions({
+                    scaleMargins: { top: 0.85, bottom: 0 },
+                });
+            }
+            if (volumeSeriesRef.current) {
+                const upColor = indicatorsConfig.volume.colorUp || '#26a69a80';
+                const downColor = indicatorsConfig.volume.colorDown || '#ef535080';
+                const volumeData = calculateVolume(data, upColor, downColor);
+                if (volumeData && volumeData.length > 0) {
+                    volumeSeriesRef.current.setData(volumeData);
+                }
+            }
+        } else if (volumeSeriesRef.current) {
+            chartRef.current.removeSeries(volumeSeriesRef.current);
+            volumeSeriesRef.current = null;
+        }
+
+        // ========== RSI INDICATOR (Separate Pane - v5 Multi-Pane) ==========
+        if (indicatorsConfig.rsi?.enabled) {
+            // Create dedicated pane for RSI if not exists
+            if (!rsiPaneRef.current && canAddSeries) {
+                rsiPaneRef.current = chartRef.current.addPane({ height: 100 });
+            }
+            // Add series to the RSI pane
+            if (rsiPaneRef.current && !rsiSeriesRef.current && canAddSeries) {
+                rsiSeriesRef.current = rsiPaneRef.current.addSeries(LineSeries, {
+                    color: indicatorsConfig.rsi?.color || '#7B1FA2',
+                    lineWidth: 2,
+                    priceLineVisible: false,
+                    lastValueVisible: true,
+                    title: 'RSI',
+                });
+            }
+            // Set RSI data
+            if (rsiSeriesRef.current) {
+                const period = indicatorsConfig.rsi.period || 14;
+                const rsiData = calculateRSI(data, period);
+                if (rsiData && rsiData.length > 0) {
+                    rsiSeriesRef.current.setData(rsiData);
+                }
+            }
+        } else {
+            // Cleanup RSI pane and series
+            if (rsiSeriesRef.current && rsiPaneRef.current) {
+                try {
+                    rsiPaneRef.current.removeSeries(rsiSeriesRef.current);
+                } catch (e) {
+                    console.warn('Error removing RSI series:', e);
+                }
+                rsiSeriesRef.current = null;
+            }
+            if (rsiPaneRef.current) {
+                try {
+                    const paneIndex = chartRef.current.panes().indexOf(rsiPaneRef.current);
+                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                        chartRef.current.removePane(paneIndex);
+                    }
+                } catch (e) {
+                    console.warn('Error removing RSI pane:', e);
+                }
+                rsiPaneRef.current = null;
+            }
+        }
+
+        // ========== MACD INDICATOR (Separate Pane - v5 Multi-Pane) ==========
+        if (indicatorsConfig.macd?.enabled) {
+            // Create dedicated pane for MACD if not exists
+            if (!macdPaneRef.current && canAddSeries) {
+                macdPaneRef.current = chartRef.current.addPane({ height: 120 });
+            }
+
+            if (macdPaneRef.current && canAddSeries) {
+                // MACD Histogram
+                if (!macdSeriesRef.current.histogram) {
+                    macdSeriesRef.current.histogram = macdPaneRef.current.addSeries(HistogramSeries, {
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                    });
+                }
+                // MACD Line
+                if (!macdSeriesRef.current.macd) {
+                    macdSeriesRef.current.macd = macdPaneRef.current.addSeries(LineSeries, {
+                        color: indicatorsConfig.macd?.macdColor || '#2962FF',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        title: 'MACD',
+                    });
+                }
+                // Signal Line
+                if (!macdSeriesRef.current.signal) {
+                    macdSeriesRef.current.signal = macdPaneRef.current.addSeries(LineSeries, {
+                        color: indicatorsConfig.macd?.signalColor || '#FF6D00',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        title: 'Signal',
+                    });
+                }
+            }
+
+            // Set MACD data
+            const fast = indicatorsConfig.macd.fast || 12;
+            const slow = indicatorsConfig.macd.slow || 26;
+            const signal = indicatorsConfig.macd.signal || 9;
+            const macdResult = calculateMACD(data, fast, slow, signal);
+
+            if (macdSeriesRef.current.histogram && macdResult?.histogram) {
+                macdSeriesRef.current.histogram.setData(macdResult.histogram);
+            }
+            if (macdSeriesRef.current.macd && macdResult?.macdLine) {
+                macdSeriesRef.current.macd.setData(macdResult.macdLine);
+            }
+            if (macdSeriesRef.current.signal && macdResult?.signalLine) {
+                macdSeriesRef.current.signal.setData(macdResult.signalLine);
+            }
+        } else {
+            // Cleanup MACD pane and series
+            if (macdPaneRef.current) {
+                try {
+                    const paneIndex = chartRef.current.panes().indexOf(macdPaneRef.current);
+                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                        chartRef.current.removePane(paneIndex);
+                    }
+                } catch (e) {
+                    console.warn('Error removing MACD pane:', e);
+                }
+                macdPaneRef.current = null;
+                macdSeriesRef.current.histogram = null;
+                macdSeriesRef.current.macd = null;
+                macdSeriesRef.current.signal = null;
+            }
+        }
+
+        // ========== STOCHASTIC INDICATOR (Separate Pane - v5 Multi-Pane) ==========
+        if (indicatorsConfig.stochastic?.enabled) {
+            // Create dedicated pane for Stochastic if not exists
+            if (!stochasticPaneRef.current && canAddSeries) {
+                stochasticPaneRef.current = chartRef.current.addPane({ height: 100 });
+            }
+
+            if (stochasticPaneRef.current && canAddSeries) {
+                // %K Line
+                if (!stochasticSeriesRef.current.k) {
+                    stochasticSeriesRef.current.k = stochasticPaneRef.current.addSeries(LineSeries, {
+                        color: indicatorsConfig.stochastic?.kColor || '#2962FF',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        title: '%K',
+                    });
+                }
+                // %D Line
+                if (!stochasticSeriesRef.current.d) {
+                    stochasticSeriesRef.current.d = stochasticPaneRef.current.addSeries(LineSeries, {
+                        color: indicatorsConfig.stochastic?.dColor || '#FF6D00',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        title: '%D',
+                    });
+                }
+            }
+
+            const kPeriod = indicatorsConfig.stochastic.kPeriod || 14;
+            const dPeriod = indicatorsConfig.stochastic.dPeriod || 3;
+            const smooth = indicatorsConfig.stochastic.smooth || 3;
+            const stochResult = calculateStochastic(data, kPeriod, dPeriod, smooth);
+
+            if (stochasticSeriesRef.current.k && stochResult?.kLine) {
+                stochasticSeriesRef.current.k.setData(stochResult.kLine);
+            }
+            if (stochasticSeriesRef.current.d && stochResult?.dLine) {
+                stochasticSeriesRef.current.d.setData(stochResult.dLine);
+            }
+        } else {
+            // Cleanup Stochastic pane and series
+            if (stochasticPaneRef.current) {
+                try {
+                    const paneIndex = chartRef.current.panes().indexOf(stochasticPaneRef.current);
+                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                        chartRef.current.removePane(paneIndex);
+                    }
+                } catch (e) {
+                    console.warn('Error removing Stochastic pane:', e);
+                }
+                stochasticPaneRef.current = null;
+                stochasticSeriesRef.current.k = null;
+                stochasticSeriesRef.current.d = null;
+            }
+        }
+
+        // ========== ATR INDICATOR (Separate Pane - v5 Multi-Pane) ==========
+        if (indicatorsConfig.atr?.enabled) {
+            // Create dedicated pane for ATR if not exists
+            if (!atrPaneRef.current && canAddSeries) {
+                atrPaneRef.current = chartRef.current.addPane({ height: 80 });
+            }
+            // Add series to the ATR pane
+            if (atrPaneRef.current && !atrSeriesRef.current && canAddSeries) {
+                atrSeriesRef.current = atrPaneRef.current.addSeries(LineSeries, {
+                    color: indicatorsConfig.atr?.color || '#FF9800',
+                    lineWidth: 2,
+                    priceLineVisible: false,
+                    lastValueVisible: true,
+                    title: 'ATR',
+                });
+            }
+            // Set ATR data
+            if (atrSeriesRef.current) {
+                const period = indicatorsConfig.atr.period || 14;
+                const atrData = calculateATR(data, period);
+                if (atrData && atrData.length > 0) {
+                    atrSeriesRef.current.setData(atrData);
+                }
+            }
+        } else {
+            // Cleanup ATR pane and series
+            if (atrSeriesRef.current && atrPaneRef.current) {
+                try {
+                    atrPaneRef.current.removeSeries(atrSeriesRef.current);
+                } catch (e) {
+                    console.warn('Error removing ATR series:', e);
+                }
+                atrSeriesRef.current = null;
+            }
+            if (atrPaneRef.current) {
+                try {
+                    const paneIndex = chartRef.current.panes().indexOf(atrPaneRef.current);
+                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                        chartRef.current.removePane(paneIndex);
+                    }
+                } catch (e) {
+                    console.warn('Error removing ATR pane:', e);
+                }
+                atrPaneRef.current = null;
+            }
+        }
+
+        // ========== ADJUST MAIN PRICE SERIES SCALE MARGINS ==========
+        // Only Volume uses overlay now, oscillators are in separate panes
+        const hasVolumeOverlay = indicatorsConfig.volume?.enabled;
+
+        if (mainSeriesRef.current) {
+            mainSeriesRef.current.priceScale().applyOptions({
+                scaleMargins: hasVolumeOverlay
+                    ? { top: 0.02, bottom: 0.18 }  // Small bottom margin for volume overlay
+                    : { top: 0.1, bottom: 0.1 },   // Normal full view
+            });
+        }
+
     }, []); // Empty dependency array - indicators passed as parameter
 
     // Separate effect for indicators to prevent data reload
@@ -1762,17 +2190,30 @@ const ChartComponent = forwardRef(({
         };
     }, [comparisonSymbols, interval, isLogScale, isAutoScale]);
 
-    // Handle Theme Changes
+    // Handle Theme and Appearance Changes
     useEffect(() => {
         if (chartRef.current) {
+            const backgroundColor = theme === 'dark'
+                ? (chartAppearance.darkBackground || '#131722')
+                : (chartAppearance.lightBackground || '#ffffff');
+            const gridColor = theme === 'dark'
+                ? (chartAppearance.darkGridColor || '#2A2E39')
+                : (chartAppearance.lightGridColor || '#e0e3eb');
+
             chartRef.current.applyOptions({
                 layout: {
                     textColor: theme === 'dark' ? '#D1D4DC' : '#131722',
-                    background: { color: theme === 'dark' ? '#131722' : '#ffffff' },
+                    background: { color: backgroundColor },
                 },
                 grid: {
-                    vertLines: { color: theme === 'dark' ? '#2A2E39' : '#e0e3eb' },
-                    horzLines: { color: theme === 'dark' ? '#2A2E39' : '#e0e3eb' },
+                    vertLines: {
+                        color: gridColor,
+                        visible: chartAppearance.showVerticalGridLines !== false,
+                    },
+                    horzLines: {
+                        color: gridColor,
+                        visible: chartAppearance.showHorizontalGridLines !== false,
+                    },
                 },
                 crosshair: {
                     vertLine: {
@@ -1785,14 +2226,55 @@ const ChartComponent = forwardRef(({
                     },
                 },
                 timeScale: {
-                    borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
+                    borderColor: gridColor,
                 },
                 rightPriceScale: {
-                    borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
+                    borderColor: gridColor,
                 },
             });
+
+            // Update series colors (real-time preview)
+            if (mainSeriesRef.current) {
+                const upColor = chartAppearance.candleUpColor || '#089981';
+                const downColor = chartAppearance.candleDownColor || '#F23645';
+                const wickUpColor = chartAppearance.wickUpColor || upColor;
+                const wickDownColor = chartAppearance.wickDownColor || downColor;
+
+                const seriesType = chartTypeRef.current;
+
+                if (seriesType === 'candlestick' || seriesType === 'heikin-ashi') {
+                    mainSeriesRef.current.applyOptions({
+                        upColor,
+                        downColor,
+                        wickUpColor,
+                        wickDownColor,
+                    });
+                } else if (seriesType === 'bar') {
+                    mainSeriesRef.current.applyOptions({
+                        upColor,
+                        downColor,
+                    });
+                } else if (seriesType === 'hollow-candlestick') {
+                    mainSeriesRef.current.applyOptions({
+                        downColor,
+                        borderUpColor: upColor,
+                        borderDownColor: downColor,
+                        wickUpColor,
+                        wickDownColor,
+                    });
+                } else if (seriesType === 'baseline') {
+                    mainSeriesRef.current.applyOptions({
+                        topLineColor: upColor,
+                        topFillColor1: hexToRgba(upColor, 0.28),
+                        topFillColor2: hexToRgba(upColor, 0.05),
+                        bottomLineColor: downColor,
+                        bottomFillColor1: hexToRgba(downColor, 0.05),
+                        bottomFillColor2: hexToRgba(downColor, 0.28),
+                    });
+                }
+            }
         }
-    }, [theme]);
+    }, [theme, chartAppearance]);
 
     // Handle Time Range
     useEffect(() => {
@@ -2316,14 +2798,16 @@ const ChartComponent = forwardRef(({
     }, [isSelectingReplayPoint, updateReplayData]);
 
     return (
-        <div className={`${styles.chartWrapper} ${isToolbarVisible ? styles.toolbarVisible : ''}`}>
+        <div className={`${styles.chartWrapper} ${isToolbarVisible ? styles.toolbarVisible : ''}`} style={{ display: 'flex', flexDirection: 'column' }}>
             <div
                 id="container"
                 ref={chartContainerRef}
                 className={styles.chartContainer}
                 style={{
                     position: 'relative',
-                    touchAction: 'none'
+                    touchAction: 'none',
+                    flex: '1 1 100%',
+                    minHeight: 200,
                 }}
             />
             {isLoading && isActuallyLoadingRef.current && <div className={styles.loadingOverlay}><div className={styles.spinner}></div><div>Loading...</div></div>}

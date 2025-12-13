@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Layout from './components/Layout/Layout';
 import Topbar from './components/Topbar/Topbar';
 import DrawingToolbar from './components/Toolbar/DrawingToolbar';
+import DrawingPropertiesPanel from './components/Toolbar/DrawingPropertiesPanel';
 import Watchlist from './components/Watchlist/Watchlist';
 import ChartComponent from './components/Chart/ChartComponent';
 import SymbolSearch from './components/SymbolSearch/SymbolSearch';
@@ -17,7 +18,12 @@ import RightToolbar from './components/Toolbar/RightToolbar';
 import AlertsPanel from './components/Alerts/AlertsPanel';
 import ApiKeyDialog from './components/ApiKeyDialog/ApiKeyDialog';
 import SettingsPopup from './components/Settings/SettingsPopup';
+import MobileNav from './components/MobileNav';
+import CommandPalette from './components/CommandPalette/CommandPalette';
+import LayoutTemplateDialog from './components/LayoutTemplates/LayoutTemplateDialog';
+import ShortcutsDialog from './components/ShortcutsDialog/ShortcutsDialog';
 import { initTimeService } from './services/timeService';
+import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
@@ -65,6 +71,113 @@ const safeParseJSON = (value, fallback) => {
 
 const ALERT_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
+// Favorites watchlist - always pinned at top
+const FAVORITES_WATCHLIST = {
+  id: 'wl_favorites',
+  name: 'Favorites',
+  symbols: [],
+  isFavorites: true,
+};
+
+// Default watchlist for new users or migration
+const DEFAULT_WATCHLIST = {
+  id: 'wl_default',
+  name: 'My Watchlist',
+  symbols: [
+    { symbol: 'RELIANCE', exchange: 'NSE' },
+    { symbol: 'TCS', exchange: 'NSE' },
+    { symbol: 'INFY', exchange: 'NSE' },
+    { symbol: 'HDFCBANK', exchange: 'NSE' },
+    { symbol: 'ICICIBANK', exchange: 'NSE' },
+    { symbol: 'SBIN', exchange: 'NSE' },
+    { symbol: 'BHARTIARTL', exchange: 'NSE' },
+    { symbol: 'ITC', exchange: 'NSE' },
+  ],
+};
+
+// Migration function: converts old tv_watchlist to new tv_watchlists format
+const migrateWatchlistData = () => {
+  const newData = safeParseJSON(localStorage.getItem('tv_watchlists'), null);
+
+  // If new format exists, validate and use it
+  if (newData && newData.lists && Array.isArray(newData.lists)) {
+    // Ensure Favorites watchlist exists (for existing users upgrading)
+    if (!newData.lists.find(wl => wl.id === 'wl_favorites')) {
+      newData.lists.unshift(FAVORITES_WATCHLIST);
+    }
+    return newData;
+  }
+
+  // Check for old format
+  const oldData = safeParseJSON(localStorage.getItem('tv_watchlist'), null);
+
+  if (oldData && Array.isArray(oldData) && oldData.length > 0) {
+    // Migrate old format to new format with Favorites
+    return {
+      lists: [
+        FAVORITES_WATCHLIST,
+        {
+          ...DEFAULT_WATCHLIST,
+          symbols: oldData.map(s => typeof s === 'string' ? { symbol: s, exchange: 'NSE' } : s),
+        }
+      ],
+      activeListId: 'wl_default',
+    };
+  }
+
+  // Return default with Favorites first
+  return {
+    lists: [FAVORITES_WATCHLIST, DEFAULT_WATCHLIST],
+    activeListId: 'wl_default',
+  };
+};
+
+// Default chart appearance settings
+const DEFAULT_CHART_APPEARANCE = {
+  // Candle Colors
+  candleUpColor: '#089981',
+  candleDownColor: '#F23645',
+  wickUpColor: '#089981',
+  wickDownColor: '#F23645',
+  // Grid Settings
+  showVerticalGridLines: true,
+  showHorizontalGridLines: true,
+  // Background Colors (per theme)
+  darkBackground: '#131722',
+  lightBackground: '#ffffff',
+  // Grid Colors (per theme)
+  darkGridColor: '#2A2E39',
+  lightGridColor: '#e0e3eb',
+};
+
+// Default drawing tool options
+// Line styles: 0=Solid, 1=Dotted, 2=Dashed, 3=LargeDashed, 4=SparseDotted
+const DEFAULT_DRAWING_OPTIONS = {
+  lineColor: '#2962FF',
+  backgroundColor: 'rgba(41, 98, 255, 0.2)',
+  width: 2,
+  lineStyle: 0,
+  globalAlpha: 1.0,
+};
+
+// Drawing tools that should show the properties panel
+const DRAWING_TOOLS = [
+  'TrendLine',
+  'HorizontalLine',
+  'VerticalLine',
+  'Rectangle',
+  'Circle',
+  'Path',
+  'Text',
+  'Callout',
+  'PriceRange',
+  'Arrow',
+  'Ray',
+  'ExtendedLine',
+  'ParallelChannel',
+  'FibonacciRetracement',
+];
+
 const formatPrice = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num)) return value;
@@ -91,8 +204,26 @@ function App() {
   const [activeChartId, setActiveChartId] = useState(1);
   const [charts, setCharts] = useState(() => {
     const saved = safeParseJSON(localStorage.getItem('tv_saved_layout'), null);
-    return saved && Array.isArray(saved.charts) ? saved.charts : [
-      { id: 1, symbol: 'RELIANCE', exchange: 'NSE', interval: localStorage.getItem('tv_interval') || '1d', indicators: { sma: false, ema: false }, comparisonSymbols: [] }
+    const defaultIndicators = {
+      sma: false,
+      ema: false,
+      rsi: { enabled: false, period: 14, color: '#7B1FA2' },
+      macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
+      bollingerBands: { enabled: false, period: 20, stdDev: 2 },
+      volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
+      atr: { enabled: false, period: 14, color: '#FF9800' },
+      stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
+      vwap: { enabled: false, color: '#FF9800' }
+    };
+    if (saved && Array.isArray(saved.charts)) {
+      // Merge saved indicators with defaults to ensure new indicators are present
+      return saved.charts.map(chart => ({
+        ...chart,
+        indicators: { ...defaultIndicators, ...chart.indicators }
+      }));
+    }
+    return [
+      { id: 1, symbol: 'RELIANCE', exchange: 'NSE', interval: localStorage.getItem('tv_interval') || '1d', indicators: defaultIndicators, comparisonSymbols: [] }
     ];
   });
 
@@ -113,8 +244,13 @@ function App() {
   const [chartType, setChartType] = useState('candlestick');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchMode, setSearchMode] = useState('switch'); // 'switch' or 'add'
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
+  const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
+  const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
   // const [indicators, setIndicators] = useState({ sma: false, ema: false }); // Moved to charts state
-  const [toast, setToast] = useState(null);
+  const [toasts, setToasts] = useState([]);
+  const toastIdCounter = React.useRef(0);
+  const MAX_TOASTS = 3;
 
   const [snapshotToast, setSnapshotToast] = useState(null);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
@@ -144,6 +280,32 @@ function App() {
   });
   const [unreadAlertCount, setUnreadAlertCount] = useState(0);
 
+  // Mobile State
+  const isMobile = useIsMobile();
+  const [mobileTab, setMobileTab] = useState('chart');
+  const [isWatchlistVisible, setIsWatchlistVisible] = useState(false);
+
+  // Handle mobile tab changes
+  const handleMobileTabChange = useCallback((tab) => {
+    setMobileTab(tab);
+    // Show/hide watchlist based on tab
+    if (tab === 'watchlist') {
+      setIsWatchlistVisible(true);
+    } else {
+      setIsWatchlistVisible(false);
+    }
+    // Handle settings tab
+    if (tab === 'settings') {
+      setIsSettingsOpen(true);
+      setMobileTab('chart'); // Reset to chart after opening settings
+    }
+    // Handle alerts tab
+    if (tab === 'alerts') {
+      setIsAlertsPanelOpen(true);
+      setMobileTab('chart');
+    }
+  }, []);
+
   // Bottom Bar State
   const [currentTimeRange, setCurrentTimeRange] = useState('All');
   const [isLogScale, setIsLogScale] = useState(false);
@@ -167,17 +329,62 @@ function App() {
     setTheme(prev => prev === 'dark' ? 'light' : 'dark');
   };
 
+  // Chart Appearance State
+  const [chartAppearance, setChartAppearance] = useState(() => {
+    const saved = safeParseJSON(localStorage.getItem('tv_chart_appearance'), null);
+    return saved ? { ...DEFAULT_CHART_APPEARANCE, ...saved } : DEFAULT_CHART_APPEARANCE;
+  });
+
+  // Persist chart appearance settings
+  useEffect(() => {
+    try {
+      localStorage.setItem('tv_chart_appearance', JSON.stringify(chartAppearance));
+    } catch (error) {
+      console.error('Failed to persist chart appearance:', error);
+    }
+  }, [chartAppearance]);
+
+  // Drawing Tool Defaults State
+  const [drawingDefaults, setDrawingDefaults] = useState(() => {
+    const saved = safeParseJSON(localStorage.getItem('tv_drawing_defaults'), null);
+    return saved ? { ...DEFAULT_DRAWING_OPTIONS, ...saved } : DEFAULT_DRAWING_OPTIONS;
+  });
+
+  // Persist drawing defaults
+  useEffect(() => {
+    try {
+      localStorage.setItem('tv_drawing_defaults', JSON.stringify(drawingDefaults));
+    } catch (error) {
+      console.error('Failed to persist drawing defaults:', error);
+    }
+  }, [drawingDefaults]);
+
   // Toast timeout refs for cleanup
-  const toastTimeoutRef = React.useRef(null);
   const snapshotToastTimeoutRef = React.useRef(null);
 
-  // Show toast helper with cleanup to prevent memory leaks
-  const showToast = (message, type = 'error') => {
-    if (toastTimeoutRef.current) {
-      clearTimeout(toastTimeoutRef.current);
-    }
-    setToast({ message, type });
-    toastTimeoutRef.current = setTimeout(() => setToast(null), 5000);
+  // Show toast helper with queue management
+  const showToast = (message, type = 'error', action = null) => {
+    const id = ++toastIdCounter.current;
+    const newToast = { id, message, type, action };
+
+    setToasts(prev => {
+      // Add new toast, limit to MAX_TOASTS (oldest removed first)
+      const updated = [...prev, newToast];
+      if (updated.length > MAX_TOASTS) {
+        return updated.slice(-MAX_TOASTS);
+      }
+      return updated;
+    });
+
+    // Auto-remove after 5 seconds
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id));
+    }, 5000);
+  };
+
+  // Remove a specific toast
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(t => t.id !== id));
   };
 
   const showSnapshotToast = (message) => {
@@ -191,7 +398,6 @@ function App() {
   // Cleanup toast timeouts on unmount
   useEffect(() => {
     return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
       if (snapshotToastTimeoutRef.current) clearTimeout(snapshotToastTimeoutRef.current);
     };
   }, []);
@@ -331,34 +537,54 @@ function App() {
     }
   };
 
-  // Load watchlist from localStorage or default
-  const [watchlistSymbols, setWatchlistSymbols] = useState(() => {
-    const saved = safeParseJSON(localStorage.getItem('tv_watchlist'), null);
-    return Array.isArray(saved) && saved.length ? saved : [
-      { symbol: 'RELIANCE', exchange: 'NSE' },
-      { symbol: 'TCS', exchange: 'NSE' },
-      { symbol: 'INFY', exchange: 'NSE' },
-      { symbol: 'HDFCBANK', exchange: 'NSE' },
-      { symbol: 'ICICIBANK', exchange: 'NSE' },
-      { symbol: 'SBIN', exchange: 'NSE' },
-      { symbol: 'BHARTIARTL', exchange: 'NSE' },
-      { symbol: 'ITC', exchange: 'NSE' }
-    ];
-  });
+  // Multiple Watchlists State
+  const [watchlistsState, setWatchlistsState] = useState(migrateWatchlistData);
+
+  // Derive active watchlist and symbols from state
+  const activeWatchlist = watchlistsState.lists.find(
+    wl => wl.id === watchlistsState.activeListId
+  ) || watchlistsState.lists[0];
+  const watchlistSymbols = activeWatchlist?.symbols || [];
+
+  // Create a stable key for symbol SET (ignores order and section markers, only changes on add/remove symbols)
+  // This prevents full reload when just reordering or adding sections
+  const watchlistSymbolsKey = React.useMemo(() => {
+    const symbolSet = watchlistSymbols
+      // Filter out section markers
+      .filter(s => !(typeof s === 'string' && s.startsWith('###')))
+      .map(s => typeof s === 'string' ? s : s.symbol)
+      .sort()
+      .join(',');
+    return `${watchlistsState.activeListId}:${symbolSet}`;
+  }, [watchlistSymbols, watchlistsState.activeListId]);
+
+  // Derive favorite watchlists for quick-access row
+  const favoriteWatchlists = watchlistsState.lists.filter(wl =>
+    wl.isFavorite || wl.id === 'wl_favorites'
+  );
 
   const [watchlistData, setWatchlistData] = useState([]);
+  const [watchlistLoading, setWatchlistLoading] = useState(true);
 
   // Initialize TimeService on app mount - syncs time with WorldTimeAPI
   useEffect(() => {
     initTimeService();
   }, []);
 
-  // Persist watchlist
+  // Persist multiple watchlists
   useEffect(() => {
-    localStorage.setItem('tv_watchlist', JSON.stringify(watchlistSymbols));
-  }, [watchlistSymbols]);
+    try {
+      localStorage.setItem('tv_watchlists', JSON.stringify(watchlistsState));
+    } catch (error) {
+      console.error('Failed to persist watchlists:', error);
+    }
+  }, [watchlistsState]);
 
-  // Fetch watchlist data - only when authenticated
+  // Track previous symbols for incremental updates
+  const prevSymbolsRef = React.useRef(null);
+  const lastActiveListIdRef = React.useRef(null);
+
+  // Fetch watchlist data - only when authenticated (with incremental updates)
   useEffect(() => {
     // Don't fetch if not authenticated yet
     if (!isAuthenticated) return;
@@ -368,43 +594,68 @@ function App() {
     let initialDataLoaded = false;
     const abortController = new AbortController();
 
+    // Extract actual symbols (not section markers)
+    const currentSymbols = watchlistSymbols
+      .filter(s => !(typeof s === 'string' && s.startsWith('###')))
+      .map(s => typeof s === 'string' ? s : s.symbol);
+
+    const currentSymbolsSet = new Set(currentSymbols);
+    const prevSymbolsSet = new Set(prevSymbolsRef.current || []);
+
+    // Check if this is a watchlist switch (different list ID)
+    const isListSwitch = lastActiveListIdRef.current !== watchlistsState.activeListId;
+    const isInitialLoad = prevSymbolsRef.current === null;
+
+    // Detect added and removed symbols
+    const addedSymbols = currentSymbols.filter(s => !prevSymbolsSet.has(s));
+    const removedSymbols = (prevSymbolsRef.current || []).filter(s => !currentSymbolsSet.has(s));
+
+    // Update refs for next time
+    prevSymbolsRef.current = currentSymbols;
+    lastActiveListIdRef.current = watchlistsState.activeListId;
+
+    // Helper to fetch a symbol's data
+    const fetchSymbol = async (symObj) => {
+      const symbol = typeof symObj === 'string' ? symObj : symObj.symbol;
+      const exchange = typeof symObj === 'string' ? 'NSE' : (symObj.exchange || 'NSE');
+      const data = await getTickerPrice(symbol, exchange, abortController.signal);
+      if (data && mounted) {
+        return {
+          symbol, exchange,
+          last: parseFloat(data.lastPrice).toFixed(2),
+          chg: parseFloat(data.priceChange).toFixed(2),
+          chgP: parseFloat(data.priceChangePercent).toFixed(2) + '%',
+          up: parseFloat(data.priceChange) >= 0
+        };
+      }
+      return null;
+    };
+
+    // Full reload function (for initial load or watchlist switch)
     const hydrateWatchlist = async () => {
+      setWatchlistLoading(true);
       try {
-        const promises = watchlistSymbols.map(async (symObj) => {
-          // Handle both object format and legacy string format
-          const symbol = typeof symObj === 'string' ? symObj : symObj.symbol;
-          const exchange = typeof symObj === 'string' ? 'NSE' : (symObj.exchange || 'NSE');
-
-          const data = await getTickerPrice(symbol, exchange, abortController.signal);
-          if (data && mounted) {
-            return {
-              symbol: symbol,
-              exchange: exchange,
-              last: parseFloat(data.lastPrice).toFixed(2),
-              chg: parseFloat(data.priceChange).toFixed(2),
-              chgP: parseFloat(data.priceChangePercent).toFixed(2) + '%',
-              up: parseFloat(data.priceChange) >= 0
-            };
-          }
-          return null;
-        });
-
+        const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
+        const promises = symbolObjs.map(fetchSymbol);
         const results = await Promise.all(promises);
         if (mounted) {
           setWatchlistData(results.filter(r => r !== null));
+          setWatchlistLoading(false);
           initialDataLoaded = true;
         }
       } catch (error) {
         console.error('Error fetching watchlist data:', error);
         if (mounted) {
           showToast('Failed to load watchlist data', 'error');
+          setWatchlistLoading(false);
           initialDataLoaded = true;
         }
       }
 
-      if (!mounted || watchlistSymbols.length === 0) {
-        if (mounted && watchlistSymbols.length === 0) {
+      if (!mounted || currentSymbols.length === 0) {
+        if (mounted && currentSymbols.length === 0) {
           setWatchlistData([]);
+          setWatchlistLoading(false);
           initialDataLoaded = true;
         }
         return;
@@ -414,7 +665,8 @@ function App() {
         ws.close();
       }
 
-      ws = subscribeToMultiTicker(watchlistSymbols, (ticker) => {
+      const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
+      ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
         if (!mounted || !initialDataLoaded) return;
         setWatchlistData(prev => {
           const index = prev.findIndex(item => item.symbol === ticker.symbol);
@@ -434,7 +686,37 @@ function App() {
       });
     };
 
-    hydrateWatchlist();
+    // Incremental update for adding symbols (no full reload)
+    const hydrateAddedSymbols = async () => {
+      const addedSymbolObjs = watchlistSymbols.filter(symObj => {
+        if (typeof symObj === 'string' && symObj.startsWith('###')) return false;
+        const symbol = typeof symObj === 'string' ? symObj : symObj.symbol;
+        return addedSymbols.includes(symbol);
+      });
+
+      const promises = addedSymbolObjs.map(fetchSymbol);
+      const results = await Promise.all(promises);
+      const validResults = results.filter(r => r !== null);
+
+      if (mounted && validResults.length > 0) {
+        setWatchlistData(prev => [...prev, ...validResults]);
+      }
+    };
+
+    // Decide update strategy
+    if (isInitialLoad || isListSwitch) {
+      // Full reload for initial load or watchlist switch
+      hydrateWatchlist();
+    } else if (removedSymbols.length > 0 || addedSymbols.length > 0) {
+      // Incremental update
+      if (removedSymbols.length > 0) {
+        setWatchlistData(prev => prev.filter(item => !removedSymbols.includes(item.symbol)));
+      }
+      if (addedSymbols.length > 0) {
+        hydrateAddedSymbols();
+      }
+    }
+    // If no changes (just reorder or sections), do nothing
 
     return () => {
       mounted = false;
@@ -443,7 +725,8 @@ function App() {
         ws.close();
       }
     };
-  }, [watchlistSymbols, isAuthenticated]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchlistSymbolsKey, watchlistsState.activeListId, isAuthenticated]);
 
   // Persist alerts/logs to localStorage with 24h retention
   useEffect(() => {
@@ -562,12 +845,235 @@ function App() {
     };
   }, [alertWsSymbols]);
 
-  const handleWatchlistReorder = (newSymbols) => {
-    setWatchlistSymbols(newSymbols);
-    // Optimistically update data order to prevent flicker
+  const handleWatchlistReorder = (newItems) => {
+    // newItems can contain both symbol objects and ###section strings
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: prev.lists.map(wl =>
+        wl.id === prev.activeListId ? { ...wl, symbols: newItems } : wl
+      ),
+    }));
+    // Optimistically update data order - only for actual symbols, not section markers
     setWatchlistData(prev => {
       const dataMap = new Map(prev.map(item => [item.symbol, item]));
-      return newSymbols.map(sym => dataMap.get(sym)).filter(Boolean);
+      return newItems
+        .filter(item => typeof item !== 'string' || !item.startsWith('###'))
+        .map(sym => {
+          const symbolName = typeof sym === 'string' ? sym : sym.symbol;
+          return dataMap.get(symbolName);
+        })
+        .filter(Boolean);
+    });
+  };
+
+  // Create new watchlist
+  const handleCreateWatchlist = (name) => {
+    const newId = 'wl_' + Date.now();
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: [...prev.lists, { id: newId, name, symbols: [] }],
+      activeListId: newId,
+    }));
+    // Silent - no toast for watchlist creation
+  };
+
+  // Rename watchlist
+  const handleRenameWatchlist = (id, newName) => {
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: prev.lists.map(wl =>
+        wl.id === id ? { ...wl, name: newName } : wl
+      ),
+    }));
+    showToast(`Watchlist renamed to: ${newName}`, 'success');
+  };
+
+  // Delete watchlist
+  const handleDeleteWatchlist = (id) => {
+    setWatchlistsState(prev => {
+      // Prevent deleting the last watchlist
+      if (prev.lists.length <= 1) {
+        showToast('Cannot delete the only watchlist', 'warning');
+        return prev;
+      }
+
+      const newLists = prev.lists.filter(wl => wl.id !== id);
+      const deletedWl = prev.lists.find(wl => wl.id === id);
+
+      // Silent - no toast for watchlist deletion
+
+      return {
+        lists: newLists,
+        activeListId: prev.activeListId === id
+          ? newLists[0]?.id || 'wl_default'
+          : prev.activeListId,
+      };
+    });
+  };
+
+  // Switch active watchlist
+  const handleSwitchWatchlist = (id) => {
+    setWatchlistsState(prev => ({ ...prev, activeListId: id }));
+  };
+
+  // Toggle watchlist favorite status for quick-access (max 12)
+  const handleToggleWatchlistFavorite = (id) => {
+    const targetWl = watchlistsState.lists.find(wl => wl.id === id);
+    const currentFavoriteCount = watchlistsState.lists.filter(wl => wl.isFavorite).length;
+
+    // If trying to add a new favorite and already at max
+    if (!targetWl?.isFavorite && currentFavoriteCount >= 12) {
+      showToast('Maximum 12 favorite watchlists allowed', 'warning');
+      return;
+    }
+
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: prev.lists.map(wl =>
+        wl.id === id ? { ...wl, isFavorite: !wl.isFavorite } : wl
+      ),
+    }));
+  };
+
+  // Clear all symbols from a watchlist
+  const handleClearWatchlist = (id) => {
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: prev.lists.map(wl =>
+        wl.id === id ? { ...wl, symbols: [], sections: [] } : wl
+      ),
+    }));
+    setWatchlistData([]);
+    showToast('Watchlist cleared', 'success');
+  };
+
+  // Copy a watchlist
+  const handleCopyWatchlist = (id, newName) => {
+    const sourcelist = watchlistsState.lists.find(wl => wl.id === id);
+    if (!sourcelist) return;
+
+    const newId = 'wl_' + Date.now();
+    const copiedList = {
+      ...sourcelist,
+      id: newId,
+      name: newName,
+      isFavorite: false,
+      isFavorites: false,
+    };
+
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: [...prev.lists, copiedList],
+      activeListId: newId,
+    }));
+    showToast(`Created copy: ${newName}`, 'success');
+  };
+
+  // Add a section to the watchlist at a specific index (TradingView model: insert ###SECTION string)
+  const handleAddSection = (sectionTitle, index) => {
+    setWatchlistsState(prev => {
+      const activeList = prev.lists.find(wl => wl.id === prev.activeListId);
+      if (!activeList) return prev;
+
+      // Insert the section marker string at the specified index
+      const currentSymbols = [...(activeList.symbols || [])];
+      const sectionMarker = `###${sectionTitle}`;
+      currentSymbols.splice(index, 0, sectionMarker);
+
+      return {
+        ...prev,
+        lists: prev.lists.map(wl =>
+          wl.id === prev.activeListId
+            ? { ...wl, symbols: currentSymbols }
+            : wl
+        ),
+      };
+    });
+    // Silent - no toast for section creation
+  };
+
+  // Toggle section collapse state
+  const handleToggleSection = (sectionTitle) => {
+    setWatchlistsState(prev => {
+      const activeList = prev.lists.find(wl => wl.id === prev.activeListId);
+      if (!activeList) return prev;
+
+      const collapsedSections = activeList.collapsedSections || [];
+      const isCollapsed = collapsedSections.includes(sectionTitle);
+
+      return {
+        ...prev,
+        lists: prev.lists.map(wl =>
+          wl.id === prev.activeListId
+            ? {
+              ...wl,
+              collapsedSections: isCollapsed
+                ? collapsedSections.filter(s => s !== sectionTitle)
+                : [...collapsedSections, sectionTitle]
+            }
+            : wl
+        ),
+      };
+    });
+  };
+
+  // Rename a section (find ###OLD_NAME and replace with ###NEW_NAME)
+  const handleRenameSection = (oldTitle, newTitle) => {
+    setWatchlistsState(prev => {
+      const activeList = prev.lists.find(wl => wl.id === prev.activeListId);
+      if (!activeList) return prev;
+
+      const currentSymbols = [...(activeList.symbols || [])];
+      const oldMarker = `###${oldTitle}`;
+      const newMarker = `###${newTitle}`;
+
+      // Find and replace the section marker
+      const sectionIndex = currentSymbols.findIndex(s => s === oldMarker);
+      if (sectionIndex !== -1) {
+        currentSymbols[sectionIndex] = newMarker;
+      }
+
+      // Also update collapsed sections if the renamed section was collapsed
+      const collapsedSections = (activeList.collapsedSections || []).map(
+        s => s === oldTitle ? newTitle : s
+      );
+
+      return {
+        ...prev,
+        lists: prev.lists.map(wl =>
+          wl.id === prev.activeListId
+            ? { ...wl, symbols: currentSymbols, collapsedSections }
+            : wl
+        ),
+      };
+    });
+  };
+
+  // Delete a section (removes ###SECTION string, keeps symbols after it)
+  const handleDeleteSection = (sectionTitle) => {
+    setWatchlistsState(prev => {
+      const activeList = prev.lists.find(wl => wl.id === prev.activeListId);
+      if (!activeList) return prev;
+
+      const currentSymbols = [...(activeList.symbols || [])];
+      const sectionMarker = `###${sectionTitle}`;
+
+      // Remove the section marker string
+      const filteredSymbols = currentSymbols.filter(s => s !== sectionMarker);
+
+      // Also remove from collapsed sections
+      const collapsedSections = (activeList.collapsedSections || []).filter(
+        s => s !== sectionTitle
+      );
+
+      return {
+        ...prev,
+        lists: prev.lists.map(wl =>
+          wl.id === prev.activeListId
+            ? { ...wl, symbols: filteredSymbols, collapsedSections }
+            : wl
+        ),
+      };
     });
   };
 
@@ -614,8 +1120,15 @@ function App() {
         (typeof s === 'string' ? s : s.symbol) === symbol
       );
       if (!existsInWatchlist) {
-        setWatchlistSymbols(prev => [...prev, { symbol, exchange }]);
-        showToast(`${symbol} added to watchlist`, 'success');
+        setWatchlistsState(prev => ({
+          ...prev,
+          lists: prev.lists.map(wl =>
+            wl.id === prev.activeListId
+              ? { ...wl, symbols: [...wl.symbols, { symbol, exchange }] }
+              : wl
+          ),
+        }));
+        // Silent - no toast for symbol add
       }
       setIsSearchOpen(false);
     }
@@ -623,9 +1136,14 @@ function App() {
 
   const handleRemoveFromWatchlist = (symbolData) => {
     const symbolToRemove = typeof symbolData === 'string' ? symbolData : symbolData.symbol;
-    setWatchlistSymbols(prev => prev.filter(s =>
-      (typeof s === 'string' ? s : s.symbol) !== symbolToRemove
-    ));
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: prev.lists.map(wl =>
+        wl.id === prev.activeListId
+          ? { ...wl, symbols: wl.symbols.filter(s => s.symbol !== symbolToRemove) }
+          : wl
+      ),
+    }));
   };
 
   const handleAddClick = () => {
@@ -644,14 +1162,59 @@ function App() {
   };
 
   const toggleIndicator = (name) => {
-    setCharts(prev => prev.map(chart =>
-      chart.id === activeChartId ? { ...chart, indicators: { ...chart.indicators, [name]: !chart.indicators[name] } } : chart
-    ));
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+
+      const currentIndicator = chart.indicators[name];
+
+      // Handle boolean indicators (sma, ema)
+      if (typeof currentIndicator === 'boolean') {
+        return { ...chart, indicators: { ...chart.indicators, [name]: !currentIndicator } };
+      }
+
+      // Handle object indicators (rsi, macd, etc.) - toggle the 'enabled' property
+      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [name]: { ...currentIndicator, enabled: !currentIndicator.enabled }
+          }
+        };
+      }
+
+      return chart;
+    }));
+  };
+
+  // Handler for removing indicator from pane (called from ChartComponent)
+  const handleIndicatorRemove = (indicatorType) => {
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+
+      const currentIndicator = chart.indicators[indicatorType];
+
+      // Only handle object indicators
+      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: { ...currentIndicator, enabled: false }
+          }
+        };
+      }
+
+      return chart;
+    }));
   };
 
   const [activeTool, setActiveTool] = useState(null);
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(true);
+
+  // Check if properties panel should be visible
+  const isDrawingPanelVisible = activeTool && DRAWING_TOOLS.includes(activeTool);
   const [isReplayMode, setIsReplayMode] = useState(false);
   const [isDrawingsLocked, setIsDrawingsLocked] = useState(false);
   const [isDrawingsHidden, setIsDrawingsHidden] = useState(false);
@@ -727,13 +1290,24 @@ function App() {
     setCharts(prev => {
       const newCharts = [...prev];
       if (newCharts.length < count) {
-        // Add charts
+        // Add charts with default indicators
+        const defaultIndicators = {
+          sma: false,
+          ema: false,
+          rsi: { enabled: false, period: 14, color: '#7B1FA2' },
+          macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
+          bollingerBands: { enabled: false, period: 20, stdDev: 2 },
+          volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
+          atr: { enabled: false, period: 14, color: '#FF9800' },
+          stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
+          vwap: { enabled: false, color: '#FF9800' }
+        };
         for (let i = newCharts.length; i < count; i++) {
           newCharts.push({
             id: i + 1,
             symbol: activeChart.symbol,
             interval: activeChart.interval,
-            indicators: { sma: false, ema: false },
+            indicators: { ...defaultIndicators },
             comparisonSymbols: []
           });
         }
@@ -847,7 +1421,6 @@ function App() {
       }
     }
   };
-
 
   const handleReplayClick = () => {
     const activeRef = chartRefs.current[activeChartId];
@@ -1106,6 +1679,62 @@ function App() {
     setIsSettingsOpen(true);
   };
 
+  // Template handlers
+  const handleTemplatesClick = () => {
+    setIsTemplateDialogOpen(true);
+  };
+
+  const handleLoadTemplate = useCallback((template) => {
+    if (!template) return;
+
+    // Update layout
+    if (template.layout) {
+      setLayout(template.layout);
+    }
+
+    // Update chart type
+    if (template.chartType) {
+      setChartType(template.chartType);
+    }
+
+    // Update charts state with template charts
+    if (template.charts && Array.isArray(template.charts)) {
+      const defaultIndicators = {
+        sma: false,
+        ema: false,
+        rsi: { enabled: false, period: 14, color: '#7B1FA2' },
+        macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
+        bollingerBands: { enabled: false, period: 20, stdDev: 2 },
+        volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
+        atr: { enabled: false, period: 14, color: '#FF9800' },
+        stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
+        vwap: { enabled: false, color: '#FF9800' }
+      };
+
+      const loadedCharts = template.charts.map((chart, index) => ({
+        id: index + 1,
+        symbol: chart.symbol || 'RELIANCE',
+        exchange: chart.exchange || 'NSE',
+        interval: chart.interval || '1d',
+        indicators: { ...defaultIndicators, ...chart.indicators },
+        comparisonSymbols: chart.comparisonSymbols || [],
+      }));
+
+      setCharts(loadedCharts);
+      setActiveChartId(1);
+    }
+
+    // Update appearance settings if present
+    if (template.appearance) {
+      if (template.appearance.chartAppearance) {
+        setChartAppearance(prev => ({ ...prev, ...template.appearance.chartAppearance }));
+      }
+      if (template.appearance.theme) {
+        setTheme(template.appearance.theme);
+      }
+    }
+  }, []);
+
   const handleTimerToggle = () => {
     setIsTimerVisible(prev => !prev);
   };
@@ -1113,6 +1742,23 @@ function App() {
   const handleSessionBreakToggle = () => {
     setIsSessionBreakVisible(prev => !prev);
   };
+
+  const handleChartAppearanceChange = (newAppearance) => {
+    setChartAppearance(prev => ({ ...prev, ...newAppearance }));
+  };
+
+  const handleResetChartAppearance = () => {
+    setChartAppearance(DEFAULT_CHART_APPEARANCE);
+  };
+
+  // Drawing defaults handlers
+  const handleDrawingPropertyChange = useCallback((property, value) => {
+    setDrawingDefaults(prev => ({ ...prev, [property]: value }));
+  }, []);
+
+  const handleResetDrawingDefaults = useCallback(() => {
+    setDrawingDefaults(DEFAULT_DRAWING_OPTIONS);
+  }, []);
 
   const handleApiKeySaveFromSettings = (newApiKey) => {
     setApiKey(newApiKey);
@@ -1128,6 +1774,104 @@ function App() {
     setHostUrl(newUrl);
     localStorage.setItem('oa_host_url', newUrl);
   };
+
+  // Command Palette (Cmd+K / Ctrl+K)
+  const commandPaletteHandlers = React.useMemo(() => ({
+    onChartTypeChange: setChartType,
+    toggleIndicator,
+    onToolChange: handleToolChange,
+    openSymbolSearch: (mode) => {
+      setSearchMode(mode);
+      setIsSearchOpen(true);
+    },
+    openSettings: () => setIsSettingsOpen(true),
+    openShortcutsDialog: () => setIsShortcutsDialogOpen(true),
+    onUndo: handleUndo,
+    onRedo: handleRedo,
+    toggleTheme,
+    toggleFullscreen: handleFullScreen,
+    takeScreenshot: handleDownloadImage,
+    copyImage: handleCopyImage,
+    createAlert: handleAlertClick,
+    clearDrawings: () => handleToolChange('clear_all'),
+  }), [toggleIndicator, handleToolChange, handleUndo, handleRedo, toggleTheme, handleFullScreen, handleDownloadImage, handleCopyImage, handleAlertClick]);
+
+  const {
+    commands,
+    recentCommands,
+    groupedCommands,
+    searchCommands,
+    executeCommand,
+  } = useCommandPalette(commandPaletteHandlers);
+
+  // Chart type map for keyboard shortcuts (1-7)
+  const CHART_TYPE_MAP = {
+    'Candlestick': 'candlestick',
+    'Bar': 'bar',
+    'Hollow candles': 'hollow',
+    'Line': 'line',
+    'Area': 'area',
+    'Baseline': 'baseline',
+    'Heikin Ashi': 'heikinashi',
+  };
+
+  // Global keyboard shortcut handlers
+  const shortcutHandlers = React.useMemo(() => ({
+    openCommandPalette: () => setIsCommandPaletteOpen(prev => !prev),
+    openShortcutsHelp: () => setIsShortcutsDialogOpen(prev => !prev),
+    openSymbolSearch: () => {
+      setSearchMode('switch');
+      setIsSearchOpen(true);
+    },
+    closeDialog: () => {
+      // Close any open dialog in priority order
+      if (isShortcutsDialogOpen) setIsShortcutsDialogOpen(false);
+      else if (isCommandPaletteOpen) setIsCommandPaletteOpen(false);
+      else if (isSearchOpen) setIsSearchOpen(false);
+      else if (isAlertOpen) setIsAlertOpen(false);
+      else if (isSettingsOpen) setIsSettingsOpen(false);
+      else if (isTemplateDialogOpen) setIsTemplateDialogOpen(false);
+    },
+    setChartType: (chartTypeName) => {
+      const mappedType = CHART_TYPE_MAP[chartTypeName];
+      if (mappedType) setChartType(mappedType);
+    },
+    activateDrawMode: () => {
+      // Activate the first drawing tool (TrendLine)
+      handleToolChange('TrendLine');
+    },
+    activateCursorMode: () => {
+      setActiveTool(null);
+    },
+    zoomIn: () => {
+      const activeRef = chartRefs.current[activeChartId];
+      if (activeRef && typeof activeRef.zoomIn === 'function') {
+        activeRef.zoomIn();
+      }
+    },
+    zoomOut: () => {
+      const activeRef = chartRefs.current[activeChartId];
+      if (activeRef && typeof activeRef.zoomOut === 'function') {
+        activeRef.zoomOut();
+      }
+    },
+    undo: handleUndo,
+    redo: handleRedo,
+    createAlert: handleAlertClick,
+    toggleFullscreen: handleFullScreen,
+  }), [
+    isShortcutsDialogOpen, isCommandPaletteOpen, isSearchOpen, isAlertOpen, isSettingsOpen, isTemplateDialogOpen,
+    handleToolChange, handleUndo, handleRedo, handleAlertClick, handleFullScreen, activeChartId
+  ]);
+
+  // Determine if any dialog is open (to disable single-key shortcuts)
+  const anyDialogOpen = isCommandPaletteOpen || isSearchOpen || isAlertOpen || isSettingsOpen || isTemplateDialogOpen || isShortcutsDialogOpen;
+
+  // Apply global keyboard shortcuts
+  useGlobalShortcuts(shortcutHandlers, {
+    enabled: isAuthenticated === true,
+    dialogOpen: anyDialogOpen,
+  });
 
   // Show loading state while checking auth
   if (isAuthenticated === null) {
@@ -1183,6 +1927,17 @@ function App() {
     <>
       <Layout
         isLeftToolbarVisible={showDrawingToolbar}
+        isMobile={isMobile}
+        isWatchlistVisible={isWatchlistVisible}
+        onWatchlistOverlayClick={() => setIsWatchlistVisible(false)}
+        mobileNav={
+          <MobileNav
+            activeTab={mobileTab}
+            onTabChange={handleMobileTabChange}
+            alertCount={unreadAlertCount}
+            theme={theme}
+          />
+        }
         topbar={
           <Topbar
             symbol={currentSymbol}
@@ -1215,6 +1970,7 @@ function App() {
             onLayoutChange={handleLayoutChange}
             onSaveLayout={handleSaveLayout}
             onSettingsClick={handleSettingsClick}
+            onTemplatesClick={handleTemplatesClick}
           />
         }
         leftToolbar={
@@ -1225,6 +1981,15 @@ function App() {
             isDrawingsLocked={isDrawingsLocked}
             isDrawingsHidden={isDrawingsHidden}
             isTimerVisible={isTimerVisible}
+          />
+        }
+        drawingPropertiesPanel={
+          <DrawingPropertiesPanel
+            defaults={drawingDefaults}
+            onPropertyChange={handleDrawingPropertyChange}
+            onReset={handleResetDrawingDefaults}
+            isVisible={isDrawingPanelVisible}
+            activeTool={activeTool}
           />
         }
         bottomBar={
@@ -1253,7 +2018,23 @@ function App() {
           activeRightPanel === 'watchlist' ? (
             <Watchlist
               currentSymbol={currentSymbol}
-              items={watchlistData}
+              items={(() => {
+                // Merge section markers with live data
+                // activeWatchlist.symbols contains both ###section markers and symbol objects
+                const symbols = activeWatchlist?.symbols || [];
+                const dataMap = new Map(watchlistData.map(item => [item.symbol, item]));
+
+                return symbols.map(item => {
+                  // If it's a section marker, keep it as-is
+                  if (typeof item === 'string' && item.startsWith('###')) {
+                    return item;
+                  }
+                  // Otherwise, find the live data for this symbol
+                  const symbolName = typeof item === 'string' ? item : item.symbol;
+                  return dataMap.get(symbolName) || item;
+                });
+              })()}
+              isLoading={watchlistLoading}
               onSymbolSelect={(symData) => {
                 const symbol = typeof symData === 'string' ? symData : symData.symbol;
                 const exchange = typeof symData === 'string' ? 'NSE' : (symData.exchange || 'NSE');
@@ -1264,6 +2045,24 @@ function App() {
               onAddClick={handleAddClick}
               onRemoveClick={handleRemoveFromWatchlist}
               onReorder={handleWatchlistReorder}
+              // Multiple watchlists props
+              watchlists={watchlistsState.lists}
+              activeWatchlistId={watchlistsState.activeListId}
+              onSwitchWatchlist={handleSwitchWatchlist}
+              onCreateWatchlist={handleCreateWatchlist}
+              onRenameWatchlist={handleRenameWatchlist}
+              onDeleteWatchlist={handleDeleteWatchlist}
+              onClearWatchlist={handleClearWatchlist}
+              onCopyWatchlist={handleCopyWatchlist}
+              // Section management (TradingView flat array model)
+              onAddSection={handleAddSection}
+              onRenameSection={handleRenameSection}
+              onDeleteSection={handleDeleteSection}
+              collapsedSections={activeWatchlist?.collapsedSections || []}
+              onToggleSection={handleToggleSection}
+              // Quick-access favorites props
+              favoriteWatchlists={favoriteWatchlists}
+              onToggleFavorite={handleToggleWatchlistFavorite}
             />
           ) : activeRightPanel === 'alerts' ? (
             <AlertsPanel
@@ -1307,6 +2106,8 @@ function App() {
             isDrawingsHidden={isDrawingsHidden}
             isTimerVisible={isTimerVisible}
             isSessionBreakVisible={isSessionBreakVisible}
+            onIndicatorRemove={handleIndicatorRemove}
+            chartAppearance={chartAppearance}
           />
         }
       />
@@ -1317,13 +2118,27 @@ function App() {
         addedSymbols={searchMode === 'compare' ? (activeChart.comparisonSymbols || []).map(s => s.symbol) : []}
         isCompareMode={searchMode === 'compare'}
       />
-      {toast && (
-        <Toast
-          message={toast.message}
-          type={toast.type}
-          onClose={() => setToast(null)}
-        />
-      )}
+      <CommandPalette
+        isOpen={isCommandPaletteOpen}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        commands={commands}
+        recentCommands={recentCommands}
+        groupedCommands={groupedCommands}
+        searchCommands={searchCommands}
+        executeCommand={executeCommand}
+      />
+      {/* Toast Queue */}
+      <div style={{ position: 'fixed', top: 70, right: 20, zIndex: 10000, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {toasts.map((toast, index) => (
+          <Toast
+            key={toast.id}
+            message={toast.message}
+            type={toast.type}
+            action={toast.action}
+            onClose={() => removeToast(toast.id)}
+          />
+        ))}
+      </div>
       {snapshotToast && (
         <SnapshotToast
           message={snapshotToast}
@@ -1351,6 +2166,26 @@ function App() {
         onApiKeySave={handleApiKeySaveFromSettings}
         websocketUrl={websocketUrl}
         onWebsocketUrlSave={handleWebsocketUrlSave}
+        chartAppearance={chartAppearance}
+        onChartAppearanceChange={handleChartAppearanceChange}
+        onResetChartAppearance={handleResetChartAppearance}
+      />
+      <LayoutTemplateDialog
+        isOpen={isTemplateDialogOpen}
+        onClose={() => setIsTemplateDialogOpen(false)}
+        currentState={{
+          layout,
+          charts,
+          chartType,
+          chartAppearance,
+          theme,
+        }}
+        onLoadTemplate={handleLoadTemplate}
+        showToast={showToast}
+      />
+      <ShortcutsDialog
+        isOpen={isShortcutsDialogOpen}
+        onClose={() => setIsShortcutsDialogOpen(false)}
       />
     </>
   );

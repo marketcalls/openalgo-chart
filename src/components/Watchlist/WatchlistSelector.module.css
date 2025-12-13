@@ -1,0 +1,317 @@
+.selector {
+    position: relative;
+}
+
+.selectorButton {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 8px;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--tv-color-text-primary);
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.selectorButton:hover {
+    background: var(--tv-color-toolbar-button-background-hover);
+    border-color: var(--tv-color-border);
+}
+
+.watchlistName {
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.chevron {
+    color: var(--tv-color-text-secondary);
+    transition: transform 0.2s ease;
+    flex-shrink: 0;
+}
+
+.chevronOpen {
+    transform: rotate(180deg);
+}
+
+.dropdown {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    width: 240px;
+    background: var(--tv-color-dropdown-background);
+    border: 1px solid var(--tv-color-border);
+    border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    z-index: 9999;
+    overflow: hidden;
+}
+
+/* Menu section for action items */
+.menuSection {
+    padding: 4px 0;
+}
+
+.menuItem {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: var(--tv-color-text-primary);
+    font-size: 13px;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+}
+
+.menuItem:hover {
+    background: var(--tv-color-toolbar-button-background-hover);
+}
+
+.menuItem:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.menuItem svg {
+    color: var(--tv-color-text-secondary);
+    flex-shrink: 0;
+}
+
+.menuItem.confirmAction {
+    color: var(--tv-color-down);
+}
+
+.menuItem.confirmAction svg {
+    color: var(--tv-color-down);
+}
+
+/* Clear list confirmation row */
+.confirmRow {
+    position: relative;
+}
+
+.confirmRow span {
+    flex: 1;
+}
+
+.confirmBtn,
+.cancelBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: none;
+    border-radius: 2px;
+    cursor: pointer;
+    background: transparent;
+    padding: 0;
+    flex-shrink: 0;
+}
+
+.confirmBtn {
+    color: #089981;
+}
+
+.confirmBtn:hover {
+    opacity: 0.7;
+}
+
+.cancelBtn {
+    color: #F23645;
+}
+
+.cancelBtn:hover {
+    opacity: 0.7;
+}
+
+.divider {
+    height: 1px;
+    background: var(--tv-color-border);
+    margin: 4px 0;
+}
+
+.dropdownList {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.dropdownItem {
+    display: flex;
+    align-items: center;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+    gap: 8px;
+}
+
+.dropdownItem:hover {
+    background: var(--tv-color-toolbar-button-background-hover);
+}
+
+.dropdownItem.active {
+    background: var(--tv-color-toolbar-button-background-expanded);
+}
+
+.dropdownItem.active::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 2px;
+    background: var(--tv-color-brand);
+}
+
+.itemName {
+    flex: 1;
+    font-size: 13px;
+    color: var(--tv-color-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.itemCount {
+    font-size: 11px;
+    color: var(--tv-color-text-secondary);
+    padding: 2px 6px;
+    background: var(--tv-color-toolbar-button-background-hover);
+    border-radius: 10px;
+}
+
+.itemActions {
+    display: none;
+    gap: 4px;
+    margin-left: auto;
+}
+
+.dropdownItem:hover .itemActions {
+    display: flex;
+}
+
+.dropdownItem:hover .itemCount {
+    display: none;
+}
+
+.iconButton {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    background: transparent;
+    border: none;
+    border-radius: 4px;
+    color: var(--tv-color-text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.iconButton:hover {
+    background: var(--tv-color-toolbar-button-background-hover);
+    color: var(--tv-color-text-primary);
+}
+
+.iconButton:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.deleteButton:hover {
+    color: var(--tv-color-down);
+}
+
+.starButton {
+    color: var(--tv-color-text-secondary);
+}
+
+.starButton:hover {
+    color: #FFD700;
+}
+
+.starButton.starActive {
+    color: #FFD700;
+}
+
+.starButton.starActive svg {
+    fill: #FFD700;
+}
+
+.dropdownFooter {
+    padding: 8px 12px;
+    border-top: 1px solid var(--tv-color-border);
+}
+
+.createButton {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: 1px dashed var(--tv-color-border);
+    border-radius: 4px;
+    color: var(--tv-color-text-secondary);
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.createButton:hover {
+    background: var(--tv-color-toolbar-button-background-hover);
+    border-color: var(--tv-color-brand);
+    color: var(--tv-color-brand);
+}
+
+.createRow,
+.editRow {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    width: 100%;
+    padding: 8px 12px;
+}
+
+.createInput,
+.editInput {
+    flex: 1;
+    padding: 6px 8px;
+    background: var(--tv-color-input-background);
+    border: 1px solid var(--tv-color-border);
+    border-radius: 4px;
+    color: var(--tv-color-text-primary);
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s ease;
+}
+
+.createInput:focus,
+.editInput:focus {
+    border-color: var(--tv-color-brand);
+}
+
+.createInput::placeholder,
+.editInput::placeholder {
+    color: var(--tv-color-text-secondary);
+}
+
+.favoriteIcon {
+    color: #FFD700;
+    fill: #FFD700;
+    flex-shrink: 0;
+}
+
+.dropdownItem.favorites {
+    border-bottom: 1px solid var(--tv-color-border);
+}

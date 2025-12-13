@@ -1,7 +1,23 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import styles from './SettingsPopup.module.css';
 import { X, Eye, EyeOff } from 'lucide-react';
 import { LOG_LEVELS, LOG_LEVEL_LABELS, getLogLevel, setLogLevel } from '../../utils/logger';
+import { useFocusTrap } from '../../hooks/useFocusTrap';
+import { useKeyboardNav } from '../../hooks/useKeyboardNav';
+
+// Default chart appearance for reset
+const DEFAULT_CHART_APPEARANCE = {
+    candleUpColor: '#089981',
+    candleDownColor: '#F23645',
+    wickUpColor: '#089981',
+    wickDownColor: '#F23645',
+    showVerticalGridLines: true,
+    showHorizontalGridLines: true,
+    darkBackground: '#131722',
+    lightBackground: '#ffffff',
+    darkGridColor: '#2A2E39',
+    lightGridColor: '#e0e3eb',
+};
 
 const SettingsPopup = ({
     isOpen,
@@ -18,7 +34,11 @@ const SettingsPopup = ({
     apiKey = '',
     onApiKeySave,
     websocketUrl = '127.0.0.1:8765',
-    onWebsocketUrlSave
+    onWebsocketUrlSave,
+    // Chart Appearance settings
+    chartAppearance = DEFAULT_CHART_APPEARANCE,
+    onChartAppearanceChange,
+    onResetChartAppearance
 }) => {
     // Logging state
     const [logLevel, setLocalLogLevel] = useState(getLogLevel);
@@ -28,6 +48,25 @@ const SettingsPopup = ({
     const [localWsUrl, setLocalWsUrl] = useState(websocketUrl);
     const [hasChanges, setHasChanges] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
+    const [localAppearance, setLocalAppearance] = useState(chartAppearance);
+
+    // Handle cancel - reset local state and close
+    const handleCancel = useCallback(() => {
+        setLocalHostUrl(hostUrl);
+        setLocalApiKey(apiKey);
+        setLocalWsUrl(websocketUrl);
+        setLocalAppearance(chartAppearance);
+        onClose();
+    }, [hostUrl, apiKey, websocketUrl, chartAppearance, onClose]);
+
+    // Focus trap for accessibility
+    const focusTrapRef = useFocusTrap(isOpen);
+
+    // Escape key to close
+    useKeyboardNav({
+        enabled: isOpen,
+        onEscape: handleCancel,
+    });
 
     // Sync local state with props
     useEffect(() => {
@@ -42,13 +81,18 @@ const SettingsPopup = ({
         setLocalWsUrl(websocketUrl);
     }, [websocketUrl]);
 
+    useEffect(() => {
+        setLocalAppearance(chartAppearance);
+    }, [chartAppearance]);
+
     // Track changes
     useEffect(() => {
         const hasHostChange = localHostUrl !== hostUrl;
         const hasApiKeyChange = localApiKey !== apiKey;
         const hasWsUrlChange = localWsUrl !== websocketUrl;
-        setHasChanges(hasHostChange || hasApiKeyChange || hasWsUrlChange);
-    }, [localHostUrl, localApiKey, localWsUrl, hostUrl, apiKey, websocketUrl]);
+        const hasAppearanceChange = JSON.stringify(localAppearance) !== JSON.stringify(chartAppearance);
+        setHasChanges(hasHostChange || hasApiKeyChange || hasWsUrlChange || hasAppearanceChange);
+    }, [localHostUrl, localApiKey, localWsUrl, localAppearance, hostUrl, apiKey, websocketUrl, chartAppearance]);
 
     if (!isOpen) return null;
 
@@ -62,14 +106,14 @@ const SettingsPopup = ({
         if (localWsUrl !== websocketUrl) {
             onWebsocketUrlSave?.(localWsUrl);
         }
+        if (JSON.stringify(localAppearance) !== JSON.stringify(chartAppearance)) {
+            onChartAppearanceChange?.(localAppearance);
+        }
         onClose();
     };
 
-    const handleCancel = () => {
-        setLocalHostUrl(hostUrl);
-        setLocalApiKey(apiKey);
-        setLocalWsUrl(websocketUrl);
-        onClose();
+    const handleResetAppearance = () => {
+        setLocalAppearance(DEFAULT_CHART_APPEARANCE);
     };
 
     const sections = [
@@ -93,16 +137,35 @@ const SettingsPopup = ({
                     <path d="M4 6h20v2H4V6zm0 5h20v2H4v-2zm0 5h14v2H4v-2zm0 5h10v2H4v-2z"></path>
                 </svg>
             )
+        },
+        {
+            id: 'appearance', label: 'Appearance', icon: (
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor">
+                    <path d="M14 4a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM5 14a9 9 0 1 1 18 0 9 9 0 0 1-18 0Z" />
+                    <path d="M14 8a6 6 0 0 0-6 6h12a6 6 0 0 0-6-6Z" />
+                </svg>
+            )
         }
     ];
 
     return (
         <div className={styles.overlay} onClick={handleCancel}>
-            <div className={`${styles.popup} ${theme === 'light' ? styles.light : ''}`} onClick={(e) => e.stopPropagation()}>
+            <div
+                ref={focusTrapRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="settings-dialog-title"
+                className={`${styles.popup} ${theme === 'light' ? styles.light : ''}`}
+                onClick={(e) => e.stopPropagation()}
+            >
                 {/* Header */}
                 <div className={styles.header}>
-                    <h2 className={styles.title}>Settings</h2>
-                    <button className={styles.closeButton} onClick={handleCancel}>
+                    <h2 id="settings-dialog-title" className={styles.title}>Settings</h2>
+                    <button
+                        className={styles.closeButton}
+                        onClick={handleCancel}
+                        aria-label="Close settings"
+                    >
                         <X size={20} />
                     </button>
                 </div>
@@ -259,6 +322,154 @@ const SettingsPopup = ({
                                         <p><strong>None:</strong> Silent mode - no console output</p>
                                     </div>
                                 </div>
+                            </div>
+                        )}
+
+                        {activeSection === 'appearance' && (
+                            <div className={styles.section}>
+                                <h3 className={styles.sectionTitle}>CANDLE COLORS</h3>
+
+                                <div className={styles.colorRow}>
+                                    <label className={styles.colorLabel}>Up Color (Bullish)</label>
+                                    <div className={styles.colorInputWrapper}>
+                                        <input
+                                            type="color"
+                                            value={localAppearance.candleUpColor}
+                                            onChange={(e) => setLocalAppearance(prev => ({ ...prev, candleUpColor: e.target.value, wickUpColor: e.target.value }))}
+                                            className={styles.colorInput}
+                                        />
+                                        <input
+                                            type="text"
+                                            value={localAppearance.candleUpColor}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (!val.startsWith('#')) val = '#' + val;
+                                                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                                                    setLocalAppearance(prev => ({ ...prev, candleUpColor: val, wickUpColor: val }));
+                                                }
+                                            }}
+                                            className={styles.hexInput}
+                                            maxLength={7}
+                                            placeholder="#000000"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className={styles.colorRow}>
+                                    <label className={styles.colorLabel}>Down Color (Bearish)</label>
+                                    <div className={styles.colorInputWrapper}>
+                                        <input
+                                            type="color"
+                                            value={localAppearance.candleDownColor}
+                                            onChange={(e) => setLocalAppearance(prev => ({ ...prev, candleDownColor: e.target.value, wickDownColor: e.target.value }))}
+                                            className={styles.colorInput}
+                                        />
+                                        <input
+                                            type="text"
+                                            value={localAppearance.candleDownColor}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (!val.startsWith('#')) val = '#' + val;
+                                                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                                                    setLocalAppearance(prev => ({ ...prev, candleDownColor: val, wickDownColor: val }));
+                                                }
+                                            }}
+                                            className={styles.hexInput}
+                                            maxLength={7}
+                                            placeholder="#000000"
+                                        />
+                                    </div>
+                                </div>
+
+                                <h3 className={styles.sectionTitle} style={{ marginTop: '24px' }}>GRID LINES</h3>
+
+                                <div className={styles.optionGroup}>
+                                    <label className={styles.checkboxLabel}>
+                                        <input
+                                            type="checkbox"
+                                            checked={localAppearance.showVerticalGridLines}
+                                            onChange={() => setLocalAppearance(prev => ({ ...prev, showVerticalGridLines: !prev.showVerticalGridLines }))}
+                                            className={styles.checkbox}
+                                        />
+                                        <span className={styles.checkmark}></span>
+                                        <span>Vertical grid lines</span>
+                                    </label>
+                                </div>
+
+                                <div className={styles.optionGroup}>
+                                    <label className={styles.checkboxLabel}>
+                                        <input
+                                            type="checkbox"
+                                            checked={localAppearance.showHorizontalGridLines}
+                                            onChange={() => setLocalAppearance(prev => ({ ...prev, showHorizontalGridLines: !prev.showHorizontalGridLines }))}
+                                            className={styles.checkbox}
+                                        />
+                                        <span className={styles.checkmark}></span>
+                                        <span>Horizontal grid lines</span>
+                                    </label>
+                                </div>
+
+                                <h3 className={styles.sectionTitle} style={{ marginTop: '24px' }}>BACKGROUND COLOR</h3>
+
+                                <div className={styles.colorRow}>
+                                    <label className={styles.colorLabel}>Dark Theme</label>
+                                    <div className={styles.colorInputWrapper}>
+                                        <input
+                                            type="color"
+                                            value={localAppearance.darkBackground}
+                                            onChange={(e) => setLocalAppearance(prev => ({ ...prev, darkBackground: e.target.value }))}
+                                            className={styles.colorInput}
+                                        />
+                                        <input
+                                            type="text"
+                                            value={localAppearance.darkBackground}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (!val.startsWith('#')) val = '#' + val;
+                                                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                                                    setLocalAppearance(prev => ({ ...prev, darkBackground: val }));
+                                                }
+                                            }}
+                                            className={styles.hexInput}
+                                            maxLength={7}
+                                            placeholder="#000000"
+                                        />
+                                    </div>
+                                </div>
+
+                                <div className={styles.colorRow}>
+                                    <label className={styles.colorLabel}>Light Theme</label>
+                                    <div className={styles.colorInputWrapper}>
+                                        <input
+                                            type="color"
+                                            value={localAppearance.lightBackground}
+                                            onChange={(e) => setLocalAppearance(prev => ({ ...prev, lightBackground: e.target.value }))}
+                                            className={styles.colorInput}
+                                        />
+                                        <input
+                                            type="text"
+                                            value={localAppearance.lightBackground}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (!val.startsWith('#')) val = '#' + val;
+                                                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                                                    setLocalAppearance(prev => ({ ...prev, lightBackground: val }));
+                                                }
+                                            }}
+                                            className={styles.hexInput}
+                                            maxLength={7}
+                                            placeholder="#000000"
+                                        />
+                                    </div>
+                                </div>
+
+                                <button
+                                    className={styles.resetButton}
+                                    onClick={handleResetAppearance}
+                                    style={{ marginTop: '24px' }}
+                                >
+                                    Reset to Defaults
+                                </button>
                             </div>
                         )}
                     </div>
