@@ -184,8 +184,28 @@ const formatPrice = (value) => {
   return num.toFixed(2);
 };
 
+import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
+
+// Simple Loader Component
+const WorkspaceLoader = () => (
+  <div style={{
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    height: '100vh',
+    background: '#131722',
+    color: '#d1d4dc',
+    fontFamily: 'system-ui'
+  }}>
+    <div style={{ textAlign: 'center' }}>
+      <h2>Synching Workspace...</h2>
+      <p>Loading your cloud settings</p>
+    </div>
+  </div>
+);
+
 function App() {
-  // Auth check on mount
+  // Auth state - must be declared BEFORE useCloudWorkspaceSync to pass to it
   const [isAuthenticated, setIsAuthenticated] = useState(null); // null = checking, false = not auth, true = auth
 
   useEffect(() => {
@@ -195,6 +215,10 @@ function App() {
     };
     verifyAuth();
   }, []);
+
+  // Cloud Workspace Sync - needs isAuthenticated to know when to fetch from server
+  const { isLoaded: isWorkspaceLoaded } = useCloudWorkspaceSync(isAuthenticated);
+
 
   // Multi-Chart State
   const [layout, setLayout] = useState(() => {
@@ -1872,6 +1896,11 @@ function App() {
     enabled: isAuthenticated === true,
     dialogOpen: anyDialogOpen,
   });
+
+  // Block render until workspace settings are loaded from cloud
+  if (!isWorkspaceLoaded) {
+    return <WorkspaceLoader />;
+  }
 
   // Show loading state while checking auth
   if (isAuthenticated === null) {

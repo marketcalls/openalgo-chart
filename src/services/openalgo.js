@@ -815,6 +815,94 @@ export const getHistoricalKlines = async (symbol, exchange = 'NSE', interval = '
     }
 };
 
+/**
+ * Fetch all user chart preferences from Cloud Workspace
+ */
+export const fetchUserPreferences = async () => {
+    try {
+        const apiKey = getApiKey();
+        const apiBase = getApiBase();
+
+        logger.info('[OpenAlgo] fetchUserPreferences called');
+        logger.debug('[OpenAlgo] API Key present:', !!apiKey, 'API Base:', apiBase);
+
+        if (!apiKey) {
+            logger.warn('[OpenAlgo] fetchUserPreferences: No API key found, returning null');
+            return null;
+        }
+
+        const url = `${apiBase}/chart?api_key=${apiKey}`;
+        logger.info('[OpenAlgo] Fetching preferences from:', url);
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'X-API-KEY': apiKey
+            },
+            credentials: 'include'
+        });
+
+        logger.info('[OpenAlgo] fetchUserPreferences response status:', response.status);
+
+        if (!response.ok) {
+            logger.warn('[OpenAlgo] Fetch preferences failed:', response.status, response.statusText);
+            return null;
+        }
+
+        const data = await response.json();
+        logger.info('[OpenAlgo] fetchUserPreferences received data:', Object.keys(data || {}));
+        return data;
+    } catch (error) {
+        logger.error('[OpenAlgo] Error fetching user preferences:', error);
+        return null;
+    }
+};
+
+/**
+ * Save user chart preferences to Cloud Workspace
+ * @param {Object} preferences - Dictionary of preferences to save { key: value }
+ */
+export const saveUserPreferences = async (preferences) => {
+    try {
+        const apiKey = getApiKey();
+        const apiBase = getApiBase();
+
+        logger.info('[OpenAlgo] saveUserPreferences called with keys:', Object.keys(preferences || {}));
+        logger.debug('[OpenAlgo] API Key present:', !!apiKey, 'API Base:', apiBase);
+
+        if (!apiKey) {
+            logger.warn('[OpenAlgo] saveUserPreferences: No API key found, returning false');
+            return false;
+        }
+
+        const url = `${apiBase}/chart`;
+        logger.info('[OpenAlgo] Saving preferences to:', url);
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-API-KEY': apiKey
+            },
+            credentials: 'include',
+            body: JSON.stringify(preferences)
+        });
+
+        logger.info('[OpenAlgo] saveUserPreferences response status:', response.status);
+
+        if (!response.ok) {
+            logger.warn('[OpenAlgo] Save preferences failed:', response.status, response.statusText);
+            return false;
+        }
+
+        logger.info('[OpenAlgo] saveUserPreferences success!');
+        return true;
+    } catch (error) {
+        logger.error('[OpenAlgo] Error saving user preferences:', error);
+        return false;
+    }
+};
+
 export default {
     checkAuth,
     getKlines,
@@ -823,5 +911,7 @@ export default {
     subscribeToTicker,
     subscribeToMultiTicker,
     searchSymbols,
-    getIntervals
+    getIntervals,
+    fetchUserPreferences,
+    saveUserPreferences
 };
