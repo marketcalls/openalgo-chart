@@ -1,6 +1,6 @@
 .floatingToolbar {
     position: fixed;
-    z-index: 21;
+    z-index: 1001;
     background-color: var(--tv-color-toolbar-background);
     border: 1px solid var(--tv-color-border);
     border-radius: 6px;
