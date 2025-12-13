@@ -21,8 +21,7 @@
 }
 
 .sectionHeader.dragOver {
-    background-color: var(--tv-color-brand, #2962FF);
-    opacity: 0.3;
+    background-color: rgba(41, 98, 255, 0.3);
 }
 
 .sectionHeader:focus {
@@ -60,8 +59,8 @@
     cursor: grabbing;
 }
 
-.section.dragging {
-    opacity: 0.5;
+.section.dragging .sectionHeader {
+    background-color: rgba(42, 46, 57, 0.5);
 }
 
 .chevron.collapsed {
