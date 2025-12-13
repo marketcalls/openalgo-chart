@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import styles from './FloatingFavoritesToolbar.module.css';
 
@@ -14,10 +15,12 @@ const FloatingFavoritesToolbar = ({ favoriteTools, activeTool, onToolChange, too
             try {
                 return JSON.parse(saved);
             } catch {
-                return { x: 100, y: 100 };
+                // Default to right side of screen
+                return { x: window.innerWidth - 800, y: 100 };
             }
         }
-        return { x: 100, y: 100 };
+        // Default to right side of screen
+        return { x: window.innerWidth - 800, y: 100 };
     });
     const [isDragging, setIsDragging] = useState(false);
     const [hoveredTool, setHoveredTool] = useState(null);
@@ -95,7 +98,7 @@ const FloatingFavoritesToolbar = ({ favoriteTools, activeTool, onToolChange, too
         return null;
     }
 
-    return (
+    return createPortal(
         <div
             ref={toolbarRef}
             className={styles.floatingToolbar}
@@ -139,7 +142,8 @@ const FloatingFavoritesToolbar = ({ favoriteTools, activeTool, onToolChange, too
                     ))}
                 </div>
             </div>
-        </div>
+        </div>,
+        document.body
     );
 };
 
