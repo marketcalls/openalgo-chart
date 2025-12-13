@@ -1,8 +1,13 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Plus, X } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import styles from './Watchlist.module.css';
 import classNames from 'classnames';
 import WatchlistSelector from './WatchlistSelector';
+import WatchlistItem from './WatchlistItem';
+import WatchlistSection from './WatchlistSection';
+import SymbolTooltip from './SymbolTooltip';
+import ContextMenu from './ContextMenu';
+import { useSmartTooltip } from '../../hooks/useSmartTooltip';
 
 const DEFAULT_COLUMN_WIDTHS = {
     symbol: 80,
@@ -12,6 +17,59 @@ const DEFAULT_COLUMN_WIDTHS = {
 };
 
 const MIN_COLUMN_WIDTH = 40;
+
+// Symbol full names (can be extended or fetched from API)
+const SYMBOL_FULL_NAMES = {
+    'NIFTY': 'Nifty 50 Index',
+    'BANKNIFTY': 'Bank Nifty Index',
+    'NIFTY50': 'Nifty 50 Index',
+    'SENSEX': 'BSE Sensex',
+    'RELIANCE': 'Reliance Industries Limited',
+    'TCS': 'Tata Consultancy Services',
+    'INFY': 'Infosys Limited',
+    'HDFCBANK': 'HDFC Bank Limited',
+    'ICICIBANK': 'ICICI Bank Limited',
+    'SBIN': 'State Bank of India',
+    'BHARTIARTL': 'Bharti Airtel Limited',
+    'ITC': 'ITC Limited',
+    'HINDUNILVR': 'Hindustan Unilever Limited',
+    'KOTAKBANK': 'Kotak Mahindra Bank',
+    'LT': 'Larsen & Toubro Limited',
+    'AXISBANK': 'Axis Bank Limited',
+    'BAJFINANCE': 'Bajaj Finance Limited',
+    'MARUTI': 'Maruti Suzuki India Limited',
+    'ASIANPAINT': 'Asian Paints Limited',
+    'TITAN': 'Titan Company Limited',
+    'SUNPHARMA': 'Sun Pharmaceutical Industries',
+    'WIPRO': 'Wipro Limited',
+    'ULTRACEMCO': 'UltraTech Cement Limited',
+    'NESTLEIND': 'Nestle India Limited',
+    'POWERGRID': 'Power Grid Corporation',
+    'NTPC': 'NTPC Limited',
+    'ONGC': 'Oil and Natural Gas Corporation',
+    'JSWSTEEL': 'JSW Steel Limited',
+    'TATASTEEL': 'Tata Steel Limited',
+    'M&M': 'Mahindra & Mahindra Limited',
+    'HCLTECH': 'HCL Technologies Limited',
+    'ADANIENT': 'Adani Enterprises Limited',
+    'ADANIPORTS': 'Adani Ports and SEZ Limited',
+    'COALINDIA': 'Coal India Limited',
+    'BPCL': 'Bharat Petroleum Corporation',
+    'GRASIM': 'Grasim Industries Limited',
+    'TECHM': 'Tech Mahindra Limited',
+    'INDUSINDBK': 'IndusInd Bank Limited',
+    'EICHERMOT': 'Eicher Motors Limited',
+    'DIVISLAB': 'Divi\'s Laboratories Limited',
+    'DRREDDY': 'Dr. Reddy\'s Laboratories',
+    'CIPLA': 'Cipla Limited',
+    'APOLLOHOSP': 'Apollo Hospitals Enterprise',
+    'BRITANNIA': 'Britannia Industries Limited',
+    'HEROMOTOCO': 'Hero MotoCorp Limited',
+    'BAJAJ-AUTO': 'Bajaj Auto Limited',
+    'TATACONSUM': 'Tata Consumer Products Limited',
+    'SBILIFE': 'SBI Life Insurance Company',
+    'HDFCLIFE': 'HDFC Life Insurance Company',
+};
 
 const SkeletonRow = () => (
     <div className={styles.skeletonItem}>
@@ -37,17 +95,39 @@ const Watchlist = ({
     onCreateWatchlist,
     onRenameWatchlist,
     onDeleteWatchlist,
+    onClearWatchlist,
+    onCopyWatchlist,
+    // Section management (TradingView model: sections are ### strings in items array)
+    onAddSection,
+    onRenameSection,
+    onDeleteSection,
+    collapsedSections = [],
+    onToggleSection,
     // Quick-access favorites props
     favoriteWatchlists = [],
     onToggleFavorite,
+    // Track selected symbol for add section above
+    selectedSymbolIndex = null,
 }) => {
     const hasMultipleWatchlists = watchlists.length > 0 && onSwitchWatchlist;
     const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
     const [draggedIndex, setDraggedIndex] = useState(null);
+    const [draggedSection, setDraggedSection] = useState(null); // Track dragged section
     const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
     const [resizing, setResizing] = useState(null);
     const startXRef = useRef(0);
     const startWidthRef = useRef(0);
+
+    // Smart tooltip state
+    const tooltip = useSmartTooltip();
+
+    // Context menu state
+    const [contextMenu, setContextMenu] = useState({
+        isVisible: false,
+        position: { x: 0, y: 0 },
+        item: null,
+        index: null,
+    });
 
     const handleResizeStart = useCallback((e, column) => {
         e.preventDefault();
@@ -88,7 +168,6 @@ const Watchlist = ({
             if (sortConfig.direction === 'asc') {
                 direction = 'desc';
             } else {
-                // Toggle to null (unsorted)
                 setSortConfig({ key: null, direction: 'asc' });
                 return;
             }
@@ -99,47 +178,270 @@ const Watchlist = ({
     const handleDragStart = useCallback((e, index) => {
         setDraggedIndex(index);
         e.dataTransfer.effectAllowed = "move";
-        // Optional: set drag image or style
+        // Set data for cross-browser compatibility
+        e.dataTransfer.setData('text/plain', index.toString());
     }, []);
 
     const handleDragOver = useCallback((e, index) => {
         e.preventDefault();
+        e.stopPropagation();
         e.dataTransfer.dropEffect = "move";
+    }, []);
+
+    const handleDragEnd = useCallback(() => {
+        setDraggedIndex(null);
     }, []);
 
     const handleDrop = useCallback((e, dropIndex) => {
         e.preventDefault();
-        if (draggedIndex === null || draggedIndex === dropIndex) return;
+        e.stopPropagation();
+
+        if (draggedIndex === null || draggedIndex === dropIndex) {
+            setDraggedIndex(null);
+            return;
+        }
 
         const newItems = [...items];
         const [draggedItem] = newItems.splice(draggedIndex, 1);
         newItems.splice(dropIndex, 0, draggedItem);
 
-        const newSymbols = newItems.map(item => ({ symbol: item.symbol, exchange: item.exchange }));
-        if (onReorder) onReorder(newSymbols);
+        // With flat array model, just reorder and pass the whole array
+        if (onReorder) onReorder(newItems);
         setDraggedIndex(null);
     }, [draggedIndex, items, onReorder]);
 
+    // Section drag handlers - with flat array, sections are just items in the array
+    const handleSectionDragStart = useCallback((e, sectionTitle, sectionIdx) => {
+        setDraggedSection(sectionTitle);
+        setDraggedIndex(sectionIdx); // Track the section's index in the array
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData('text/plain', sectionIdx.toString());
+    }, []);
+
+    const handleSectionDragEnd = useCallback(() => {
+        setDraggedSection(null);
+        setDraggedIndex(null);
+    }, []);
+
+    // Section drop - for dropping items onto section headers
+    const handleSectionDrop = useCallback((e, sectionIndex, targetSectionTitle) => {
+        e.preventDefault();
+        e.stopPropagation();
+
+        // Get dragged item index from dataTransfer
+        const data = e.dataTransfer.getData('text/plain');
+        const draggedIdx = parseInt(data, 10);
+
+        if (isNaN(draggedIdx) || draggedIdx === sectionIndex) {
+            setDraggedIndex(null);
+            setDraggedSection(null);
+            return;
+        }
+
+        // Move the dragged item to right after the section header
+        const newItems = [...items];
+        const [draggedItem] = newItems.splice(draggedIdx, 1);
+
+        // Insert right after the section marker
+        const insertIndex = draggedIdx < sectionIndex ? sectionIndex : sectionIndex + 1;
+        newItems.splice(insertIndex, 0, draggedItem);
+
+        if (onReorder) onReorder(newItems);
+        setDraggedIndex(null);
+        setDraggedSection(null);
+    }, [items, onReorder]);
+
+    const handleItemMouseEnter = useCallback((e, item, rect) => {
+        const fullName = SYMBOL_FULL_NAMES[item.symbol] || item.symbol;
+        const isMarketOpen = isMarketOpenNow(item.exchange);
+
+        tooltip.showTooltip(
+            {
+                fullName,
+                symbol: item.symbol,
+                exchange: item.exchange,
+                dataType: 'Real-time',
+                isMarketOpen,
+            },
+            rect?.left || e.clientX,
+            rect?.bottom || e.clientY
+        );
+    }, [tooltip]);
+
+    const handleItemMouseLeave = useCallback(() => {
+        tooltip.hideTooltip();
+    }, [tooltip]);
+
+    const handleItemMouseMove = useCallback((e) => {
+        if (tooltip.isVisible) {
+            tooltip.updatePosition(e.clientX, e.clientY);
+        }
+    }, [tooltip]);
+
+    // Context menu handlers
+    const handleContextMenu = useCallback((e, item, index) => {
+        e.preventDefault();
+        setContextMenu({
+            isVisible: true,
+            position: { x: e.clientX, y: e.clientY },
+            item,
+            index,
+        });
+    }, []);
+
+    const handleCloseContextMenu = useCallback(() => {
+        setContextMenu(prev => ({ ...prev, isVisible: false }));
+    }, []);
+
+    // Generate next section name like "SECTION 1", "SECTION 2"...
+    const getNextSectionName = useCallback(() => {
+        // Extract section names from items (### prefixed strings)
+        const sectionNames = items
+            .filter(item => typeof item === 'string' && item.startsWith('###'))
+            .map(s => s.replace('###', ''));
+
+        const existingNumbers = sectionNames
+            .map(title => {
+                const match = title.match(/^SECTION\s+(\d+)$/i);
+                return match ? parseInt(match[1], 10) : 0;
+            })
+            .filter(n => n > 0);
+        const maxNum = existingNumbers.length > 0 ? Math.max(...existingNumbers) : 0;
+        return `SECTION ${maxNum + 1}`;
+    }, [items]);
+
+    const handleAddSectionAbove = useCallback(() => {
+        if (onAddSection && contextMenu.index !== null) {
+            const sectionName = getNextSectionName();
+            onAddSection(sectionName, contextMenu.index);
+        }
+    }, [onAddSection, contextMenu.index, getNextSectionName]);
+
+    const handleMoveToTop = useCallback(() => {
+        if (contextMenu.index !== null && contextMenu.index > 0) {
+            const newItems = [...items];
+            const [movedItem] = newItems.splice(contextMenu.index, 1);
+            newItems.unshift(movedItem);
+            // With flat array model, pass items directly (includes section markers)
+            if (onReorder) onReorder(newItems);
+        }
+    }, [contextMenu.index, items, onReorder]);
+
+    const handleMoveToBottom = useCallback(() => {
+        if (contextMenu.index !== null && contextMenu.index < items.length - 1) {
+            const newItems = [...items];
+            const [movedItem] = newItems.splice(contextMenu.index, 1);
+            newItems.push(movedItem);
+            // With flat array model, pass items directly (includes section markers)
+            if (onReorder) onReorder(newItems);
+        }
+    }, [contextMenu.index, items, onReorder]);
+
+    const handleRemoveFromMenu = useCallback(() => {
+        if (contextMenu.item) {
+            onRemoveClick({ symbol: contextMenu.item.symbol, exchange: contextMenu.item.exchange });
+        }
+    }, [contextMenu.item, onRemoveClick]);
+
     const sortedItems = useMemo(() => {
+        // If no sorting, return items as-is
         if (!sortConfig.key) return items;
 
-        return [...items].sort((a, b) => {
-            let aValue = a[sortConfig.key];
-            let bValue = b[sortConfig.key];
+        // With TradingView model, we sort WITHIN sections, not across them
+        // Split into groups, sort each group, then reassemble
+        const result = [];
+        let currentGroup = [];
 
-            if (['last', 'chg', 'chgP'].includes(sortConfig.key)) {
-                aValue = parseFloat(aValue) || 0;
-                bValue = parseFloat(bValue) || 0;
+        for (const item of items) {
+            if (typeof item === 'string' && item.startsWith('###')) {
+                // Sort the accumulated group before section marker
+                if (currentGroup.length > 0) {
+                    result.push(...sortGroup(currentGroup));
+                }
+                // Add section marker
+                result.push(item);
+                currentGroup = [];
+            } else {
+                currentGroup.push(item);
             }
+        }
+        // Sort and add final group
+        if (currentGroup.length > 0) {
+            result.push(...sortGroup(currentGroup));
+        }
 
-            if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
-            if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
-            return 0;
-        });
+        function sortGroup(group) {
+            return [...group].sort((a, b) => {
+                let aValue = a[sortConfig.key];
+                let bValue = b[sortConfig.key];
+
+                if (['last', 'chg', 'chgP'].includes(sortConfig.key)) {
+                    aValue = parseFloat(aValue) || 0;
+                    bValue = parseFloat(bValue) || 0;
+                }
+
+                if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
+                if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
+                return 0;
+            });
+        }
+
+        return result;
     }, [items, sortConfig]);
 
+    // Group items by section (TradingView model: ### prefixed strings are section markers)
+    const groupedItems = useMemo(() => {
+        const groups = [];
+        let currentSection = null;
+        let currentItems = [];
+
+        // Walk through all items - they can be symbol objects or ###section strings
+        for (let i = 0; i < sortedItems.length; i++) {
+            const item = sortedItems[i];
+
+            // Check if this is a section marker (string starting with ###)
+            if (typeof item === 'string' && item.startsWith('###')) {
+                // Save previous group if it has content
+                if (currentItems.length > 0 || currentSection !== null) {
+                    groups.push({
+                        section: currentSection,
+                        items: currentItems,
+                        sectionIndex: currentSection !== null ? i - currentItems.length - 1 : null
+                    });
+                }
+                // Start new section
+                currentSection = item.replace('###', '');
+                currentItems = [];
+            } else {
+                // Regular symbol item
+                currentItems.push({ ...item, globalIndex: i });
+            }
+        }
+
+        // Push final group
+        if (currentItems.length > 0 || currentSection !== null) {
+            groups.push({
+                section: currentSection,
+                items: currentItems,
+                sectionIndex: currentSection !== null
+                    ? sortedItems.length - currentItems.length - 1
+                    : null
+            });
+        }
+
+        // If no groups at all, create one empty group
+        if (groups.length === 0) {
+            groups.push({ section: null, items: [], sectionIndex: null });
+        }
+
+        return groups;
+    }, [sortedItems]);
+
     return (
-        <div className={classNames(styles.watchlist, { [styles.isResizing]: resizing })}>
+        <div
+            className={classNames(styles.watchlist, { [styles.isResizing]: resizing })}
+            onMouseLeave={() => tooltip.reset()}
+        >
             <div className={styles.header}>
                 {hasMultipleWatchlists ? (
                     <WatchlistSelector
@@ -149,13 +451,21 @@ const Watchlist = ({
                         onCreate={onCreateWatchlist}
                         onRename={onRenameWatchlist}
                         onDelete={onDeleteWatchlist}
+                        onClear={onClearWatchlist}
+                        onCopy={onCopyWatchlist}
+                        onAddSection={() => {
+                            // If a symbol is selected (has context), add above it
+                            // Otherwise add at bottom with auto-generated name
+                            const sectionName = getNextSectionName();
+                            const insertIndex = selectedSymbolIndex !== null ? selectedSymbolIndex : items.length;
+                            onAddSection?.(sectionName, insertIndex);
+                        }}
                         onToggleFavorite={onToggleFavorite}
                     />
                 ) : (
                     <span className={styles.title}>Watchlist</span>
                 )}
 
-                {/* Favorite tag pill - quick switch to Favorites watchlist */}
                 {hasMultipleWatchlists && activeWatchlistId !== 'wl_favorites' && watchlists.find(wl => wl.id === 'wl_favorites') && (
                     <button
                         className={styles.favoriteTag}
@@ -171,10 +481,10 @@ const Watchlist = ({
                 </div>
             </div>
 
-            {/* Quick-access favorites row */}
             {favoriteWatchlists.length > 0 && hasMultipleWatchlists && (
                 <div className={styles.quickAccessRow}>
-                    {favoriteWatchlists.map(wl => (
+                    {/* Cap to 12 favorite watchlists to prevent overflow */}
+                    {favoriteWatchlists.slice(0, 12).map(wl => (
                         <button
                             key={wl.id}
                             className={classNames(styles.quickAccessBtn, {
@@ -234,67 +544,142 @@ const Watchlist = ({
 
             <div className={styles.list}>
                 {isLoading ? (
-                    // Show skeleton rows while loading
                     Array.from({ length: 5 }).map((_, index) => (
                         <SkeletonRow key={`skeleton-${index}`} />
                     ))
                 ) : sortedItems.length === 0 ? (
-                    // Show empty state
                     <div className={styles.emptyState}>
                         <Plus size={24} />
                         <p>No symbols in watchlist</p>
                     </div>
                 ) : (
-                    // Show actual items
-                    sortedItems.map((item, index) => (
-                        <div
-                            key={item.symbol}
-                            className={classNames(styles.item, {
-                                [styles.active]: currentSymbol === item.symbol,
-                                [styles.dragging]: draggedIndex === index
-                            })}
-                            onClick={() => onSymbolSelect({ symbol: item.symbol, exchange: item.exchange })}
-                            draggable={!sortConfig.key}
-                            onDragStart={(e) => handleDragStart(e, index)}
-                            onDragOver={(e) => handleDragOver(e, index)}
-                            onDrop={(e) => handleDrop(e, index)}
-                        >
-                            <span
-                                className={styles.symbolName}
-                                style={{ width: columnWidths.symbol, minWidth: columnWidths.symbol }}
-                            >
-                                {item.symbol}
-                            </span>
-                            <span
-                                className={classNames(styles.last, { [styles.up]: item.up, [styles.down]: !item.up })}
-                                style={{ width: columnWidths.last, minWidth: MIN_COLUMN_WIDTH }}
-                            >
-                                {item.last}
-                            </span>
-                            <span
-                                className={classNames(styles.chg, { [styles.up]: item.up, [styles.down]: !item.up })}
-                                style={{ width: columnWidths.chg, minWidth: MIN_COLUMN_WIDTH }}
-                            >
-                                {item.chg}
-                            </span>
-                            <span
-                                className={classNames(styles.chgP, { [styles.up]: item.up, [styles.down]: !item.up })}
-                                style={{ width: columnWidths.chgP, minWidth: MIN_COLUMN_WIDTH }}
-                            >
-                                {item.chgP}
-                            </span>
-                            <div
-                                className={styles.removeBtn}
-                                onClick={(e) => { e.stopPropagation(); onRemoveClick({ symbol: item.symbol, exchange: item.exchange }); }}
-                            >
-                                <X size={12} />
-                            </div>
-                        </div>
-                    ))
+                    groupedItems.map((group, groupIndex) => {
+                        // sectionIndex comes from groupedItems (calculated during grouping)
+                        const sectionStartIndex = group.sectionIndex ?? 0;
+
+                        return (
+                            <React.Fragment key={`group-${groupIndex}`}>
+                                {group.section && (
+                                    <WatchlistSection
+                                        title={group.section}
+                                        isCollapsed={collapsedSections?.includes(group.section)}
+                                        isDragging={draggedSection === group.section}
+                                        onToggle={() => onToggleSection?.(group.section)}
+                                        onRename={(oldTitle, newTitle) => onRenameSection?.(oldTitle, newTitle)}
+                                        onDelete={(title) => onDeleteSection?.(title)}
+                                        sectionIndex={sectionStartIndex}
+                                        onDragStart={handleSectionDragStart}
+                                        onDragOver={handleDragOver}
+                                        onDragEnd={handleSectionDragEnd}
+                                        onDrop={handleSectionDrop}
+                                    >
+                                        {group.items.map((item, index) => {
+                                            const globalIndex = sortedItems.findIndex(
+                                                i => i.symbol === item.symbol && i.exchange === item.exchange
+                                            );
+                                            return (
+                                                <WatchlistItem
+                                                    key={`${item.symbol}-${item.exchange}`}
+                                                    item={item}
+                                                    isActive={currentSymbol === item.symbol}
+                                                    isDragging={draggedIndex === globalIndex}
+                                                    columnWidths={columnWidths}
+                                                    minColumnWidth={MIN_COLUMN_WIDTH}
+                                                    sortEnabled={!!sortConfig.key}
+                                                    index={globalIndex}
+                                                    onSelect={onSymbolSelect}
+                                                    onRemove={onRemoveClick}
+                                                    onDragStart={handleDragStart}
+                                                    onDragOver={handleDragOver}
+                                                    onDragEnd={handleDragEnd}
+                                                    onDrop={handleDrop}
+                                                    onContextMenu={handleContextMenu}
+                                                    onMouseEnter={handleItemMouseEnter}
+                                                    onMouseLeave={handleItemMouseLeave}
+                                                    onMouseMove={handleItemMouseMove}
+                                                />
+                                            );
+                                        })}
+                                    </WatchlistSection>
+                                )}
+                                {!group.section && group.items.map((item, index) => {
+                                    const globalIndex = sortedItems.findIndex(
+                                        i => i.symbol === item.symbol && i.exchange === item.exchange
+                                    );
+                                    return (
+                                        <WatchlistItem
+                                            key={`${item.symbol}-${item.exchange}`}
+                                            item={item}
+                                            isActive={currentSymbol === item.symbol}
+                                            isDragging={draggedIndex === globalIndex}
+                                            columnWidths={columnWidths}
+                                            minColumnWidth={MIN_COLUMN_WIDTH}
+                                            sortEnabled={!!sortConfig.key}
+                                            index={globalIndex}
+                                            onSelect={onSymbolSelect}
+                                            onRemove={onRemoveClick}
+                                            onDragStart={handleDragStart}
+                                            onDragOver={handleDragOver}
+                                            onDragEnd={handleDragEnd}
+                                            onDrop={handleDrop}
+                                            onContextMenu={handleContextMenu}
+                                            onMouseEnter={handleItemMouseEnter}
+                                            onMouseLeave={handleItemMouseLeave}
+                                            onMouseMove={handleItemMouseMove}
+                                        />
+                                    );
+                                })}
+                            </React.Fragment>
+                        );
+                    })
                 )}
             </div>
+
+            {/* Smart Tooltip */}
+            <SymbolTooltip
+                isVisible={tooltip.isVisible}
+                content={tooltip.content}
+                position={tooltip.position}
+            />
+
+            {/* Context Menu */}
+            <ContextMenu
+                isVisible={contextMenu.isVisible}
+                position={contextMenu.position}
+                onClose={handleCloseContextMenu}
+                onAddSection={handleAddSectionAbove}
+                onMoveToTop={handleMoveToTop}
+                onMoveToBottom={handleMoveToBottom}
+                onRemove={handleRemoveFromMenu}
+            />
         </div>
     );
 };
+
+// Helper function to check if market is open (simplified)
+function isMarketOpenNow(exchange) {
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const day = now.getDay();
+
+    // Weekend check
+    if (day === 0 || day === 6) return false;
+
+    // India market hours (9:15 AM - 3:30 PM IST)
+    if (['NSE', 'NSE_INDEX', 'BSE', 'NFO', 'MCX', 'CDS', 'BFO'].includes(exchange)) {
+        const timeInMinutes = hours * 60 + minutes;
+        return timeInMinutes >= 555 && timeInMinutes <= 930; // 9:15 to 15:30
+    }
+
+    // US market hours (simplified - 9:30 AM - 4:00 PM EST)
+    if (['NYSE', 'NASDAQ', 'AMEX'].includes(exchange)) {
+        // This is simplified - doesn't account for timezone
+        const timeInMinutes = hours * 60 + minutes;
+        return timeInMinutes >= 570 && timeInMinutes <= 960;
+    }
+
+    return false;
+}
 
 export default React.memo(Watchlist);

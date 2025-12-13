@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ChevronDown, Plus, Trash2, Edit2, Check, X, Star } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, Edit2, Check, X, Star, Copy, Eraser, Layers } from 'lucide-react';
 import styles from './WatchlistSelector.module.css';
 import classNames from 'classnames';
 
@@ -10,6 +10,9 @@ const WatchlistSelector = ({
     onCreate,
     onRename,
     onDelete,
+    onClear,
+    onCopy,
+    onAddSection,
     onToggleFavorite,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -17,6 +20,7 @@ const WatchlistSelector = ({
     const [createName, setCreateName] = useState('');
     const [editingId, setEditingId] = useState(null);
     const [editName, setEditName] = useState('');
+    const [showClearConfirm, setShowClearConfirm] = useState(false);
     const dropdownRef = useRef(null);
     const createInputRef = useRef(null);
     const editInputRef = useRef(null);
@@ -39,6 +43,7 @@ const WatchlistSelector = ({
                 setIsOpen(false);
                 setShowCreateInput(false);
                 setEditingId(null);
+                setShowClearConfirm(false);
             }
         };
 
@@ -71,6 +76,7 @@ const WatchlistSelector = ({
         if (isOpen) {
             setShowCreateInput(false);
             setEditingId(null);
+            setShowClearConfirm(false);
         }
     };
 
@@ -132,6 +138,29 @@ const WatchlistSelector = ({
         onDelete(id);
     };
 
+    const handleClearClick = () => {
+        if (showClearConfirm) {
+            onClear?.(activeId);
+            setShowClearConfirm(false);
+            setIsOpen(false);
+        } else {
+            setShowClearConfirm(true);
+        }
+    };
+
+    const handleCopyClick = () => {
+        if (onCopy) {
+            const newName = `${activeWatchlist?.name || 'Watchlist'} (Copy)`;
+            onCopy(activeId, newName);
+            setIsOpen(false);
+        }
+    };
+
+    const handleAddSectionClick = () => {
+        onAddSection?.();
+        setIsOpen(false);
+    };
+
     return (
         <div className={styles.selector} ref={dropdownRef}>
             <button className={styles.selectorButton} onClick={handleToggle}>
@@ -144,6 +173,112 @@ const WatchlistSelector = ({
 
             {isOpen && (
                 <div className={styles.dropdown}>
+                    {/* Action Menu Items */}
+                    <div className={styles.menuSection}>
+                        <button className={styles.menuItem} onClick={handleCreateClick}>
+                            <Plus size={14} />
+                            <span>Create new list...</span>
+                        </button>
+
+                        {onCopy && (
+                            <button className={styles.menuItem} onClick={handleCopyClick}>
+                                <Copy size={14} />
+                                <span>Make a copy...</span>
+                            </button>
+                        )}
+
+                        <button
+                            className={styles.menuItem}
+                            onClick={() => {
+                                if (activeWatchlist && activeWatchlist.id !== 'wl_favorites') {
+                                    setEditingId(activeWatchlist.id);
+                                    setEditName(activeWatchlist.name);
+                                }
+                            }}
+                            disabled={activeWatchlist?.id === 'wl_favorites'}
+                        >
+                            <Edit2 size={14} />
+                            <span>Rename</span>
+                        </button>
+
+                        {onClear && (
+                            showClearConfirm ? (
+                                <div className={classNames(styles.menuItem, styles.confirmRow)}>
+                                    <Eraser size={14} />
+                                    <span>Clear list</span>
+                                    <button
+                                        className={styles.confirmBtn}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onClear?.(activeId);
+                                            setShowClearConfirm(false);
+                                            setIsOpen(false);
+                                        }}
+                                        title="Confirm"
+                                    >
+                                        <Check size={14} strokeWidth={3} />
+                                    </button>
+                                    <button
+                                        className={styles.cancelBtn}
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setShowClearConfirm(false);
+                                        }}
+                                        title="Cancel"
+                                    >
+                                        <X size={14} strokeWidth={3} />
+                                    </button>
+                                </div>
+                            ) : (
+                                <button
+                                    className={styles.menuItem}
+                                    onClick={handleClearClick}
+                                >
+                                    <Eraser size={14} />
+                                    <span>Clear list</span>
+                                </button>
+                            )
+                        )}
+
+                        {onAddSection && (
+                            <button className={styles.menuItem} onClick={handleAddSectionClick}>
+                                <Layers size={14} />
+                                <span>Add section</span>
+                            </button>
+                        )}
+                    </div>
+
+                    <div className={styles.divider} />
+
+                    {/* Create input */}
+                    {showCreateInput && (
+                        <div className={styles.createRow}>
+                            <input
+                                ref={createInputRef}
+                                type="text"
+                                value={createName}
+                                onChange={(e) => setCreateName(e.target.value)}
+                                onKeyDown={handleCreateKeyDown}
+                                className={styles.createInput}
+                                placeholder="New watchlist name"
+                            />
+                            <button
+                                className={styles.iconButton}
+                                onClick={handleCreateSubmit}
+                                disabled={!createName.trim()}
+                            >
+                                <Check size={14} />
+                            </button>
+                            <button
+                                className={styles.iconButton}
+                                onClick={() => setShowCreateInput(false)}
+                            >
+                                <X size={14} />
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Watchlist items */}
                     <div className={styles.dropdownList}>
                         {sortedWatchlists.map(wl => {
                             const isFavorites = wl.id === 'wl_favorites';
@@ -224,40 +359,6 @@ const WatchlistSelector = ({
                                 </div>
                             );
                         })}
-                    </div>
-
-                    <div className={styles.dropdownFooter}>
-                        {showCreateInput ? (
-                            <div className={styles.createRow}>
-                                <input
-                                    ref={createInputRef}
-                                    type="text"
-                                    value={createName}
-                                    onChange={(e) => setCreateName(e.target.value)}
-                                    onKeyDown={handleCreateKeyDown}
-                                    className={styles.createInput}
-                                    placeholder="New watchlist name"
-                                />
-                                <button
-                                    className={styles.iconButton}
-                                    onClick={handleCreateSubmit}
-                                    disabled={!createName.trim()}
-                                >
-                                    <Check size={14} />
-                                </button>
-                                <button
-                                    className={styles.iconButton}
-                                    onClick={() => setShowCreateInput(false)}
-                                >
-                                    <X size={14} />
-                                </button>
-                            </div>
-                        ) : (
-                            <button className={styles.createButton} onClick={handleCreateClick}>
-                                <Plus size={14} />
-                                <span>New Watchlist</span>
-                            </button>
-                        )}
                     </div>
                 </div>
             )}

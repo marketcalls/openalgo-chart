@@ -120,6 +120,11 @@ const ChartComponent = forwardRef(({
     const macdSeriesRef = useRef({ macd: null, signal: null, histogram: null });
     const stochasticSeriesRef = useRef({ k: null, d: null });
     const atrSeriesRef = useRef(null);
+    // Pane refs for oscillator indicators (v5 multi-pane support)
+    const rsiPaneRef = useRef(null);
+    const macdPaneRef = useRef(null);
+    const stochasticPaneRef = useRef(null);
+    const atrPaneRef = useRef(null);
     const chartReadyRef = useRef(false); // Track when chart is fully stable and ready for indicator additions
     const lineToolManagerRef = useRef(null);
     const priceScaleTimerRef = useRef(null); // Ref for the candle countdown timer
@@ -1767,21 +1772,23 @@ const ChartComponent = forwardRef(({
             volumeSeriesRef.current = null;
         }
 
-        // ========== RSI INDICATOR (Overlay in lower portion) ==========
+        // ========== RSI INDICATOR (Separate Pane - v5 Multi-Pane) ==========
         if (indicatorsConfig.rsi?.enabled) {
-            if (!rsiSeriesRef.current && canAddSeries) {
-                rsiSeriesRef.current = chartRef.current.addSeries(LineSeries, {
+            // Create dedicated pane for RSI if not exists
+            if (!rsiPaneRef.current && canAddSeries) {
+                rsiPaneRef.current = chartRef.current.addPane({ height: 100 });
+            }
+            // Add series to the RSI pane
+            if (rsiPaneRef.current && !rsiSeriesRef.current && canAddSeries) {
+                rsiSeriesRef.current = rsiPaneRef.current.addSeries(LineSeries, {
                     color: indicatorsConfig.rsi?.color || '#7B1FA2',
                     lineWidth: 2,
-                    priceScaleId: 'rsi',
                     priceLineVisible: false,
                     lastValueVisible: true,
                     title: 'RSI',
                 });
-                rsiSeriesRef.current.priceScale().applyOptions({
-                    scaleMargins: { top: 0.7, bottom: 0.05 },
-                });
             }
+            // Set RSI data
             if (rsiSeriesRef.current) {
                 const period = indicatorsConfig.rsi.period || 14;
                 const rsiData = calculateRSI(data, period);
@@ -1789,48 +1796,64 @@ const ChartComponent = forwardRef(({
                     rsiSeriesRef.current.setData(rsiData);
                 }
             }
-        } else if (rsiSeriesRef.current) {
-            chartRef.current.removeSeries(rsiSeriesRef.current);
-            rsiSeriesRef.current = null;
+        } else {
+            // Cleanup RSI pane and series
+            if (rsiSeriesRef.current && rsiPaneRef.current) {
+                try {
+                    rsiPaneRef.current.removeSeries(rsiSeriesRef.current);
+                } catch (e) {
+                    console.warn('Error removing RSI series:', e);
+                }
+                rsiSeriesRef.current = null;
+            }
+            if (rsiPaneRef.current) {
+                try {
+                    const paneIndex = chartRef.current.panes().indexOf(rsiPaneRef.current);
+                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                        chartRef.current.removePane(paneIndex);
+                    }
+                } catch (e) {
+                    console.warn('Error removing RSI pane:', e);
+                }
+                rsiPaneRef.current = null;
+            }
         }
 
-        // ========== MACD INDICATOR (Overlay in lower portion) ==========
+        // ========== MACD INDICATOR (Separate Pane - v5 Multi-Pane) ==========
         if (indicatorsConfig.macd?.enabled) {
-            const macdPriceScaleId = 'macd';
-            const macdScaleMargins = { top: 0.75, bottom: 0.02 };
+            // Create dedicated pane for MACD if not exists
+            if (!macdPaneRef.current && canAddSeries) {
+                macdPaneRef.current = chartRef.current.addPane({ height: 120 });
+            }
 
-            // MACD Histogram
-            if (!macdSeriesRef.current.histogram && canAddSeries) {
-                macdSeriesRef.current.histogram = chartRef.current.addSeries(HistogramSeries, {
-                    priceScaleId: macdPriceScaleId,
-                    priceLineVisible: false,
-                    lastValueVisible: false,
-                });
-                macdSeriesRef.current.histogram.priceScale().applyOptions({
-                    scaleMargins: macdScaleMargins,
-                });
-            }
-            // MACD Line
-            if (!macdSeriesRef.current.macd && canAddSeries) {
-                macdSeriesRef.current.macd = chartRef.current.addSeries(LineSeries, {
-                    color: indicatorsConfig.macd?.macdColor || '#2962FF',
-                    lineWidth: 2,
-                    priceScaleId: macdPriceScaleId,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    title: 'MACD',
-                });
-            }
-            // Signal Line
-            if (!macdSeriesRef.current.signal && canAddSeries) {
-                macdSeriesRef.current.signal = chartRef.current.addSeries(LineSeries, {
-                    color: indicatorsConfig.macd?.signalColor || '#FF6D00',
-                    lineWidth: 2,
-                    priceScaleId: macdPriceScaleId,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    title: 'Signal',
-                });
+            if (macdPaneRef.current && canAddSeries) {
+                // MACD Histogram
+                if (!macdSeriesRef.current.histogram) {
+                    macdSeriesRef.current.histogram = macdPaneRef.current.addSeries(HistogramSeries, {
+                        priceLineVisible: false,
+                        lastValueVisible: false,
+                    });
+                }
+                // MACD Line
+                if (!macdSeriesRef.current.macd) {
+                    macdSeriesRef.current.macd = macdPaneRef.current.addSeries(LineSeries, {
+                        color: indicatorsConfig.macd?.macdColor || '#2962FF',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        title: 'MACD',
+                    });
+                }
+                // Signal Line
+                if (!macdSeriesRef.current.signal) {
+                    macdSeriesRef.current.signal = macdPaneRef.current.addSeries(LineSeries, {
+                        color: indicatorsConfig.macd?.signalColor || '#FF6D00',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        title: 'Signal',
+                    });
+                }
             }
 
             // Set MACD data
@@ -1849,50 +1872,51 @@ const ChartComponent = forwardRef(({
                 macdSeriesRef.current.signal.setData(macdResult.signalLine);
             }
         } else {
-            // Remove MACD series
-            if (macdSeriesRef.current.histogram) {
-                chartRef.current.removeSeries(macdSeriesRef.current.histogram);
+            // Cleanup MACD pane and series
+            if (macdPaneRef.current) {
+                try {
+                    const paneIndex = chartRef.current.panes().indexOf(macdPaneRef.current);
+                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                        chartRef.current.removePane(paneIndex);
+                    }
+                } catch (e) {
+                    console.warn('Error removing MACD pane:', e);
+                }
+                macdPaneRef.current = null;
                 macdSeriesRef.current.histogram = null;
-            }
-            if (macdSeriesRef.current.macd) {
-                chartRef.current.removeSeries(macdSeriesRef.current.macd);
                 macdSeriesRef.current.macd = null;
-            }
-            if (macdSeriesRef.current.signal) {
-                chartRef.current.removeSeries(macdSeriesRef.current.signal);
                 macdSeriesRef.current.signal = null;
             }
         }
 
-        // ========== STOCHASTIC INDICATOR (Overlay in lower portion) ==========
+        // ========== STOCHASTIC INDICATOR (Separate Pane - v5 Multi-Pane) ==========
         if (indicatorsConfig.stochastic?.enabled) {
-            const stochPriceScaleId = 'stochastic';
-            const stochScaleMargins = { top: 0.7, bottom: 0.05 };
-
-            // %K Line
-            if (!stochasticSeriesRef.current.k && canAddSeries) {
-                stochasticSeriesRef.current.k = chartRef.current.addSeries(LineSeries, {
-                    color: indicatorsConfig.stochastic?.kColor || '#2962FF',
-                    lineWidth: 2,
-                    priceScaleId: stochPriceScaleId,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    title: '%K',
-                });
-                stochasticSeriesRef.current.k.priceScale().applyOptions({
-                    scaleMargins: stochScaleMargins,
-                });
+            // Create dedicated pane for Stochastic if not exists
+            if (!stochasticPaneRef.current && canAddSeries) {
+                stochasticPaneRef.current = chartRef.current.addPane({ height: 100 });
             }
-            // %D Line
-            if (!stochasticSeriesRef.current.d && canAddSeries) {
-                stochasticSeriesRef.current.d = chartRef.current.addSeries(LineSeries, {
-                    color: indicatorsConfig.stochastic?.dColor || '#FF6D00',
-                    lineWidth: 2,
-                    priceScaleId: stochPriceScaleId,
-                    priceLineVisible: false,
-                    lastValueVisible: true,
-                    title: '%D',
-                });
+
+            if (stochasticPaneRef.current && canAddSeries) {
+                // %K Line
+                if (!stochasticSeriesRef.current.k) {
+                    stochasticSeriesRef.current.k = stochasticPaneRef.current.addSeries(LineSeries, {
+                        color: indicatorsConfig.stochastic?.kColor || '#2962FF',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        title: '%K',
+                    });
+                }
+                // %D Line
+                if (!stochasticSeriesRef.current.d) {
+                    stochasticSeriesRef.current.d = stochasticPaneRef.current.addSeries(LineSeries, {
+                        color: indicatorsConfig.stochastic?.dColor || '#FF6D00',
+                        lineWidth: 2,
+                        priceLineVisible: false,
+                        lastValueVisible: true,
+                        title: '%D',
+                    });
+                }
             }
 
             const kPeriod = indicatorsConfig.stochastic.kPeriod || 14;
@@ -1907,31 +1931,39 @@ const ChartComponent = forwardRef(({
                 stochasticSeriesRef.current.d.setData(stochResult.dLine);
             }
         } else {
-            if (stochasticSeriesRef.current.k) {
-                chartRef.current.removeSeries(stochasticSeriesRef.current.k);
+            // Cleanup Stochastic pane and series
+            if (stochasticPaneRef.current) {
+                try {
+                    const paneIndex = chartRef.current.panes().indexOf(stochasticPaneRef.current);
+                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                        chartRef.current.removePane(paneIndex);
+                    }
+                } catch (e) {
+                    console.warn('Error removing Stochastic pane:', e);
+                }
+                stochasticPaneRef.current = null;
                 stochasticSeriesRef.current.k = null;
-            }
-            if (stochasticSeriesRef.current.d) {
-                chartRef.current.removeSeries(stochasticSeriesRef.current.d);
                 stochasticSeriesRef.current.d = null;
             }
         }
 
-        // ========== ATR INDICATOR (Overlay in lower portion) ==========
+        // ========== ATR INDICATOR (Separate Pane - v5 Multi-Pane) ==========
         if (indicatorsConfig.atr?.enabled) {
-            if (!atrSeriesRef.current && canAddSeries) {
-                atrSeriesRef.current = chartRef.current.addSeries(LineSeries, {
+            // Create dedicated pane for ATR if not exists
+            if (!atrPaneRef.current && canAddSeries) {
+                atrPaneRef.current = chartRef.current.addPane({ height: 80 });
+            }
+            // Add series to the ATR pane
+            if (atrPaneRef.current && !atrSeriesRef.current && canAddSeries) {
+                atrSeriesRef.current = atrPaneRef.current.addSeries(LineSeries, {
                     color: indicatorsConfig.atr?.color || '#FF9800',
                     lineWidth: 2,
-                    priceScaleId: 'atr',
                     priceLineVisible: false,
                     lastValueVisible: true,
                     title: 'ATR',
                 });
-                atrSeriesRef.current.priceScale().applyOptions({
-                    scaleMargins: { top: 0.8, bottom: 0.02 },
-                });
             }
+            // Set ATR data
             if (atrSeriesRef.current) {
                 const period = indicatorsConfig.atr.period || 14;
                 const atrData = calculateATR(data, period);
@@ -1939,23 +1971,37 @@ const ChartComponent = forwardRef(({
                     atrSeriesRef.current.setData(atrData);
                 }
             }
-        } else if (atrSeriesRef.current) {
-            chartRef.current.removeSeries(atrSeriesRef.current);
-            atrSeriesRef.current = null;
+        } else {
+            // Cleanup ATR pane and series
+            if (atrSeriesRef.current && atrPaneRef.current) {
+                try {
+                    atrPaneRef.current.removeSeries(atrSeriesRef.current);
+                } catch (e) {
+                    console.warn('Error removing ATR series:', e);
+                }
+                atrSeriesRef.current = null;
+            }
+            if (atrPaneRef.current) {
+                try {
+                    const paneIndex = chartRef.current.panes().indexOf(atrPaneRef.current);
+                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                        chartRef.current.removePane(paneIndex);
+                    }
+                } catch (e) {
+                    console.warn('Error removing ATR pane:', e);
+                }
+                atrPaneRef.current = null;
+            }
         }
 
         // ========== ADJUST MAIN PRICE SERIES SCALE MARGINS ==========
-        // When indicators are active, compress the main series to the top
-        const hasLowerIndicators = indicatorsConfig.volume?.enabled ||
-            indicatorsConfig.rsi?.enabled ||
-            indicatorsConfig.macd?.enabled ||
-            indicatorsConfig.stochastic?.enabled ||
-            indicatorsConfig.atr?.enabled;
+        // Only Volume uses overlay now, oscillators are in separate panes
+        const hasVolumeOverlay = indicatorsConfig.volume?.enabled;
 
         if (mainSeriesRef.current) {
             mainSeriesRef.current.priceScale().applyOptions({
-                scaleMargins: hasLowerIndicators
-                    ? { top: 0.02, bottom: 0.35 }  // Compress to top ~63%
+                scaleMargins: hasVolumeOverlay
+                    ? { top: 0.02, bottom: 0.18 }  // Small bottom margin for volume overlay
                     : { top: 0.1, bottom: 0.1 },   // Normal full view
             });
         }

@@ -6,7 +6,7 @@ import { getIntervals } from '../../services/openalgo';
 import { logger } from '../../utils/logger.js';
 import Tooltip from '../Tooltip/Tooltip';
 import {
-    Plus, Star, Trash2, X, AlertCircle, Loader2
+    Plus, Star, Trash2, X, AlertCircle, Loader2, Layout as LayoutIcon
 } from 'lucide-react';
 
 const Topbar = ({
@@ -728,9 +728,7 @@ const Topbar = ({
                                                 <Tooltip content="Layout Templates" position="bottom">
                                                     <button className={classNames(styles.button, styles.iconButton)} aria-label="Templates" onClick={onTemplatesClick}>
                                                         <div className={styles.icon}>
-                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor">
-                                                                <path d="M6 6h16v2H6V6zm0 4h10v2H6v-2zm0 4h16v2H6v-2zm0 4h10v2H6v-2z"></path>
-                                                            </svg>
+                                                            <LayoutIcon size={20} strokeWidth={1.5} />
                                                         </div>
                                                     </button>
                                                 </Tooltip>
@@ -752,8 +750,8 @@ const Topbar = ({
                                                             </svg>
                                                         ) : (
                                                             /* Moon icon for switching to dark */
-                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor">
-                                                                <path d="M14.5 3a.5.5 0 0 0-.46.7 8.93 8.93 0 0 1 .96 4.05c0 4.97-4.03 9-9 9a8.93 8.93 0 0 1-2.59-.38.5.5 0 0 0-.64.6A10 10 0 1 0 22 7.5a10 10 0 0 0-7-4.46.5.5 0 0 0-.5.46Zm6.5 11.5a9 9 0 0 1-9 9 9 9 0 0 1-7.85-4.62 9.94 9.94 0 0 0 1.85.17c5.52 0 10-4.48 10-10 0-.63-.06-1.24-.17-1.85A9 9 0 0 1 21 14.5Z"></path>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                                                             </svg>
                                                         )}
                                                     </div>

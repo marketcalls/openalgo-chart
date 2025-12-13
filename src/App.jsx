@@ -546,6 +546,18 @@ function App() {
   ) || watchlistsState.lists[0];
   const watchlistSymbols = activeWatchlist?.symbols || [];
 
+  // Create a stable key for symbol SET (ignores order and section markers, only changes on add/remove symbols)
+  // This prevents full reload when just reordering or adding sections
+  const watchlistSymbolsKey = React.useMemo(() => {
+    const symbolSet = watchlistSymbols
+      // Filter out section markers
+      .filter(s => !(typeof s === 'string' && s.startsWith('###')))
+      .map(s => typeof s === 'string' ? s : s.symbol)
+      .sort()
+      .join(',');
+    return `${watchlistsState.activeListId}:${symbolSet}`;
+  }, [watchlistSymbols, watchlistsState.activeListId]);
+
   // Derive favorite watchlists for quick-access row
   const favoriteWatchlists = watchlistsState.lists.filter(wl =>
     wl.isFavorite || wl.id === 'wl_favorites'
@@ -568,7 +580,11 @@ function App() {
     }
   }, [watchlistsState]);
 
-  // Fetch watchlist data - only when authenticated
+  // Track previous symbols for incremental updates
+  const prevSymbolsRef = React.useRef(null);
+  const lastActiveListIdRef = React.useRef(null);
+
+  // Fetch watchlist data - only when authenticated (with incremental updates)
   useEffect(() => {
     // Don't fetch if not authenticated yet
     if (!isAuthenticated) return;
@@ -578,28 +594,49 @@ function App() {
     let initialDataLoaded = false;
     const abortController = new AbortController();
 
+    // Extract actual symbols (not section markers)
+    const currentSymbols = watchlistSymbols
+      .filter(s => !(typeof s === 'string' && s.startsWith('###')))
+      .map(s => typeof s === 'string' ? s : s.symbol);
+
+    const currentSymbolsSet = new Set(currentSymbols);
+    const prevSymbolsSet = new Set(prevSymbolsRef.current || []);
+
+    // Check if this is a watchlist switch (different list ID)
+    const isListSwitch = lastActiveListIdRef.current !== watchlistsState.activeListId;
+    const isInitialLoad = prevSymbolsRef.current === null;
+
+    // Detect added and removed symbols
+    const addedSymbols = currentSymbols.filter(s => !prevSymbolsSet.has(s));
+    const removedSymbols = (prevSymbolsRef.current || []).filter(s => !currentSymbolsSet.has(s));
+
+    // Update refs for next time
+    prevSymbolsRef.current = currentSymbols;
+    lastActiveListIdRef.current = watchlistsState.activeListId;
+
+    // Helper to fetch a symbol's data
+    const fetchSymbol = async (symObj) => {
+      const symbol = typeof symObj === 'string' ? symObj : symObj.symbol;
+      const exchange = typeof symObj === 'string' ? 'NSE' : (symObj.exchange || 'NSE');
+      const data = await getTickerPrice(symbol, exchange, abortController.signal);
+      if (data && mounted) {
+        return {
+          symbol, exchange,
+          last: parseFloat(data.lastPrice).toFixed(2),
+          chg: parseFloat(data.priceChange).toFixed(2),
+          chgP: parseFloat(data.priceChangePercent).toFixed(2) + '%',
+          up: parseFloat(data.priceChange) >= 0
+        };
+      }
+      return null;
+    };
+
+    // Full reload function (for initial load or watchlist switch)
     const hydrateWatchlist = async () => {
       setWatchlistLoading(true);
       try {
-        const promises = watchlistSymbols.map(async (symObj) => {
-          // Handle both object format and legacy string format
-          const symbol = typeof symObj === 'string' ? symObj : symObj.symbol;
-          const exchange = typeof symObj === 'string' ? 'NSE' : (symObj.exchange || 'NSE');
-
-          const data = await getTickerPrice(symbol, exchange, abortController.signal);
-          if (data && mounted) {
-            return {
-              symbol: symbol,
-              exchange: exchange,
-              last: parseFloat(data.lastPrice).toFixed(2),
-              chg: parseFloat(data.priceChange).toFixed(2),
-              chgP: parseFloat(data.priceChangePercent).toFixed(2) + '%',
-              up: parseFloat(data.priceChange) >= 0
-            };
-          }
-          return null;
-        });
-
+        const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
+        const promises = symbolObjs.map(fetchSymbol);
         const results = await Promise.all(promises);
         if (mounted) {
           setWatchlistData(results.filter(r => r !== null));
@@ -615,8 +652,8 @@ function App() {
         }
       }
 
-      if (!mounted || watchlistSymbols.length === 0) {
-        if (mounted && watchlistSymbols.length === 0) {
+      if (!mounted || currentSymbols.length === 0) {
+        if (mounted && currentSymbols.length === 0) {
           setWatchlistData([]);
           setWatchlistLoading(false);
           initialDataLoaded = true;
@@ -628,7 +665,8 @@ function App() {
         ws.close();
       }
 
-      ws = subscribeToMultiTicker(watchlistSymbols, (ticker) => {
+      const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
+      ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
         if (!mounted || !initialDataLoaded) return;
         setWatchlistData(prev => {
           const index = prev.findIndex(item => item.symbol === ticker.symbol);
@@ -648,7 +686,37 @@ function App() {
       });
     };
 
-    hydrateWatchlist();
+    // Incremental update for adding symbols (no full reload)
+    const hydrateAddedSymbols = async () => {
+      const addedSymbolObjs = watchlistSymbols.filter(symObj => {
+        if (typeof symObj === 'string' && symObj.startsWith('###')) return false;
+        const symbol = typeof symObj === 'string' ? symObj : symObj.symbol;
+        return addedSymbols.includes(symbol);
+      });
+
+      const promises = addedSymbolObjs.map(fetchSymbol);
+      const results = await Promise.all(promises);
+      const validResults = results.filter(r => r !== null);
+
+      if (mounted && validResults.length > 0) {
+        setWatchlistData(prev => [...prev, ...validResults]);
+      }
+    };
+
+    // Decide update strategy
+    if (isInitialLoad || isListSwitch) {
+      // Full reload for initial load or watchlist switch
+      hydrateWatchlist();
+    } else if (removedSymbols.length > 0 || addedSymbols.length > 0) {
+      // Incremental update
+      if (removedSymbols.length > 0) {
+        setWatchlistData(prev => prev.filter(item => !removedSymbols.includes(item.symbol)));
+      }
+      if (addedSymbols.length > 0) {
+        hydrateAddedSymbols();
+      }
+    }
+    // If no changes (just reorder or sections), do nothing
 
     return () => {
       mounted = false;
@@ -657,7 +725,8 @@ function App() {
         ws.close();
       }
     };
-  }, [watchlistSymbols, isAuthenticated]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchlistSymbolsKey, watchlistsState.activeListId, isAuthenticated]);
 
   // Persist alerts/logs to localStorage with 24h retention
   useEffect(() => {
@@ -776,20 +845,24 @@ function App() {
     };
   }, [alertWsSymbols]);
 
-  const handleWatchlistReorder = (newSymbols) => {
+  const handleWatchlistReorder = (newItems) => {
+    // newItems can contain both symbol objects and ###section strings
     setWatchlistsState(prev => ({
       ...prev,
       lists: prev.lists.map(wl =>
-        wl.id === prev.activeListId ? { ...wl, symbols: newSymbols } : wl
+        wl.id === prev.activeListId ? { ...wl, symbols: newItems } : wl
       ),
     }));
-    // Optimistically update data order to prevent flicker
+    // Optimistically update data order - only for actual symbols, not section markers
     setWatchlistData(prev => {
       const dataMap = new Map(prev.map(item => [item.symbol, item]));
-      return newSymbols.map(sym => {
-        const symbolName = typeof sym === 'string' ? sym : sym.symbol;
-        return dataMap.get(symbolName);
-      }).filter(Boolean);
+      return newItems
+        .filter(item => typeof item !== 'string' || !item.startsWith('###'))
+        .map(sym => {
+          const symbolName = typeof sym === 'string' ? sym : sym.symbol;
+          return dataMap.get(symbolName);
+        })
+        .filter(Boolean);
     });
   };
 
@@ -801,7 +874,7 @@ function App() {
       lists: [...prev.lists, { id: newId, name, symbols: [] }],
       activeListId: newId,
     }));
-    showToast(`Created watchlist: ${name}`, 'success');
+    // Silent - no toast for watchlist creation
   };
 
   // Rename watchlist
@@ -827,7 +900,7 @@ function App() {
       const newLists = prev.lists.filter(wl => wl.id !== id);
       const deletedWl = prev.lists.find(wl => wl.id === id);
 
-      showToast(`Deleted watchlist: ${deletedWl?.name || 'Watchlist'}`, 'success');
+      // Silent - no toast for watchlist deletion
 
       return {
         lists: newLists,
@@ -843,14 +916,165 @@ function App() {
     setWatchlistsState(prev => ({ ...prev, activeListId: id }));
   };
 
-  // Toggle watchlist favorite status for quick-access
+  // Toggle watchlist favorite status for quick-access (max 12)
   const handleToggleWatchlistFavorite = (id) => {
+    const targetWl = watchlistsState.lists.find(wl => wl.id === id);
+    const currentFavoriteCount = watchlistsState.lists.filter(wl => wl.isFavorite).length;
+
+    // If trying to add a new favorite and already at max
+    if (!targetWl?.isFavorite && currentFavoriteCount >= 12) {
+      showToast('Maximum 12 favorite watchlists allowed', 'warning');
+      return;
+    }
+
     setWatchlistsState(prev => ({
       ...prev,
       lists: prev.lists.map(wl =>
         wl.id === id ? { ...wl, isFavorite: !wl.isFavorite } : wl
       ),
     }));
+  };
+
+  // Clear all symbols from a watchlist
+  const handleClearWatchlist = (id) => {
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: prev.lists.map(wl =>
+        wl.id === id ? { ...wl, symbols: [], sections: [] } : wl
+      ),
+    }));
+    setWatchlistData([]);
+    showToast('Watchlist cleared', 'success');
+  };
+
+  // Copy a watchlist
+  const handleCopyWatchlist = (id, newName) => {
+    const sourcelist = watchlistsState.lists.find(wl => wl.id === id);
+    if (!sourcelist) return;
+
+    const newId = 'wl_' + Date.now();
+    const copiedList = {
+      ...sourcelist,
+      id: newId,
+      name: newName,
+      isFavorite: false,
+      isFavorites: false,
+    };
+
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: [...prev.lists, copiedList],
+      activeListId: newId,
+    }));
+    showToast(`Created copy: ${newName}`, 'success');
+  };
+
+  // Add a section to the watchlist at a specific index (TradingView model: insert ###SECTION string)
+  const handleAddSection = (sectionTitle, index) => {
+    setWatchlistsState(prev => {
+      const activeList = prev.lists.find(wl => wl.id === prev.activeListId);
+      if (!activeList) return prev;
+
+      // Insert the section marker string at the specified index
+      const currentSymbols = [...(activeList.symbols || [])];
+      const sectionMarker = `###${sectionTitle}`;
+      currentSymbols.splice(index, 0, sectionMarker);
+
+      return {
+        ...prev,
+        lists: prev.lists.map(wl =>
+          wl.id === prev.activeListId
+            ? { ...wl, symbols: currentSymbols }
+            : wl
+        ),
+      };
+    });
+    // Silent - no toast for section creation
+  };
+
+  // Toggle section collapse state
+  const handleToggleSection = (sectionTitle) => {
+    setWatchlistsState(prev => {
+      const activeList = prev.lists.find(wl => wl.id === prev.activeListId);
+      if (!activeList) return prev;
+
+      const collapsedSections = activeList.collapsedSections || [];
+      const isCollapsed = collapsedSections.includes(sectionTitle);
+
+      return {
+        ...prev,
+        lists: prev.lists.map(wl =>
+          wl.id === prev.activeListId
+            ? {
+              ...wl,
+              collapsedSections: isCollapsed
+                ? collapsedSections.filter(s => s !== sectionTitle)
+                : [...collapsedSections, sectionTitle]
+            }
+            : wl
+        ),
+      };
+    });
+  };
+
+  // Rename a section (find ###OLD_NAME and replace with ###NEW_NAME)
+  const handleRenameSection = (oldTitle, newTitle) => {
+    setWatchlistsState(prev => {
+      const activeList = prev.lists.find(wl => wl.id === prev.activeListId);
+      if (!activeList) return prev;
+
+      const currentSymbols = [...(activeList.symbols || [])];
+      const oldMarker = `###${oldTitle}`;
+      const newMarker = `###${newTitle}`;
+
+      // Find and replace the section marker
+      const sectionIndex = currentSymbols.findIndex(s => s === oldMarker);
+      if (sectionIndex !== -1) {
+        currentSymbols[sectionIndex] = newMarker;
+      }
+
+      // Also update collapsed sections if the renamed section was collapsed
+      const collapsedSections = (activeList.collapsedSections || []).map(
+        s => s === oldTitle ? newTitle : s
+      );
+
+      return {
+        ...prev,
+        lists: prev.lists.map(wl =>
+          wl.id === prev.activeListId
+            ? { ...wl, symbols: currentSymbols, collapsedSections }
+            : wl
+        ),
+      };
+    });
+  };
+
+  // Delete a section (removes ###SECTION string, keeps symbols after it)
+  const handleDeleteSection = (sectionTitle) => {
+    setWatchlistsState(prev => {
+      const activeList = prev.lists.find(wl => wl.id === prev.activeListId);
+      if (!activeList) return prev;
+
+      const currentSymbols = [...(activeList.symbols || [])];
+      const sectionMarker = `###${sectionTitle}`;
+
+      // Remove the section marker string
+      const filteredSymbols = currentSymbols.filter(s => s !== sectionMarker);
+
+      // Also remove from collapsed sections
+      const collapsedSections = (activeList.collapsedSections || []).filter(
+        s => s !== sectionTitle
+      );
+
+      return {
+        ...prev,
+        lists: prev.lists.map(wl =>
+          wl.id === prev.activeListId
+            ? { ...wl, symbols: filteredSymbols, collapsedSections }
+            : wl
+        ),
+      };
+    });
   };
 
   const handleSymbolChange = (symbolData) => {
@@ -904,7 +1128,7 @@ function App() {
               : wl
           ),
         }));
-        showToast(`${symbol} added to ${activeWatchlist?.name || 'watchlist'}`, 'success');
+        // Silent - no toast for symbol add
       }
       setIsSearchOpen(false);
     }
@@ -1794,7 +2018,22 @@ function App() {
           activeRightPanel === 'watchlist' ? (
             <Watchlist
               currentSymbol={currentSymbol}
-              items={watchlistData}
+              items={(() => {
+                // Merge section markers with live data
+                // activeWatchlist.symbols contains both ###section markers and symbol objects
+                const symbols = activeWatchlist?.symbols || [];
+                const dataMap = new Map(watchlistData.map(item => [item.symbol, item]));
+
+                return symbols.map(item => {
+                  // If it's a section marker, keep it as-is
+                  if (typeof item === 'string' && item.startsWith('###')) {
+                    return item;
+                  }
+                  // Otherwise, find the live data for this symbol
+                  const symbolName = typeof item === 'string' ? item : item.symbol;
+                  return dataMap.get(symbolName) || item;
+                });
+              })()}
               isLoading={watchlistLoading}
               onSymbolSelect={(symData) => {
                 const symbol = typeof symData === 'string' ? symData : symData.symbol;
@@ -1813,6 +2052,14 @@ function App() {
               onCreateWatchlist={handleCreateWatchlist}
               onRenameWatchlist={handleRenameWatchlist}
               onDeleteWatchlist={handleDeleteWatchlist}
+              onClearWatchlist={handleClearWatchlist}
+              onCopyWatchlist={handleCopyWatchlist}
+              // Section management (TradingView flat array model)
+              onAddSection={handleAddSection}
+              onRenameSection={handleRenameSection}
+              onDeleteSection={handleDeleteSection}
+              collapsedSections={activeWatchlist?.collapsedSections || []}
+              onToggleSection={handleToggleSection}
               // Quick-access favorites props
               favoriteWatchlists={favoriteWatchlists}
               onToggleFavorite={handleToggleWatchlistFavorite}
@@ -1881,7 +2128,7 @@ function App() {
         executeCommand={executeCommand}
       />
       {/* Toast Queue */}
-      <div style={{ position: 'fixed', top: 70, right: 20, zIndex: 1000, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ position: 'fixed', top: 70, right: 20, zIndex: 10000, display: 'flex', flexDirection: 'column', gap: 8 }}>
         {toasts.map((toast, index) => (
           <Toast
             key={toast.id}

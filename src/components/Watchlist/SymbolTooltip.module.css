@@ -1,0 +1,80 @@
+.tooltip {
+    position: fixed;
+    background-color: var(--tv-color-dropdown-background, #1e222d);
+    border: 1px solid var(--tv-color-border, #2A2E39);
+    border-radius: 4px;
+    padding: 8px 12px;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    pointer-events: none;
+    animation: tooltipFadeIn 0.15s ease;
+    max-width: 280px;
+}
+
+@keyframes tooltipFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-4px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.tooltipName {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--tv-color-text-primary, #D1D4DC);
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tooltipDetails {
+    font-size: 11px;
+    color: var(--tv-color-text-secondary, #787B86);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.tooltipDot {
+    width: 3px;
+    height: 3px;
+    border-radius: 50%;
+    background-color: var(--tv-color-text-secondary, #787B86);
+    flex-shrink: 0;
+}
+
+/* Green dot for market open indicator */
+.marketOpen .tooltipDot:first-of-type {
+    background-color: var(--tv-color-up, #089981);
+    width: 6px;
+    height: 6px;
+}
+
+.marketStatus {
+    font-weight: 500;
+}
+
+.marketOpen .marketStatus {
+    color: var(--tv-color-up, #089981);
+}
+
+/* Light theme support */
+[data-theme="light"] .tooltip {
+    background-color: #ffffff;
+    border-color: #e0e3eb;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+[data-theme="light"] .tooltipName {
+    color: #131722;
+}
+
+[data-theme="light"] .tooltipDetails {
+    color: #787B86;
+}

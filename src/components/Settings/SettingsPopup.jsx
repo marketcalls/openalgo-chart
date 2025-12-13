@@ -141,8 +141,8 @@ const SettingsPopup = ({
         {
             id: 'appearance', label: 'Appearance', icon: (
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="18" height="18" fill="currentColor">
-                    <path d="M14 4a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM5 14a9 9 0 1 1 18 0 9 9 0 0 1-18 0Z"/>
-                    <path d="M14 8a6 6 0 0 0-6 6h12a6 6 0 0 0-6-6Z"/>
+                    <path d="M14 4a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM5 14a9 9 0 1 1 18 0 9 9 0 0 1-18 0Z" />
+                    <path d="M14 8a6 6 0 0 0-6 6h12a6 6 0 0 0-6-6Z" />
                 </svg>
             )
         }
@@ -338,7 +338,20 @@ const SettingsPopup = ({
                                             onChange={(e) => setLocalAppearance(prev => ({ ...prev, candleUpColor: e.target.value, wickUpColor: e.target.value }))}
                                             className={styles.colorInput}
                                         />
-                                        <span className={styles.colorValue}>{localAppearance.candleUpColor}</span>
+                                        <input
+                                            type="text"
+                                            value={localAppearance.candleUpColor}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (!val.startsWith('#')) val = '#' + val;
+                                                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                                                    setLocalAppearance(prev => ({ ...prev, candleUpColor: val, wickUpColor: val }));
+                                                }
+                                            }}
+                                            className={styles.hexInput}
+                                            maxLength={7}
+                                            placeholder="#000000"
+                                        />
                                     </div>
                                 </div>
 
@@ -351,7 +364,20 @@ const SettingsPopup = ({
                                             onChange={(e) => setLocalAppearance(prev => ({ ...prev, candleDownColor: e.target.value, wickDownColor: e.target.value }))}
                                             className={styles.colorInput}
                                         />
-                                        <span className={styles.colorValue}>{localAppearance.candleDownColor}</span>
+                                        <input
+                                            type="text"
+                                            value={localAppearance.candleDownColor}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (!val.startsWith('#')) val = '#' + val;
+                                                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                                                    setLocalAppearance(prev => ({ ...prev, candleDownColor: val, wickDownColor: val }));
+                                                }
+                                            }}
+                                            className={styles.hexInput}
+                                            maxLength={7}
+                                            placeholder="#000000"
+                                        />
                                     </div>
                                 </div>
 
@@ -394,7 +420,20 @@ const SettingsPopup = ({
                                             onChange={(e) => setLocalAppearance(prev => ({ ...prev, darkBackground: e.target.value }))}
                                             className={styles.colorInput}
                                         />
-                                        <span className={styles.colorValue}>{localAppearance.darkBackground}</span>
+                                        <input
+                                            type="text"
+                                            value={localAppearance.darkBackground}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (!val.startsWith('#')) val = '#' + val;
+                                                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                                                    setLocalAppearance(prev => ({ ...prev, darkBackground: val }));
+                                                }
+                                            }}
+                                            className={styles.hexInput}
+                                            maxLength={7}
+                                            placeholder="#000000"
+                                        />
                                     </div>
                                 </div>
 
@@ -407,7 +446,20 @@ const SettingsPopup = ({
                                             onChange={(e) => setLocalAppearance(prev => ({ ...prev, lightBackground: e.target.value }))}
                                             className={styles.colorInput}
                                         />
-                                        <span className={styles.colorValue}>{localAppearance.lightBackground}</span>
+                                        <input
+                                            type="text"
+                                            value={localAppearance.lightBackground}
+                                            onChange={(e) => {
+                                                let val = e.target.value;
+                                                if (!val.startsWith('#')) val = '#' + val;
+                                                if (/^#[0-9A-Fa-f]{0,6}$/.test(val)) {
+                                                    setLocalAppearance(prev => ({ ...prev, lightBackground: val }));
+                                                }
+                                            }}
+                                            className={styles.hexInput}
+                                            maxLength={7}
+                                            placeholder="#000000"
+                                        />
                                     </div>
                                 </div>
 
