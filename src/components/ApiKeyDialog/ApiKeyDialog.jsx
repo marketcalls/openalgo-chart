@@ -10,16 +10,66 @@ const ApiKeyDialog = ({ onSave, onClose }) => {
     const [apiKey, setApiKey] = useState('');
     const [showApiKey, setShowApiKey] = useState(false);
     const [error, setError] = useState('');
+    const [isValidating, setIsValidating] = useState(false);
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
         if (!apiKey.trim()) {
             setError('Please enter your API key');
             return;
         }
-        // Save host URL to localStorage
-        localStorage.setItem('oa_host_url', hostUrl);
-        onSave(apiKey.trim());
+
+        setIsValidating(true);
+        setError('');
+
+        try {
+            // Save host URL before validation
+            localStorage.setItem('oa_host_url', hostUrl);
+
+            // Validate API key and fetch preferences in one request
+            // Uses GET with apikey as query parameter
+            const response = await fetch(`/api/v1/chart?apikey=${encodeURIComponent(apiKey.trim())}`, {
+                method: 'GET',
+                credentials: 'include'
+            });
+
+            if (response.ok) {
+                // API key is valid - save API key
+                localStorage.setItem('oa_apikey', apiKey.trim());
+
+                // Parse and save preferences directly from the validation response
+                // This eliminates the need for a separate cloud sync fetch
+                try {
+                    const result = await response.json();
+                    // Response format: { status: 'success', data: {...prefs...} }
+                    const prefs = result.data || result;
+                    if (prefs && typeof prefs === 'object') {
+                        Object.entries(prefs).forEach(([key, value]) => {
+                            if (value !== null && value !== undefined) {
+                                localStorage.setItem(key, value);
+                            }
+                        });
+                        // Mark that cloud data has been loaded to skip cloud sync
+                        localStorage.setItem('_cloud_sync_done', 'true');
+                    }
+                } catch (parseError) {
+                    console.warn('[ApiKeyDialog] Could not parse preferences, cloud sync will handle it');
+                }
+
+                onSave(apiKey.trim());
+            } else if (response.status === 400 || response.status === 401 || response.status === 403) {
+                // Invalid API key
+                setError('Invalid API key. Please check your credentials and try again.');
+            } else {
+                // Other server error
+                setError(`Server error: ${response.status}. Please try again later.`);
+            }
+        } catch (err) {
+            console.error('[ApiKeyDialog] Validation error:', err);
+            setError('Could not connect to OpenAlgo server. Please check if the server is running.');
+        } finally {
+            setIsValidating(false);
+        }
     };
 
     const inputStyle = {
@@ -161,9 +211,9 @@ const ApiKeyDialog = ({ onSave, onClose }) => {
                                 style={{ color: '#2962ff' }}
                             >
                                 OpenAlgo Dashboard
-                            </a>
-                        </p>
-                    </div>
+                            </a >
+                        </p >
+                    </div >
 
                     <div style={{
                         display: 'flex',
@@ -188,22 +238,24 @@ const ApiKeyDialog = ({ onSave, onClose }) => {
                         </a>
                         <button
                             type="submit"
+                            disabled={isValidating}
                             style={{
                                 padding: '10px 24px',
-                                backgroundColor: '#2962ff',
+                                backgroundColor: isValidating ? '#4a5568' : '#2962ff',
                                 border: 'none',
                                 borderRadius: '4px',
                                 color: '#fff',
                                 fontSize: '14px',
-                                cursor: 'pointer'
+                                cursor: isValidating ? 'not-allowed' : 'pointer',
+                                opacity: isValidating ? 0.7 : 1
                             }}
                         >
-                            Connect
+                            {isValidating ? 'Validating...' : 'Connect'}
                         </button>
                     </div>
-                </form>
-            </div>
-        </div>
+                </form >
+            </div >
+        </div >
     );
 };
 

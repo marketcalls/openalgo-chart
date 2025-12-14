@@ -9,7 +9,7 @@ import SymbolSearch from './components/SymbolSearch/SymbolSearch';
 import Toast from './components/Toast/Toast';
 import SnapshotToast from './components/Toast/SnapshotToast';
 import html2canvas from 'html2canvas';
-import { getTickerPrice, subscribeToMultiTicker, checkAuth, closeAllWebSockets, forceCloseAllWebSockets } from './services/openalgo';
+import { getTickerPrice, subscribeToMultiTicker, checkAuth, closeAllWebSockets, forceCloseAllWebSockets, saveUserPreferences } from './services/openalgo';
 
 import BottomBar from './components/BottomBar/BottomBar';
 import ChartGrid from './components/Chart/ChartGrid';
@@ -23,7 +23,9 @@ import CommandPalette from './components/CommandPalette/CommandPalette';
 import LayoutTemplateDialog from './components/LayoutTemplates/LayoutTemplateDialog';
 import ShortcutsDialog from './components/ShortcutsDialog/ShortcutsDialog';
 import { initTimeService } from './services/timeService';
+import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
+import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
 
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
@@ -184,41 +186,27 @@ const formatPrice = (value) => {
   return num.toFixed(2);
 };
 
-import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
-
-// Simple Loader Component
+// Simple Loader Component - uses CSS variables to match user's theme
 const WorkspaceLoader = () => (
   <div style={{
     display: 'flex',
     justifyContent: 'center',
     alignItems: 'center',
     height: '100vh',
-    background: '#131722',
-    color: '#d1d4dc',
+    background: 'var(--tv-color-platform-background)',
+    color: 'var(--tv-color-text-primary)',
     fontFamily: 'system-ui'
   }}>
     <div style={{ textAlign: 'center' }}>
       <h2>Synching Workspace...</h2>
-      <p>Loading your cloud settings</p>
+      <p style={{ color: 'var(--tv-color-text-secondary)' }}>Loading your cloud settings</p>
     </div>
   </div>
 );
 
-function App() {
-  // Auth state - must be declared BEFORE useCloudWorkspaceSync to pass to it
-  const [isAuthenticated, setIsAuthenticated] = useState(null); // null = checking, false = not auth, true = auth
-
-  useEffect(() => {
-    const verifyAuth = async () => {
-      const isAuth = await checkAuth();
-      setIsAuthenticated(isAuth);
-    };
-    verifyAuth();
-  }, []);
-
-  // Cloud Workspace Sync - needs isAuthenticated to know when to fetch from server
-  const { isLoaded: isWorkspaceLoaded } = useCloudWorkspaceSync(isAuthenticated);
-
+// AppContent - only mounts AFTER cloud sync is complete
+// This ensures all useState initializers read from already-updated localStorage
+function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
   // Multi-Chart State
   const [layout, setLayout] = useState(() => {
@@ -265,6 +253,22 @@ function App() {
   useEffect(() => {
     localStorage.setItem('tv_interval', currentInterval);
   }, [currentInterval]);
+
+  // Auto-save layout (includes indicators, symbol, interval per chart)
+  useEffect(() => {
+    // Skip first render - layout is already loaded from localStorage
+    if (skipNextSyncRef.current) {
+      skipNextSyncRef.current = false;
+      return;
+    }
+    try {
+      const layoutData = { layout, charts };
+      localStorage.setItem('tv_saved_layout', JSON.stringify(layoutData));
+      logger.debug('[App] Auto-saved layout:', { layout, chartsCount: charts.length });
+    } catch (error) {
+      console.error('Failed to auto-save layout:', error);
+    }
+  }, [layout, charts]);
   const [chartType, setChartType] = useState('candlestick');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchMode, setSearchMode] = useState('switch'); // 'switch' or 'add'
@@ -610,8 +614,13 @@ function App() {
 
   // Fetch watchlist data - only when authenticated (with incremental updates)
   useEffect(() => {
+    logger.debug('[Watchlist Effect] Running, isAuthenticated:', isAuthenticated);
+
     // Don't fetch if not authenticated yet
-    if (!isAuthenticated) return;
+    if (isAuthenticated !== true) {
+      logger.debug('[Watchlist Effect] Skipping - not authenticated');
+      return;
+    }
 
     let ws = null;
     let mounted = true;
@@ -623,12 +632,16 @@ function App() {
       .filter(s => !(typeof s === 'string' && s.startsWith('###')))
       .map(s => typeof s === 'string' ? s : s.symbol);
 
+    logger.debug('[Watchlist Effect] currentSymbols:', currentSymbols);
+
     const currentSymbolsSet = new Set(currentSymbols);
     const prevSymbolsSet = new Set(prevSymbolsRef.current || []);
 
     // Check if this is a watchlist switch (different list ID)
     const isListSwitch = lastActiveListIdRef.current !== watchlistsState.activeListId;
     const isInitialLoad = prevSymbolsRef.current === null;
+
+    logger.debug('[Watchlist Effect] isInitialLoad:', isInitialLoad, 'isListSwitch:', isListSwitch);
 
     // Detect added and removed symbols
     const addedSymbols = currentSymbols.filter(s => !prevSymbolsSet.has(s));
@@ -657,13 +670,42 @@ function App() {
 
     // Full reload function (for initial load or watchlist switch)
     const hydrateWatchlist = async () => {
+      logger.debug('[Watchlist] hydrateWatchlist called');
       setWatchlistLoading(true);
       try {
         const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
-        const promises = symbolObjs.map(fetchSymbol);
-        const results = await Promise.all(promises);
+        logger.debug('[Watchlist] Processing symbols:', symbolObjs);
+
+        // Check if symbols already have price data (from cloud sync)
+        // This avoids fetching fresh data and prevents abort issues
+        const symbolsWithData = symbolObjs.filter(s =>
+          typeof s === 'object' && s.last !== undefined
+        );
+
+        let results;
+        if (symbolsWithData.length === symbolObjs.length && symbolsWithData.length > 0) {
+          // All symbols have price data from cloud sync - use it directly
+          logger.debug('[Watchlist] Using pre-synced price data');
+          results = symbolObjs.map(s => ({
+            symbol: s.symbol,
+            exchange: s.exchange || 'NSE',
+            last: s.last,
+            chg: s.chg,
+            chgP: s.chgP,
+            up: s.up
+          }));
+        } else {
+          // Need to fetch fresh data
+          logger.debug('[Watchlist] Fetching fresh price data');
+          const promises = symbolObjs.map(fetchSymbol);
+          results = await Promise.all(promises);
+        }
+
+        logger.debug('[Watchlist] Results:', results);
         if (mounted) {
-          setWatchlistData(results.filter(r => r !== null));
+          const filteredResults = results.filter(r => r !== null);
+          logger.debug('[Watchlist] Setting watchlistData:', filteredResults);
+          setWatchlistData(filteredResults);
           setWatchlistLoading(false);
           initialDataLoaded = true;
         }
@@ -1347,14 +1389,39 @@ function App() {
     }
   };
 
-  const handleSaveLayout = () => {
+  const handleSaveLayout = async () => {
     const layoutData = {
       layout,
       charts
     };
     try {
+      // Save to localStorage
       localStorage.setItem('tv_saved_layout', JSON.stringify(layoutData));
-      showSnapshotToast('Layout saved successfully');
+
+      // Immediately sync to cloud
+      const SYNC_KEYS = [
+        'tv_saved_layout', 'tv_watchlists', 'tv_theme', 'tv_fav_intervals_v2',
+        'tv_custom_intervals', 'tv_drawing_defaults', 'tv_alerts', 'tv_alert_logs',
+        'tv_last_nonfav_interval', 'tv_interval', 'tv_chart_appearance',
+        'tv_drawing_templates', 'tv_template_favorites', 'tv_symbol_favorites',
+        'tv_recent_symbols', 'tv_layout_templates', 'tv_favorite_drawing_tools',
+        'tv_floating_toolbar_pos', 'tv_recent_commands'
+      ];
+
+      const prefsToSave = {};
+      SYNC_KEYS.forEach(key => {
+        const value = localStorage.getItem(key);
+        if (value !== null) {
+          prefsToSave[key] = value;
+        }
+      });
+
+      const success = await saveUserPreferences(prefsToSave);
+      if (success) {
+        showSnapshotToast('Layout saved to cloud');
+      } else {
+        showSnapshotToast('Layout saved locally');
+      }
     } catch (error) {
       console.error('Failed to save layout:', error);
       showToast('Failed to save layout', 'error');
@@ -1897,10 +1964,8 @@ function App() {
     dialogOpen: anyDialogOpen,
   });
 
-  // Block render until workspace settings are loaded from cloud
-  if (!isWorkspaceLoaded) {
-    return <WorkspaceLoader />;
-  }
+  // Note: isWorkspaceLoaded check is no longer needed here
+  // AppContent only mounts after App wrapper confirms cloud sync is complete
 
   // Show loading state while checking auth
   if (isAuthenticated === null) {
@@ -1911,11 +1976,11 @@ function App() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        backgroundColor: '#131722',
-        color: '#d1d4dc'
+        backgroundColor: 'var(--tv-color-platform-background)',
+        color: 'var(--tv-color-text-primary)'
       }}>
         <div style={{ fontSize: '18px', marginBottom: '10px' }}>Connecting to OpenAlgo...</div>
-        <div style={{ fontSize: '14px', color: '#787b86' }}>Checking authentication</div>
+        <div style={{ fontSize: '14px', color: 'var(--tv-color-text-secondary)' }}>Checking authentication</div>
       </div>
     );
   }
@@ -1941,8 +2006,8 @@ function App() {
         justifyContent: 'center',
         alignItems: 'center',
         height: '100vh',
-        backgroundColor: '#131722',
-        color: '#d1d4dc'
+        backgroundColor: 'var(--tv-color-platform-background)',
+        color: 'var(--tv-color-text-primary)'
       }}>
         <ApiKeyDialog
           onSave={handleApiKeySave}
@@ -2218,6 +2283,33 @@ function App() {
       />
     </>
   );
+}
+
+// AppWrapper - handles auth and cloud sync BEFORE mounting AppContent
+// This ensures React state initializers see the cloud data in localStorage
+function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(null); // null = checking, false = not auth, true = auth
+
+  useEffect(() => {
+    const verifyAuth = async () => {
+      const isAuth = await checkAuth();
+      setIsAuthenticated(isAuth);
+    };
+    verifyAuth();
+  }, []);
+
+  // Cloud Workspace Sync - blocks until cloud data is fetched or 5s timeout
+  // syncKey changes when cloud data is applied, forcing AppContent remount
+  const { isLoaded: isWorkspaceLoaded, syncKey } = useCloudWorkspaceSync(isAuthenticated);
+
+  // Show loader while checking auth or loading cloud data
+  if (!isWorkspaceLoaded) {
+    return <WorkspaceLoader />;
+  }
+
+  // Now mount AppContent - localStorage is already updated with cloud data
+  // Using syncKey as React key forces remount when cloud data is applied after login
+  return <AppContent key={syncKey} isAuthenticated={isAuthenticated} setIsAuthenticated={setIsAuthenticated} />;
 }
 
 export default App;
