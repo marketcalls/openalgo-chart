@@ -2354,8 +2354,8 @@ const ChartComponent = forwardRef(({
             mainSeriesRef.current.setData(transformedData);
         }
 
-        // Update indicators only with past data
-        updateIndicators(pastData, indicators);
+        // Update indicators only with past data (use ref to avoid stale closure)
+        updateIndicators(pastData, indicatorsRef.current);
         updateAxisLabel();
 
         // Update timer with latest candle data from replay to ensure correct color
