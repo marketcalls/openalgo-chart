@@ -52,6 +52,7 @@ const buildCommands = (handlers) => {
         { id: 'area', title: 'Area Chart', keywords: ['area', 'filled'] },
         { id: 'baseline', title: 'Baseline', keywords: ['baseline', 'zero'] },
         { id: 'heikin-ashi', title: 'Heikin Ashi', keywords: ['heikin', 'ashi', 'ha'] },
+        { id: 'renko', title: 'Renko', keywords: ['renko', 'brick', 'box'] },
     ];
 
     chartTypes.forEach((chart, index) => {

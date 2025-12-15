@@ -23,6 +23,7 @@ import {
     calculateVWAP
 } from '../../utils/indicators';
 import { calculateHeikinAshi } from '../../utils/chartUtils';
+import { calculateRenko } from '../../utils/renkoUtils';
 import { intervalToSeconds } from '../../utils/timeframes';
 import { logger } from '../../utils/logger.js';
 
@@ -808,6 +809,8 @@ const ChartComponent = forwardRef(({
                 return data.map(d => ({ time: d.time, value: d.close }));
             case 'heikin-ashi':
                 return calculateHeikinAshi(data);
+            case 'renko':
+                return calculateRenko(data);
             default:
                 return data;
         }
@@ -882,6 +885,16 @@ const ChartComponent = forwardRef(({
                     borderVisible: false,
                     wickUpColor,
                     wickDownColor,
+                });
+            case 'renko':
+                // Renko bricks don't have wicks, so we hide them by matching body colors
+                return chart.addSeries(CandlestickSeries, {
+                    ...commonOptions,
+                    upColor,
+                    downColor,
+                    borderVisible: false,
+                    wickUpColor: upColor,
+                    wickDownColor: downColor,
                 });
             default:
                 return chart.addSeries(CandlestickSeries, {

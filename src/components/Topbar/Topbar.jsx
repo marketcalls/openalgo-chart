@@ -113,6 +113,11 @@ const Topbar = ({
             label: 'Heikin Ashi',
             icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor"><path d="M9 8v12h3V8H9zm-1-.502C8 7.223 8.215 7 8.498 7h4.004c.275 0 .498.22.498.498v13.004a.493.493 0 0 1-.498.498H8.498A.496.496 0 0 1 8 20.502V7.498z"></path><path d="M10 4h1v3.5h-1z"></path></svg>
         },
+        {
+            value: 'renko',
+            label: 'Renko',
+            icon: <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor"><path d="M4 18h5v5H4v-5zm5-5h5v5H9v-5zm5-5h5v5h-5V8zm5-5h5v5h-5V3z" /></svg>
+        },
     ];
 
     const defaultTimeframes = [
