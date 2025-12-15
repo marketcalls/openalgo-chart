@@ -613,7 +613,6 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const lastActiveListIdRef = React.useRef(null);
   // Track fetch state to prevent race condition where second effect run aborts first run's requests
   const watchlistFetchingRef = React.useRef(false);
-  const watchlistLoadedRef = React.useRef(false);
 
   // Fetch watchlist data - only when authenticated (with incremental updates)
   useEffect(() => {
@@ -734,7 +733,43 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           setWatchlistData(validResults);
           setWatchlistLoading(false);
           initialDataLoaded = true;
-          watchlistLoadedRef.current = true; // Mark as successfully loaded
+
+          // Setup WebSocket for real-time updates
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close();
+          }
+          ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
+            if (!mounted || !initialDataLoaded) return;
+            setWatchlistData(prev => {
+              const index = prev.findIndex(item => item.symbol === ticker.symbol);
+              if (index !== -1) {
+                const newData = [...prev];
+                newData[index] = {
+                  ...newData[index],
+                  last: ticker.last.toFixed(2),
+                  chg: ticker.chg.toFixed(2),
+                  chgP: ticker.chgP.toFixed(2) + '%',
+                  up: ticker.chg >= 0
+                };
+                return newData;
+              }
+              // Fallback: Create item from WebSocket data if quotes API failed
+              const symbolData = watchlistSymbols.find(s =>
+                (typeof s === 'string' ? s : s.symbol) === ticker.symbol
+              );
+              if (symbolData) {
+                return [...prev, {
+                  symbol: ticker.symbol,
+                  exchange: typeof symbolData === 'string' ? 'NSE' : (symbolData.exchange || 'NSE'),
+                  last: ticker.last.toFixed(2),
+                  chg: ticker.chg.toFixed(2),
+                  chgP: ticker.chgP.toFixed(2) + '%',
+                  up: ticker.chg >= 0
+                }];
+              }
+              return prev;
+            });
+          });
         } else if (mounted && symbolsWithCachedData.length === 0) {
           // No cached data and no fresh data - show empty
           setWatchlistData([]);
@@ -756,53 +791,6 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       } finally {
         watchlistFetchingRef.current = false; // Clear fetch in progress flag
       }
-
-      if (!mounted || currentSymbols.length === 0) {
-        if (mounted && currentSymbols.length === 0) {
-          setWatchlistData([]);
-          setWatchlistLoading(false);
-          initialDataLoaded = true;
-        }
-        return;
-      }
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-
-      const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
-      ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
-        if (!mounted || !initialDataLoaded) return;
-        setWatchlistData(prev => {
-          const index = prev.findIndex(item => item.symbol === ticker.symbol);
-          if (index !== -1) {
-            const newData = [...prev];
-            newData[index] = {
-              ...newData[index],
-              last: ticker.last.toFixed(2),
-              chg: ticker.chg.toFixed(2),
-              chgP: ticker.chgP.toFixed(2) + '%',
-              up: ticker.chg >= 0
-            };
-            return newData;
-          }
-          // Fallback: Create item from WebSocket data if quotes API failed
-          const symbolData = watchlistSymbols.find(s =>
-            (typeof s === 'string' ? s : s.symbol) === ticker.symbol
-          );
-          if (symbolData) {
-            return [...prev, {
-              symbol: ticker.symbol,
-              exchange: typeof symbolData === 'string' ? 'NSE' : (symbolData.exchange || 'NSE'),
-              last: ticker.last.toFixed(2),
-              chg: ticker.chg.toFixed(2),
-              chgP: ticker.chgP.toFixed(2) + '%',
-              up: ticker.chg >= 0
-            }];
-          }
-          return prev;
-        });
-      });
     };
 
     // Incremental update for adding symbols (no full reload)
@@ -838,8 +826,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     // If no changes (just reorder or sections), do nothing
 
     return () => {
-      mounted = false;
-      abortController.abort();
+      // Only mark unmounted and abort if fetch is NOT in progress
+      // This prevents killing in-flight requests and returning null for successful responses
+      if (!watchlistFetchingRef.current) {
+        mounted = false;
+        abortController.abort();
+      }
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
