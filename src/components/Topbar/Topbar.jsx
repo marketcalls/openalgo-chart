@@ -629,8 +629,8 @@ const Topbar = ({
                                                             style={{ top: indicatorPos.top, left: indicatorPos.left }}
                                                         >
                                                             <div className={styles.dropdownSection}>Moving Averages</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.sma })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('sma'); }}>SMA (20)</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.ema })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('ema'); }}>EMA (20)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.sma === true || (typeof indicators.sma === 'object' && indicators.sma?.enabled) })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('sma'); }}>SMA (20)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.ema === true || (typeof indicators.ema === 'object' && indicators.ema?.enabled) })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('ema'); }}>EMA (20)</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Oscillators</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.rsi?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('rsi'); }}>RSI (14)</div>

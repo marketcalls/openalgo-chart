@@ -225,3 +225,146 @@
 .ohlcChangeValue.down {
     color: #F23645;
 }
+
+/* Indicator Legend - Official TradingView Style */
+.indicatorLegend {
+    position: absolute;
+    top: 28px;
+    left: 55px;
+    z-index: 16;
+    display: flex;
+    flex-direction: column;
+    font-family: -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, Ubuntu, sans-serif;
+    font-size: 13px;
+    pointer-events: auto;
+    gap: 0;
+}
+
+/* Indicator rows container */
+.indicatorSources {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+}
+
+/* Individual indicator row - inline format */
+.indicatorRow {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    padding: 0;
+    height: 20px;
+    line-height: 20px;
+}
+
+/* On hover: show actions, hide value */
+.indicatorRow:hover .indicatorActions {
+    display: flex;
+}
+
+.indicatorRow:hover .indicatorValue {
+    display: none;
+}
+
+/* Indicator name */
+.indicatorName {
+    color: var(--tv-color-text-secondary, #787B86);
+    font-size: 13px;
+    font-weight: 400;
+    white-space: nowrap;
+    margin-right: 4px;
+}
+
+/* Indicator value - colored, inline with name */
+.indicatorValue {
+    font-size: 13px;
+    font-weight: 400;
+    white-space: nowrap;
+    margin-left: 4px;
+}
+
+/* Action buttons wrapper - hidden by default, shown on hover */
+.indicatorActions {
+    display: none;
+    align-items: center;
+    gap: 2px;
+    margin-left: 4px;
+}
+
+/* Individual action button */
+.indicatorActionBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border: none;
+    background: transparent;
+    color: var(--tv-color-text-secondary, #787B86);
+    border-radius: 3px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+    padding: 0;
+}
+
+.indicatorActionBtn:hover {
+    color: var(--tv-color-text-primary, #D1D4DC);
+}
+
+.indicatorActionBtn svg {
+    width: 18px;
+    height: 18px;
+}
+
+.indicatorActionBtn.delete:hover {
+    color: #F23645;
+}
+
+/* Collapse toggle - small bordered chevron button at bottom */
+.indicatorToggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 16px;
+    cursor: pointer;
+    border: 1px solid var(--tv-color-border, #363A45);
+    border-radius: 3px;
+    color: var(--tv-color-text-secondary, #787B86);
+    background: transparent;
+    transition: background-color 0.15s ease, color 0.15s ease;
+    margin-top: 2px;
+}
+
+.indicatorToggle:hover {
+    background-color: var(--tv-color-platform-background-hover, rgba(255, 255, 255, 0.08));
+    color: var(--tv-color-text-primary, #D1D4DC);
+}
+
+.indicatorToggle svg {
+    width: 12px;
+    height: 12px;
+    transition: transform 0.2s ease;
+}
+
+.indicatorToggle.collapsed svg {
+    transform: rotate(180deg);
+}
+
+/* Hidden indicator styling */
+.indicatorHidden {
+    opacity: 0.5;
+}
+
+.indicatorHidden .indicatorName {
+    color: var(--tv-color-text-secondary, #787B86);
+}
+
+.indicatorHidden .indicatorValue {
+    opacity: 0.5;
+}
+
+/* Eye button when indicator is hidden - always visible */
+.eyeHidden {
+    opacity: 1 !important;
+}

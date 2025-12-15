@@ -1305,13 +1305,60 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
       const currentIndicator = chart.indicators[indicatorType];
 
-      // Only handle object indicators
+      // Handle object indicators (rsi, macd, volume, etc.)
       if (typeof currentIndicator === 'object' && currentIndicator !== null) {
         return {
           ...chart,
           indicators: {
             ...chart.indicators,
             [indicatorType]: { ...currentIndicator, enabled: false }
+          }
+        };
+      }
+
+      // Handle boolean indicators (sma, ema)
+      if (typeof currentIndicator === 'boolean') {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: false
+          }
+        };
+      }
+
+      return chart;
+    }));
+  };
+
+  // Handler for toggling indicator visibility (hide/show without removing)
+  const handleIndicatorVisibilityToggle = (indicatorType) => {
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+
+      const currentIndicator = chart.indicators[indicatorType];
+
+      // Handle object indicators (rsi, macd, volume, etc.)
+      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: {
+              ...currentIndicator,
+              hidden: !currentIndicator.hidden
+            }
+          }
+        };
+      }
+
+      // Handle boolean indicators (sma, ema) - convert to object to support hiding
+      if (typeof currentIndicator === 'boolean' && currentIndicator) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: { enabled: true, hidden: true }
           }
         };
       }
@@ -2246,6 +2293,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             isTimerVisible={isTimerVisible}
             isSessionBreakVisible={isSessionBreakVisible}
             onIndicatorRemove={handleIndicatorRemove}
+            onIndicatorVisibilityToggle={handleIndicatorVisibilityToggle}
             chartAppearance={chartAppearance}
           />
         }
