@@ -611,6 +611,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   // Track previous symbols for incremental updates
   const prevSymbolsRef = React.useRef(null);
   const lastActiveListIdRef = React.useRef(null);
+  // Track fetch state to prevent race condition where second effect run aborts first run's requests
+  const watchlistFetchingRef = React.useRef(false);
 
   // Fetch watchlist data - only when authenticated (with incremental updates)
   useEffect(() => {
@@ -619,6 +621,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     // Don't fetch if not authenticated yet
     if (isAuthenticated !== true) {
       logger.debug('[Watchlist Effect] Skipping - not authenticated');
+      return;
+    }
+
+    // Skip if a fetch is already in progress (prevents race condition)
+    if (watchlistFetchingRef.current) {
+      logger.debug('[Watchlist Effect] Skipping - fetch already in progress');
       return;
     }
 
@@ -653,8 +661,21 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
     // Helper to fetch a symbol's data
     const fetchSymbol = async (symObj) => {
-      const symbol = typeof symObj === 'string' ? symObj : symObj.symbol;
-      const exchange = typeof symObj === 'string' ? 'NSE' : (symObj.exchange || 'NSE');
+      // If symObj is a string, look up the full object from watchlistSymbols to get exchange
+      let symbol, exchange;
+      if (typeof symObj === 'string') {
+        const fullSymbolObj = watchlistSymbols.find(s =>
+          (typeof s === 'string' ? s : s.symbol) === symObj
+        );
+        symbol = symObj;
+        exchange = (fullSymbolObj && typeof fullSymbolObj === 'object')
+          ? (fullSymbolObj.exchange || 'NSE')
+          : 'NSE';
+      } else {
+        symbol = symObj.symbol;
+        exchange = symObj.exchange || 'NSE';
+      }
+
       const data = await getTickerPrice(symbol, exchange, abortController.signal);
       if (data && mounted) {
         return {
@@ -671,22 +692,16 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     // Full reload function (for initial load or watchlist switch)
     const hydrateWatchlist = async () => {
       logger.debug('[Watchlist] hydrateWatchlist called');
+      watchlistFetchingRef.current = true; // Mark fetch in progress
       setWatchlistLoading(true);
       try {
         const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
         logger.debug('[Watchlist] Processing symbols:', symbolObjs);
 
-        // Check if symbols already have price data (from cloud sync)
-        // This avoids fetching fresh data and prevents abort issues
-        const symbolsWithData = symbolObjs.filter(s =>
-          typeof s === 'object' && s.last !== undefined
-        );
-
-        let results;
-        if (symbolsWithData.length === symbolObjs.length && symbolsWithData.length > 0) {
-          // All symbols have price data from cloud sync - use it directly
-          logger.debug('[Watchlist] Using pre-synced price data');
-          results = symbolObjs.map(s => ({
+        // Show cached data immediately for instant UX
+        const symbolsWithCachedData = symbolObjs
+          .filter(s => typeof s === 'object' && s.last !== undefined && s.last !== '--')
+          .map(s => ({
             symbol: s.symbol,
             exchange: s.exchange || 'NSE',
             last: s.last,
@@ -694,76 +709,88 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             chgP: s.chgP,
             up: s.up
           }));
-        } else {
-          // Need to fetch fresh data
-          logger.debug('[Watchlist] Fetching fresh price data');
-          const promises = symbolObjs.map(fetchSymbol);
-          results = await Promise.all(promises);
-        }
 
-        logger.debug('[Watchlist] Results:', results);
-        if (mounted) {
-          const filteredResults = results.filter(r => r !== null);
-          logger.debug('[Watchlist] Setting watchlistData:', filteredResults);
-          setWatchlistData(filteredResults);
+        logger.debug('[Watchlist] Symbols with cached data:', symbolsWithCachedData.length);
+
+        // Show cached data immediately (user sees something instantly)
+        if (symbolsWithCachedData.length > 0 && mounted) {
+          setWatchlistData(symbolsWithCachedData);
           setWatchlistLoading(false);
           initialDataLoaded = true;
+          logger.debug('[Watchlist] Displayed cached data, now fetching fresh prices...');
         }
-      } catch (error) {
-        console.error('Error fetching watchlist data:', error);
-        if (mounted) {
-          showToast('Failed to load watchlist data', 'error');
+
+        // ALWAYS fetch fresh prices from API for ALL symbols
+        logger.debug('[Watchlist] Fetching fresh quotes for all', symbolObjs.length, 'symbols');
+        const fetchPromises = symbolObjs.map(fetchSymbol);
+        const results = await Promise.all(fetchPromises);
+        const validResults = results.filter(r => r !== null);
+
+        logger.debug('[Watchlist] Fresh quotes received:', validResults.length);
+
+        if (mounted && validResults.length > 0) {
+          // Replace cached data with fresh data
+          setWatchlistData(validResults);
           setWatchlistLoading(false);
           initialDataLoaded = true;
-        }
-      }
 
-      if (!mounted || currentSymbols.length === 0) {
-        if (mounted && currentSymbols.length === 0) {
+          // Setup WebSocket for real-time updates
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.close();
+          }
+          ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
+            if (!mounted || !initialDataLoaded) return;
+            setWatchlistData(prev => {
+              const index = prev.findIndex(item => item.symbol === ticker.symbol);
+              if (index !== -1) {
+                const newData = [...prev];
+                newData[index] = {
+                  ...newData[index],
+                  last: ticker.last.toFixed(2),
+                  chg: ticker.chg.toFixed(2),
+                  chgP: ticker.chgP.toFixed(2) + '%',
+                  up: ticker.chg >= 0
+                };
+                return newData;
+              }
+              // Fallback: Create item from WebSocket data if quotes API failed
+              const symbolData = watchlistSymbols.find(s =>
+                (typeof s === 'string' ? s : s.symbol) === ticker.symbol
+              );
+              if (symbolData) {
+                return [...prev, {
+                  symbol: ticker.symbol,
+                  exchange: typeof symbolData === 'string' ? 'NSE' : (symbolData.exchange || 'NSE'),
+                  last: ticker.last.toFixed(2),
+                  chg: ticker.chg.toFixed(2),
+                  chgP: ticker.chgP.toFixed(2) + '%',
+                  up: ticker.chg >= 0
+                }];
+              }
+              return prev;
+            });
+          });
+        } else if (mounted && symbolsWithCachedData.length === 0) {
+          // No cached data and no fresh data - show empty
           setWatchlistData([]);
           setWatchlistLoading(false);
           initialDataLoaded = true;
         }
-        return;
-      }
-
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.close();
-      }
-
-      const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
-      ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
-        if (!mounted || !initialDataLoaded) return;
-        setWatchlistData(prev => {
-          const index = prev.findIndex(item => item.symbol === ticker.symbol);
-          if (index !== -1) {
-            const newData = [...prev];
-            newData[index] = {
-              ...newData[index],
-              last: ticker.last.toFixed(2),
-              chg: ticker.chg.toFixed(2),
-              chgP: ticker.chgP.toFixed(2) + '%',
-              up: ticker.chg >= 0
-            };
-            return newData;
+      } catch (error) {
+        // Ignore abort errors - they're expected when effect re-runs
+        if (error.name === 'AbortError') {
+          logger.debug('[Watchlist] Fetch aborted (expected during navigation)');
+        } else {
+          console.error('Error fetching watchlist data:', error);
+          if (mounted) {
+            showToast('Failed to load watchlist data', 'error');
+            setWatchlistLoading(false);
+            initialDataLoaded = true;
           }
-          // Fallback: Create item from WebSocket data if quotes API failed
-          const symbolData = watchlistSymbols.find(s =>
-            (typeof s === 'string' ? s : s.symbol) === ticker.symbol
-          );
-          if (symbolData) {
-            return [...prev, {
-              symbol: ticker.symbol,
-              exchange: typeof symbolData === 'string' ? 'NSE' : (symbolData.exchange || 'NSE'),
-              last: ticker.last.toFixed(2),
-              chg: ticker.chg.toFixed(2),
-              chgP: ticker.chgP.toFixed(2) + '%',
-              up: ticker.chg >= 0
-            }];
-          }
-          return prev;
-        });
-      });
+        }
+      } finally {
+        watchlistFetchingRef.current = false; // Clear fetch in progress flag
+      }
     };
 
     // Incremental update for adding symbols (no full reload)
@@ -799,8 +826,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     // If no changes (just reorder or sections), do nothing
 
     return () => {
-      mounted = false;
-      abortController.abort();
+      // Only mark unmounted and abort if fetch is NOT in progress
+      // This prevents killing in-flight requests and returning null for successful responses
+      if (!watchlistFetchingRef.current) {
+        mounted = false;
+        abortController.abort();
+      }
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
       }

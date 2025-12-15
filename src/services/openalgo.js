@@ -511,8 +511,16 @@ export const getTickerPrice = async (symbol, exchange = 'NSE', signal) => {
         if (data && data.data) {
             const quoteData = data.data;
             const ltp = parseFloat(quoteData.ltp || quoteData.last_price || 0);
-            // Use open price as fallback if prev_close is 0
-            const prevClose = parseFloat(quoteData.prev_close || quoteData.previous_close || quoteData.open || ltp);
+
+            // prev_close can be 0 from some brokers (e.g., Upstox) - need explicit check for valid value
+            let prevClose = parseFloat(quoteData.prev_close || quoteData.previous_close || 0);
+
+            // If prev_close is 0 or invalid, fall back to open price (for day's change calculation)
+            if (prevClose <= 0) {
+                prevClose = parseFloat(quoteData.open || ltp);
+                logger.debug('[OpenAlgo] prev_close unavailable, using open as fallback:', prevClose);
+            }
+
             const change = ltp - prevClose;
             const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
 
