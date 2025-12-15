@@ -7,7 +7,10 @@ class Gt {
   _chart = void 0;
   _series = void 0;
   requestUpdate() {
-    this._requestUpdate && this._requestUpdate();
+    // Guard against disposed chart - check _chart exists before calling update
+    if (this._chart && this._requestUpdate) {
+      this._requestUpdate();
+    }
   }
   _requestUpdate;
   attached({ chart: t, series: e, requestUpdate: i }) {
@@ -6491,7 +6494,10 @@ class is {
     this._paneViews.forEach((t) => t.update());
   }
   requestUpdate() {
-    this._requestUpdate && this._requestUpdate();
+    // Guard against disposed chart - check _chart exists before calling update
+    if (this._chart && this._requestUpdate) {
+      this._requestUpdate();
+    }
   }
 }
 export {

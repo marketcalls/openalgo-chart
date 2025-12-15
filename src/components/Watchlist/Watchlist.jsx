@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Plus } from 'lucide-react';
+import { Plus, TrendingUp } from 'lucide-react';
 import styles from './Watchlist.module.css';
 import classNames from 'classnames';
 import WatchlistSelector from './WatchlistSelector';
@@ -7,6 +7,7 @@ import WatchlistItem from './WatchlistItem';
 import WatchlistSection from './WatchlistSection';
 import SymbolTooltip from './SymbolTooltip';
 import ContextMenu from './ContextMenu';
+import { RankFlowTracker } from '../RankFlow';
 import { useSmartTooltip } from '../../hooks/useSmartTooltip';
 
 const DEFAULT_COLUMN_WIDTHS = {
@@ -108,6 +109,12 @@ const Watchlist = ({
     onToggleFavorite,
     // Track selected symbol for add section above
     selectedSymbolIndex = null,
+    // Rank Flow Tracker props
+    rankFlowMode = false,
+    onToggleRankFlow,
+    // Import/Export props
+    onExport,
+    onImport,
 }) => {
     const hasMultipleWatchlists = watchlists.length > 0 && onSwitchWatchlist;
     const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
@@ -461,6 +468,8 @@ const Watchlist = ({
                             onAddSection?.(sectionName, insertIndex);
                         }}
                         onToggleFavorite={onToggleFavorite}
+                        onExport={onExport}
+                        onImport={onImport}
                     />
                 ) : (
                     <span className={styles.title}>Watchlist</span>
@@ -477,11 +486,18 @@ const Watchlist = ({
                 )}
 
                 <div className={styles.actions}>
+                    <button
+                        className={classNames(styles.rankFlowToggle, { [styles.active]: rankFlowMode })}
+                        onClick={onToggleRankFlow}
+                        title={rankFlowMode ? "Switch to Watchlist" : "Switch to Rank Flow"}
+                    >
+                        <TrendingUp size={14} />
+                    </button>
                     <Plus size={16} className={styles.icon} onClick={onAddClick} title="Add symbol" />
                 </div>
             </div>
 
-            {favoriteWatchlists.length > 0 && hasMultipleWatchlists && (
+            {favoriteWatchlists.length > 0 && hasMultipleWatchlists && !rankFlowMode && (
                 <div className={styles.quickAccessRow}>
                     {/* Cap to 12 favorite watchlists to prevent overflow */}
                     {favoriteWatchlists.slice(0, 12).map(wl => (
@@ -499,6 +515,15 @@ const Watchlist = ({
                 </div>
             )}
 
+            {/* Rank Flow Tracker Mode */}
+            {rankFlowMode ? (
+                <RankFlowTracker
+                    watchlistData={items.filter(s => typeof s !== 'string' || !s.startsWith('###'))}
+                    onClose={onToggleRankFlow}
+                    onSymbolClick={onSymbolSelect}
+                />
+            ) : (
+            <>
             <div className={styles.columnHeaders}>
                 <span
                     className={styles.colSymbol}
@@ -652,6 +677,8 @@ const Watchlist = ({
                 onMoveToBottom={handleMoveToBottom}
                 onRemove={handleRemoveFromMenu}
             />
+            </>
+            )}
         </div>
     );
 };

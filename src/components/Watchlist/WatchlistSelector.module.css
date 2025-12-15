@@ -140,6 +140,12 @@
     margin: 4px 0;
 }
 
+.menuDivider {
+    height: 1px;
+    background: var(--tv-color-border);
+    margin: 4px 12px;
+}
+
 .dropdownList {
     max-height: 300px;
     overflow-y: auto;

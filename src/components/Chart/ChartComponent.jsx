@@ -10,6 +10,7 @@ import {
 } from 'lightweight-charts';
 import styles from './ChartComponent.module.css';
 import { getKlines, getHistoricalKlines, subscribeToTicker } from '../../services/openalgo';
+import { combinePremiumOHLC } from '../../services/optionChain';
 import { getAccurateISTTimestamp, syncTimeWithAPI, shouldResync } from '../../services/timeService';
 import {
     calculateSMA,
@@ -22,6 +23,8 @@ import {
     calculateStochastic,
     calculateVWAP
 } from '../../utils/indicators';
+import { calculateTPO } from '../../utils/indicators/tpo';
+import { TPOProfilePrimitive } from '../../plugins/tpo-profile/TPOProfilePrimitive';
 import { calculateHeikinAshi } from '../../utils/chartUtils';
 import { calculateRenko } from '../../utils/renkoUtils';
 import { intervalToSeconds } from '../../utils/timeframes';
@@ -105,6 +108,7 @@ const ChartComponent = forwardRef(({
     isSessionBreakVisible = false,
     onIndicatorRemove,
     chartAppearance = {},
+    straddleConfig = null, // { ceSymbol, peSymbol, exchange, displayName }
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
@@ -129,10 +133,16 @@ const ChartComponent = forwardRef(({
     const chartReadyRef = useRef(false); // Track when chart is fully stable and ready for indicator additions
     const lineToolManagerRef = useRef(null);
     const priceScaleTimerRef = useRef(null); // Ref for the candle countdown timer
+    const tpoProfileRef = useRef(null); // Ref for TPO Profile primitive
     const wsRef = useRef(null);
     const chartTypeRef = useRef(chartType);
     const dataRef = useRef([]);
     const comparisonSeriesRefs = useRef(new Map());
+
+    // Straddle mode refs
+    const straddleWsRefs = useRef({ ce: null, pe: null }); // WebSocket refs for CE/PE
+    const straddleDataRef = useRef({ ce: [], pe: [] }); // Raw CE/PE data for combining
+    const straddleLatestRef = useRef({ ce: null, pe: null }); // Latest tick data for real-time
 
     // Replay State
     const [isReplayMode, setIsReplayMode] = useState(false);
@@ -159,6 +169,9 @@ const ChartComponent = forwardRef(({
     const hasMoreHistoricalDataRef = useRef(true);
     const oldestLoadedTimeRef = useRef(null);
     const abortControllerRef = useRef(null);
+
+    // Flag to prevent operations on disposed chart (fixes "Object is disposed" error)
+    const isDisposedRef = useRef(false);
 
     // Refs to track current prop values for use in closures (chart initialization useEffect)
     const symbolRef = useRef(symbol);
@@ -1291,6 +1304,21 @@ const ChartComponent = forwardRef(({
             } catch (error) {
                 console.warn('Failed to disconnect resize observer', error);
             }
+
+            // Mark chart as disposed FIRST to prevent any pending RAF callbacks
+            isDisposedRef.current = true;
+
+            // Destroy lineToolManager BEFORE chart.remove() to prevent "Object is disposed" errors
+            // The line-tools plugin holds a reference to the chart and may try to call requestUpdate()
+            if (lineToolManagerRef.current) {
+                try {
+                    lineToolManagerRef.current.destroy();
+                } catch (error) {
+                    console.warn('Failed to destroy lineToolManager', error);
+                }
+                lineToolManagerRef.current = null;
+            }
+
             try {
                 if (wsRef.current) wsRef.current.close();
             } catch (error) {
@@ -1302,7 +1330,6 @@ const ChartComponent = forwardRef(({
                 console.warn('Failed to remove chart instance', error);
             } finally {
                 chartRef.current = null;
-                // Refs managed by other effects (lineToolManagerRef, mainSeriesRef) are cleared in their own cleanup functions
             }
         };
     }, []); // Only create chart once
@@ -1408,6 +1435,16 @@ const ChartComponent = forwardRef(({
             wsRef.current = null;
         }
 
+        // Close straddle WebSocket connections
+        if (straddleWsRefs.current.ce) {
+            straddleWsRefs.current.ce.close();
+            straddleWsRefs.current.ce = null;
+        }
+        if (straddleWsRefs.current.pe) {
+            straddleWsRefs.current.pe.close();
+            straddleWsRefs.current.pe = null;
+        }
+
         // Reset scroll-back loading refs when symbol/interval changes
         isLoadingOlderDataRef.current = false;
         hasMoreHistoricalDataRef.current = true;
@@ -1423,7 +1460,29 @@ const ChartComponent = forwardRef(({
             setIsLoading(true);
 
             try {
-                const data = await getKlines(symbol, exchange, interval, 1000, abortController.signal);
+                let data;
+
+                // Check if we're in straddle mode
+                if (straddleConfig && straddleConfig.ceSymbol && straddleConfig.peSymbol) {
+                    // Fetch both CE and PE data in parallel
+                    const straddleExchange = straddleConfig.exchange || 'NFO';
+                    const [ceData, peData] = await Promise.all([
+                        getKlines(straddleConfig.ceSymbol, straddleExchange, interval, 1000, abortController.signal),
+                        getKlines(straddleConfig.peSymbol, straddleExchange, interval, 1000, abortController.signal)
+                    ]);
+
+                    if (cancelled) return;
+
+                    // Store raw data for real-time updates
+                    straddleDataRef.current = { ce: ceData, pe: peData };
+
+                    // Combine into single premium data
+                    data = combinePremiumOHLC(ceData, peData);
+                    logger.debug('[Straddle] Combined data length:', data.length, 'from CE:', ceData.length, 'PE:', peData.length);
+                } else {
+                    // Regular symbol mode
+                    data = await getKlines(symbol, exchange, interval, 1000, abortController.signal);
+                }
                 if (cancelled) return;
 
                 if (Array.isArray(data) && data.length > 0 && mainSeriesRef.current) {
@@ -1467,79 +1526,157 @@ const ChartComponent = forwardRef(({
                         }
                     }, 50);
 
-                    wsRef.current = subscribeToTicker(symbol, exchange, interval, (ticker) => {
-                        if (cancelled || !ticker) return;
+                    // Set up WebSocket subscriptions based on mode
+                    if (straddleConfig && straddleConfig.ceSymbol && straddleConfig.peSymbol) {
+                        // Straddle mode: subscribe to both CE and PE
+                        const straddleExchange = straddleConfig.exchange || 'NFO';
 
-                        // Only need close price - that's the real-time tick data
-                        const closePrice = Number(ticker.close);
-                        if (!Number.isFinite(closePrice) || closePrice <= 0) {
-                            console.warn('Received invalid close price:', ticker);
-                            return;
-                        }
+                        // Handler for straddle real-time updates
+                        const handleStraddleTick = (type) => (ticker) => {
+                            if (cancelled || !ticker) return;
 
-                        const currentData = dataRef.current;
-                        if (!currentData || currentData.length === 0) return;
+                            const closePrice = Number(ticker.close);
+                            if (!Number.isFinite(closePrice) || closePrice <= 0) return;
 
-                        const intervalSeconds = intervalToSeconds(interval);
-                        if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) return;
+                            // Update the latest tick for this leg
+                            straddleLatestRef.current[type] = closePrice;
 
-                        const lastIndex = currentData.length - 1;
-                        const lastCandleTime = currentData[lastIndex].time;
+                            // Only update chart if we have both ticks
+                            const cePrice = straddleLatestRef.current.ce;
+                            const pePrice = straddleLatestRef.current.pe;
+                            if (!cePrice || !pePrice) return;
 
-                        // Use accurate IST time from WorldTimeAPI for candle creation
-                        // Resync if needed (every 5 minutes)
-                        if (shouldResync()) {
-                            syncTimeWithAPI();
-                        }
-                        const currentISTTime = getAccurateISTTimestamp();
-                        const currentCandleTime = Math.floor(currentISTTime / intervalSeconds) * intervalSeconds;
+                            const combinedClose = cePrice + pePrice;
 
-                        // Check if we need a new candle (current time is in a new interval period)
-                        const needNewCandle = currentCandleTime > lastCandleTime;
+                            const currentData = dataRef.current;
+                            if (!currentData || currentData.length === 0) return;
 
-                        let candle;
-                        if (needNewCandle) {
-                            // Create a new candle - all OHLC start at current price
-                            candle = {
-                                time: currentCandleTime,
-                                open: closePrice,
-                                high: closePrice,
-                                low: closePrice,
-                                close: closePrice,
-                            };
-                            currentData.push(candle);
-                            logger.debug('[WebSocket] Created new candle at time:', currentCandleTime, 'price:', closePrice);
-                        } else {
-                            // Update the last candle using ONLY the close price for high/low
-                            // WebSocket high/low are session-wide, not per-interval
-                            const existingCandle = currentData[lastIndex];
-                            candle = {
-                                time: lastCandleTime,
-                                open: existingCandle.open,
-                                high: Math.max(existingCandle.high, closePrice),
-                                low: Math.min(existingCandle.low, closePrice),
-                                close: closePrice,
-                            };
-                            currentData[lastIndex] = candle;
-                        }
+                            const intervalSeconds = intervalToSeconds(interval);
+                            if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) return;
 
-                        dataRef.current = currentData;
+                            const lastIndex = currentData.length - 1;
+                            const lastCandleTime = currentData[lastIndex].time;
 
-                        const currentChartType = chartTypeRef.current;
-                        const transformedCandle = transformData([candle], currentChartType)[0];
+                            if (shouldResync()) syncTimeWithAPI();
+                            const currentISTTime = getAccurateISTTimestamp();
+                            const currentCandleTime = Math.floor(currentISTTime / intervalSeconds) * intervalSeconds;
+                            const needNewCandle = currentCandleTime > lastCandleTime;
 
-                        if (transformedCandle && mainSeriesRef.current && !isReplayModeRef.current) {
-                            mainSeriesRef.current.update(transformedCandle);
-
-                            updateRealtimeIndicators(currentData);
-                            updateAxisLabel();
-                            updateOhlcFromLatest();
-
-                            if (priceScaleTimerRef.current) {
-                                priceScaleTimerRef.current.updateCandleData(candle.open, candle.close);
+                            let candle;
+                            if (needNewCandle) {
+                                candle = {
+                                    time: currentCandleTime,
+                                    open: combinedClose,
+                                    high: combinedClose,
+                                    low: combinedClose,
+                                    close: combinedClose,
+                                };
+                                currentData.push(candle);
+                            } else {
+                                const existingCandle = currentData[lastIndex];
+                                candle = {
+                                    time: lastCandleTime,
+                                    open: existingCandle.open,
+                                    high: Math.max(existingCandle.high, combinedClose),
+                                    low: Math.min(existingCandle.low, combinedClose),
+                                    close: combinedClose,
+                                };
+                                currentData[lastIndex] = candle;
                             }
-                        }
-                    });
+
+                            dataRef.current = currentData;
+                            const currentChartType = chartTypeRef.current;
+                            const transformedCandle = transformData([candle], currentChartType)[0];
+
+                            if (transformedCandle && mainSeriesRef.current && !isReplayModeRef.current) {
+                                mainSeriesRef.current.update(transformedCandle);
+                                updateRealtimeIndicators(currentData);
+                                updateAxisLabel();
+                                updateOhlcFromLatest();
+                                if (priceScaleTimerRef.current) {
+                                    priceScaleTimerRef.current.updateCandleData(candle.open, candle.close);
+                                }
+                            }
+                        };
+
+                        straddleWsRefs.current.ce = subscribeToTicker(straddleConfig.ceSymbol, straddleExchange, interval, handleStraddleTick('ce'));
+                        straddleWsRefs.current.pe = subscribeToTicker(straddleConfig.peSymbol, straddleExchange, interval, handleStraddleTick('pe'));
+                    } else {
+                        // Regular symbol mode
+                        wsRef.current = subscribeToTicker(symbol, exchange, interval, (ticker) => {
+                            if (cancelled || !ticker) return;
+
+                            // Only need close price - that's the real-time tick data
+                            const closePrice = Number(ticker.close);
+                            if (!Number.isFinite(closePrice) || closePrice <= 0) {
+                                console.warn('Received invalid close price:', ticker);
+                                return;
+                            }
+
+                            const currentData = dataRef.current;
+                            if (!currentData || currentData.length === 0) return;
+
+                            const intervalSeconds = intervalToSeconds(interval);
+                            if (!Number.isFinite(intervalSeconds) || intervalSeconds <= 0) return;
+
+                            const lastIndex = currentData.length - 1;
+                            const lastCandleTime = currentData[lastIndex].time;
+
+                            // Use accurate IST time from WorldTimeAPI for candle creation
+                            // Resync if needed (every 5 minutes)
+                            if (shouldResync()) {
+                                syncTimeWithAPI();
+                            }
+                            const currentISTTime = getAccurateISTTimestamp();
+                            const currentCandleTime = Math.floor(currentISTTime / intervalSeconds) * intervalSeconds;
+
+                            // Check if we need a new candle (current time is in a new interval period)
+                            const needNewCandle = currentCandleTime > lastCandleTime;
+
+                            let candle;
+                            if (needNewCandle) {
+                                // Create a new candle - all OHLC start at current price
+                                candle = {
+                                    time: currentCandleTime,
+                                    open: closePrice,
+                                    high: closePrice,
+                                    low: closePrice,
+                                    close: closePrice,
+                                };
+                                currentData.push(candle);
+                                logger.debug('[WebSocket] Created new candle at time:', currentCandleTime, 'price:', closePrice);
+                            } else {
+                                // Update the last candle using ONLY the close price for high/low
+                                // WebSocket high/low are session-wide, not per-interval
+                                const existingCandle = currentData[lastIndex];
+                                candle = {
+                                    time: lastCandleTime,
+                                    open: existingCandle.open,
+                                    high: Math.max(existingCandle.high, closePrice),
+                                    low: Math.min(existingCandle.low, closePrice),
+                                    close: closePrice,
+                                };
+                                currentData[lastIndex] = candle;
+                            }
+
+                            dataRef.current = currentData;
+
+                            const currentChartType = chartTypeRef.current;
+                            const transformedCandle = transformData([candle], currentChartType)[0];
+
+                            if (transformedCandle && mainSeriesRef.current && !isReplayModeRef.current) {
+                                mainSeriesRef.current.update(transformedCandle);
+
+                                updateRealtimeIndicators(currentData);
+                                updateAxisLabel();
+                                updateOhlcFromLatest();
+
+                                if (priceScaleTimerRef.current) {
+                                    priceScaleTimerRef.current.updateCandleData(candle.open, candle.close);
+                                }
+                            }
+                        });
+                    }
                 } else {
                     dataRef.current = [];
                     mainSeriesRef.current?.setData([]);
@@ -1571,9 +1708,20 @@ const ChartComponent = forwardRef(({
                 wsRef.current.close();
                 wsRef.current = null;
             }
+            // Clean up straddle WebSocket connections
+            if (straddleWsRefs.current.ce) {
+                straddleWsRefs.current.ce.close();
+                straddleWsRefs.current.ce = null;
+            }
+            if (straddleWsRefs.current.pe) {
+                straddleWsRefs.current.pe.close();
+                straddleWsRefs.current.pe = null;
+            }
+            // Reset straddle state
+            straddleLatestRef.current = { ce: null, pe: null };
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [symbol, interval]);
+    }, [symbol, interval, straddleConfig]);
 
     const emaLastValueRef = useRef(null);
 
@@ -1756,6 +1904,98 @@ const ChartComponent = forwardRef(({
             if (vwapSeriesRef.current) {
                 chartRef.current.removeSeries(vwapSeriesRef.current);
                 vwapSeriesRef.current = null;
+            }
+        }
+
+        // ========== TPO PROFILE INDICATOR ==========
+        if (indicatorsConfig.tpo?.enabled) {
+            // Warn if timeframe is not suitable for TPO
+            const currentInterval = intervalRef.current;
+            const isIntraday = currentInterval && (currentInterval.includes('m') || currentInterval.includes('h'));
+            if (!isIntraday) {
+                console.warn('TPO Profile works best on intraday timeframes (1m, 5m, 15m, 30m, 1h). Current:', currentInterval);
+            }
+
+            const tpoConfig = indicatorsConfig.tpo;
+
+            // Calculate TPO profiles from data
+            const tpoOptions = {
+                tickSize: tpoConfig.tickSize || 'auto',
+                blockSize: tpoConfig.blockSize || '30m',
+                sessionType: tpoConfig.sessionType || 'daily',
+                sessionStart: tpoConfig.sessionStart || '09:15',
+                sessionEnd: tpoConfig.sessionEnd || '15:30',
+                valueAreaPercent: tpoConfig.valueAreaPercent || 70,
+                allHours: tpoConfig.allHours ?? true,
+            };
+
+            const tpoProfiles = calculateTPO(data, tpoOptions);
+
+            // Create or update TPO primitive
+            if (!tpoProfileRef.current && mainSeriesRef.current) {
+                tpoProfileRef.current = new TPOProfilePrimitive({
+                    // Display options
+                    showLetters: tpoConfig.showLetters ?? true,
+                    showPOC: tpoConfig.showPOC ?? true,
+                    showValueArea: tpoConfig.showValueArea ?? true,
+                    showInitialBalance: tpoConfig.showInitialBalance ?? true,
+                    showVAH: tpoConfig.showVAH ?? true,
+                    showVAL: tpoConfig.showVAL ?? true,
+                    showPoorHigh: tpoConfig.showPoorHigh ?? false,
+                    showPoorLow: tpoConfig.showPoorLow ?? false,
+                    showSinglePrints: tpoConfig.showSinglePrints ?? false,
+                    showMidpoint: tpoConfig.showMidpoint ?? false,
+                    showOpen: tpoConfig.showOpen ?? false,
+                    showClose: tpoConfig.showClose ?? false,
+                    useGradientColors: tpoConfig.useGradientColors ?? true,
+                    position: tpoConfig.position || 'right',
+                    // Colors
+                    pocColor: tpoConfig.pocColor || '#FF9800',
+                    vahColor: tpoConfig.vahColor || '#26a69a',
+                    valColor: tpoConfig.valColor || '#ef5350',
+                    poorHighColor: tpoConfig.poorHighColor || '#ef5350',
+                    poorLowColor: tpoConfig.poorLowColor || '#26a69a',
+                    singlePrintColor: tpoConfig.singlePrintColor || '#FFEB3B',
+                    midpointColor: tpoConfig.midpointColor || '#9C27B0',
+                });
+                mainSeriesRef.current.attachPrimitive(tpoProfileRef.current);
+            }
+
+            // Update TPO data and options
+            if (tpoProfileRef.current) {
+                tpoProfileRef.current.setData(tpoProfiles);
+                tpoProfileRef.current.applyOptions({
+                    showLetters: tpoConfig.showLetters ?? true,
+                    showPOC: tpoConfig.showPOC ?? true,
+                    showValueArea: tpoConfig.showValueArea ?? true,
+                    showInitialBalance: tpoConfig.showInitialBalance ?? true,
+                    showVAH: tpoConfig.showVAH ?? true,
+                    showVAL: tpoConfig.showVAL ?? true,
+                    showPoorHigh: tpoConfig.showPoorHigh ?? false,
+                    showPoorLow: tpoConfig.showPoorLow ?? false,
+                    showSinglePrints: tpoConfig.showSinglePrints ?? false,
+                    showMidpoint: tpoConfig.showMidpoint ?? false,
+                    showOpen: tpoConfig.showOpen ?? false,
+                    showClose: tpoConfig.showClose ?? false,
+                    useGradientColors: tpoConfig.useGradientColors ?? true,
+                    pocColor: tpoConfig.pocColor || '#FF9800',
+                    vahColor: tpoConfig.vahColor || '#26a69a',
+                    valColor: tpoConfig.valColor || '#ef5350',
+                    poorHighColor: tpoConfig.poorHighColor || '#ef5350',
+                    poorLowColor: tpoConfig.poorLowColor || '#26a69a',
+                    singlePrintColor: tpoConfig.singlePrintColor || '#FFEB3B',
+                    midpointColor: tpoConfig.midpointColor || '#9C27B0',
+                });
+            }
+        } else {
+            // Cleanup TPO primitive
+            if (tpoProfileRef.current && mainSeriesRef.current) {
+                try {
+                    mainSeriesRef.current.detachPrimitive(tpoProfileRef.current);
+                } catch (e) {
+                    console.warn('Error detaching TPO primitive:', e);
+                }
+                tpoProfileRef.current = null;
             }
         }
 

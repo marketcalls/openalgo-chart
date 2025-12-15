@@ -22,6 +22,7 @@ import MobileNav from './components/MobileNav';
 import CommandPalette from './components/CommandPalette/CommandPalette';
 import LayoutTemplateDialog from './components/LayoutTemplates/LayoutTemplateDialog';
 import ShortcutsDialog from './components/ShortcutsDialog/ShortcutsDialog';
+import { OptionChainPicker } from './components/OptionChainPicker';
 import { initTimeService } from './services/timeService';
 import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
@@ -275,6 +276,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
   const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
+  // Straddle/Strangle chart state
+  const [isStraddlePickerOpen, setIsStraddlePickerOpen] = useState(false);
+  const [straddleConfig, setStraddleConfig] = useState(null);
   // const [indicators, setIndicators] = useState({ sma: false, ema: false }); // Moved to charts state
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = React.useRef(0);
@@ -593,6 +597,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
   const [watchlistData, setWatchlistData] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState(true);
+  const [rankFlowMode, setRankFlowMode] = useState(false);
 
   // Initialize TimeService on app mount - syncs time with WorldTimeAPI
   useEffect(() => {
@@ -621,6 +626,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     // Don't fetch if not authenticated yet
     if (isAuthenticated !== true) {
       logger.debug('[Watchlist Effect] Skipping - not authenticated');
+      setWatchlistLoading(false);
       return;
     }
 
@@ -1078,6 +1084,58 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       activeListId: newId,
     }));
     showToast(`Created copy: ${newName}`, 'success');
+  };
+
+  // Export watchlist to CSV
+  const handleExportWatchlist = (id) => {
+    const watchlist = watchlistsState.lists.find(wl => wl.id === id);
+    if (!watchlist) return;
+
+    const symbols = watchlist.symbols || [];
+    const csvContent = symbols
+      .filter(s => typeof s !== 'string' || !s.startsWith('###'))
+      .map(s => {
+        const symbol = typeof s === 'string' ? s : s.symbol;
+        const exchange = typeof s === 'string' ? 'NSE' : (s.exchange || 'NSE');
+        return `${symbol},${exchange}`;
+      })
+      .join('\n');
+
+    const blob = new Blob([`symbol,exchange\n${csvContent}`], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${watchlist.name || 'watchlist'}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`Exported ${symbols.filter(s => typeof s !== 'string' || !s.startsWith('###')).length} symbols`, 'success');
+  };
+
+  // Import symbols to watchlist from CSV
+  const handleImportWatchlist = (symbols, id) => {
+    if (!symbols || symbols.length === 0) return;
+
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: prev.lists.map(wl => {
+        if (wl.id !== id) return wl;
+        // Get existing symbol names to avoid duplicates
+        const existingSymbols = new Set(
+          (wl.symbols || [])
+            .filter(s => typeof s !== 'string' || !s.startsWith('###'))
+            .map(s => typeof s === 'string' ? s : s.symbol)
+        );
+        // Filter out duplicates
+        const newSymbols = symbols.filter(s => !existingSymbols.has(s.symbol));
+        return {
+          ...wl,
+          symbols: [...(wl.symbols || []), ...newSymbols]
+        };
+      })
+    }));
+    showToast(`Imported ${symbols.length} symbols`, 'success');
   };
 
   // Add a section to the watchlist at a specific index (TradingView model: insert ###SECTION string)
@@ -2110,6 +2168,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onSaveLayout={handleSaveLayout}
             onSettingsClick={handleSettingsClick}
             onTemplatesClick={handleTemplatesClick}
+            onStraddleClick={() => setIsStraddlePickerOpen(true)}
+            straddleConfig={straddleConfig}
           />
         }
         leftToolbar={
@@ -2202,6 +2262,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               // Quick-access favorites props
               favoriteWatchlists={favoriteWatchlists}
               onToggleFavorite={handleToggleWatchlistFavorite}
+              // Rank Flow Tracker props
+              rankFlowMode={rankFlowMode}
+              onToggleRankFlow={() => setRankFlowMode(prev => !prev)}
+              // Import/Export props
+              onExport={handleExportWatchlist}
+              onImport={handleImportWatchlist}
             />
           ) : activeRightPanel === 'alerts' ? (
             <AlertsPanel
@@ -2247,6 +2313,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             isSessionBreakVisible={isSessionBreakVisible}
             onIndicatorRemove={handleIndicatorRemove}
             chartAppearance={chartAppearance}
+            straddleConfig={straddleConfig}
           />
         }
       />
@@ -2325,6 +2392,15 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       <ShortcutsDialog
         isOpen={isShortcutsDialogOpen}
         onClose={() => setIsShortcutsDialogOpen(false)}
+      />
+      <OptionChainPicker
+        isOpen={isStraddlePickerOpen}
+        onClose={() => setIsStraddlePickerOpen(false)}
+        onSelect={(config) => {
+          setStraddleConfig(config);
+          setIsStraddlePickerOpen(false);
+        }}
+        spotPrice={activeChart?.ltp || null}
       />
     </>
   );

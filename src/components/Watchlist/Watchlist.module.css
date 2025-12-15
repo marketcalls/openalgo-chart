@@ -36,6 +36,33 @@
     color: var(--tv-color-text-primary);
 }
 
+/* Rank Flow Toggle Button */
+.rankFlowToggle {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: var(--tv-color-text-secondary);
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.rankFlowToggle:hover {
+    background: var(--tv-color-toolbar-button-background-hover);
+    color: var(--tv-color-text-primary);
+}
+
+.rankFlowToggle.active {
+    background: var(--tv-color-brand);
+    border-color: var(--tv-color-brand);
+    color: white;
+}
+
 /* Favorite tag pill in header */
 .favoriteTag {
     padding: 2px 8px;

@@ -17,7 +17,8 @@ const Topbar = ({
     onUndo, onRedo, onMenuClick, theme, onToggleTheme,
     onDownloadImage, onCopyImage, onFullScreen,
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
-    isReplayMode = false, onSettingsClick, onTemplatesClick
+    isReplayMode = false, onSettingsClick, onTemplatesClick,
+    onStraddleClick, straddleConfig = null
 }) => {
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
@@ -409,6 +410,23 @@ const Topbar = ({
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M13.5 6a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM4 14.5a9.5 9.5 0 1 1 19 0 9.5 9.5 0 0 1-19 0z"></path><path fill="currentColor" d="M9 14h4v-4h1v4h4v1h-4v4h-1v-4H9v-1z"></path></svg>
                                                     </div>
                                                 </button>
+                                                {/* Straddle Chart Button */}
+                                                <Tooltip content={straddleConfig ? straddleConfig.displayName : "Create Straddle/Strangle Chart"} position="bottom">
+                                                    <button
+                                                        className={classNames(styles.button, styles.iconButton, { [styles.isActive]: !!straddleConfig })}
+                                                        aria-label="Straddle/Strangle Chart"
+                                                        onClick={onStraddleClick}
+                                                    >
+                                                        <div className={styles.icon}>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M3 17l6-6 4 4 8-8"/>
+                                                                <path d="M17 7h4v4"/>
+                                                                <path d="M3 7l6 6 4-4 8 8"/>
+                                                                <path d="M17 17h4v-4"/>
+                                                            </svg>
+                                                        </div>
+                                                    </button>
+                                                </Tooltip>
                                             </div>
                                             {/* Timeframes */}
                                             <div className={styles.separatorWrap}><div className={styles.separator}></div></div>
@@ -646,6 +664,9 @@ const Topbar = ({
                                                             <div className={styles.dropdownSection}>Volume</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.volume?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('volume'); }}>Volume</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.vwap?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('vwap'); }}>VWAP</div>
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div className={styles.dropdownSection}>Market Profile</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.tpo?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('tpo'); }}>TPO Profile (30m)</div>
                                                         </div>
                                                     )}
                                                 </div>

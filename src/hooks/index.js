@@ -34,3 +34,7 @@ export {
 
 // Global keyboard shortcuts
 export { useGlobalShortcuts } from './useGlobalShortcuts';
+
+// Rank Flow Tracker hooks
+export { useRankAssignment } from './useRankAssignment';
+export { useRankTracking } from './useRankTracking';

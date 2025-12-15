@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ChevronDown, Plus, Trash2, Edit2, Check, X, Star, Copy, Eraser, Layers } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, Edit2, Check, X, Star, Copy, Eraser, Layers, Download, Upload } from 'lucide-react';
 import styles from './WatchlistSelector.module.css';
 import classNames from 'classnames';
 
@@ -14,6 +14,8 @@ const WatchlistSelector = ({
     onCopy,
     onAddSection,
     onToggleFavorite,
+    onExport,
+    onImport,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
     const [showCreateInput, setShowCreateInput] = useState(false);
@@ -24,6 +26,7 @@ const WatchlistSelector = ({
     const dropdownRef = useRef(null);
     const createInputRef = useRef(null);
     const editInputRef = useRef(null);
+    const fileInputRef = useRef(null);
 
     const activeWatchlist = watchlists.find(wl => wl.id === activeId) || watchlists[0];
 
@@ -161,6 +164,76 @@ const WatchlistSelector = ({
         setIsOpen(false);
     };
 
+    // Export watchlist to CSV
+    const handleExportClick = () => {
+        if (onExport) {
+            onExport(activeId);
+        } else {
+            // Fallback: export current watchlist symbols as CSV
+            const symbols = activeWatchlist?.symbols || [];
+            const csvContent = symbols
+                .filter(s => typeof s !== 'string' || !s.startsWith('###'))
+                .map(s => {
+                    const symbol = typeof s === 'string' ? s : s.symbol;
+                    const exchange = typeof s === 'string' ? 'NSE' : (s.exchange || 'NSE');
+                    return `${symbol},${exchange}`;
+                })
+                .join('\n');
+
+            const blob = new Blob([`symbol,exchange\n${csvContent}`], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${activeWatchlist?.name || 'watchlist'}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        setIsOpen(false);
+    };
+
+    // Import watchlist from CSV
+    const handleImportClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = event.target?.result;
+            if (typeof text !== 'string') return;
+
+            const lines = text.split('\n').filter(line => line.trim());
+            const symbols = [];
+
+            lines.forEach((line, index) => {
+                // Skip header row
+                if (index === 0 && line.toLowerCase().includes('symbol')) return;
+
+                const parts = line.split(',').map(p => p.trim());
+                if (parts[0]) {
+                    symbols.push({
+                        symbol: parts[0].toUpperCase(),
+                        exchange: parts[1]?.toUpperCase() || 'NSE'
+                    });
+                }
+            });
+
+            if (symbols.length > 0 && onImport) {
+                onImport(symbols, activeId);
+            }
+        };
+        reader.readAsText(file);
+
+        // Reset file input
+        e.target.value = '';
+        setIsOpen(false);
+    };
+
     return (
         <div className={styles.selector} ref={dropdownRef}>
             <button className={styles.selectorButton} onClick={handleToggle}>
@@ -246,6 +319,18 @@ const WatchlistSelector = ({
                                 <span>Add section</span>
                             </button>
                         )}
+
+                        <div className={styles.menuDivider} />
+
+                        <button className={styles.menuItem} onClick={handleExportClick}>
+                            <Download size={14} />
+                            <span>Export to CSV</span>
+                        </button>
+
+                        <button className={styles.menuItem} onClick={handleImportClick}>
+                            <Upload size={14} />
+                            <span>Import from CSV</span>
+                        </button>
                     </div>
 
                     <div className={styles.divider} />
@@ -362,6 +447,15 @@ const WatchlistSelector = ({
                     </div>
                 </div>
             )}
+
+            {/* Hidden file input for import */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+            />
         </div>
     );
 };
