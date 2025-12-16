@@ -1,12 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { X, TrendingUp, Loader2, RefreshCw, Check, ChevronLeft, ChevronRight, ChevronDown, Settings2 } from 'lucide-react';
-import { getOptionChain, getAvailableExpiries, UNDERLYINGS, formatStraddleName, getDaysToExpiry, parseExpiryDate, fetchOptionGreeks } from '../../services/optionChain';
+import { X, TrendingUp, Loader2, RefreshCw, Check, ChevronLeft, ChevronRight, ChevronDown, Settings2, Plus, Trash2 } from 'lucide-react';
+import { getOptionChain, getAvailableExpiries, UNDERLYINGS, getDaysToExpiry, parseExpiryDate, fetchOptionGreeks, clearOptionChainCache } from '../../services/optionChain';
+import { subscribeToMultiTicker } from '../../services/openalgo';
+import { STRATEGY_TEMPLATES, applyTemplate, validateStrategy, calculateNetPremium, formatStrategyName, generateLegId } from '../../services/strategyTemplates';
 import styles from './OptionChainPicker.module.css';
 import classNames from 'classnames';
 
 /**
- * OptionChainPicker - Professional Option Chain UI
- * Features: Expiry tabs, OI bars, ATM offset, ITM highlighting, metrics bar, Add-ons dropdown
+ * OptionChainPicker - Professional Option Chain UI with Multi-Leg Strategy Support
+ * Features: Strategy templates, leg builder, OI bars, ATM offset, ITM highlighting
  */
 const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
     const [underlying, setUnderlying] = useState(UNDERLYINGS[0]);
@@ -18,10 +20,9 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
     const [error, setError] = useState(null);
     const [expiryScrollIndex, setExpiryScrollIndex] = useState(0);
 
-    // Selection state
-    const [ceStrike, setCeStrike] = useState(null);
-    const [peStrike, setPeStrike] = useState(null);
-    const [selectionMode, setSelectionMode] = useState('straddle');
+    // Multi-leg strategy state
+    const [legs, setLegs] = useState([]);
+    const [selectedTemplate, setSelectedTemplate] = useState('straddle');
 
     // Add-ons visibility state
     const [showOI, setShowOI] = useState(true);
@@ -31,6 +32,9 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
     const [showIV, setShowIV] = useState(false);
     const [addOnsOpen, setAddOnsOpen] = useState(false);
     const addOnsRef = useRef(null);
+
+    // WebSocket ref for real-time option chain updates
+    const optionChainWsRef = useRef(null);
 
     // Greeks state
     const [greeksData, setGreeksData] = useState({});
@@ -68,24 +72,72 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
     }, [underlying]);
 
     // Fetch option chain when underlying or expiry changes
-    const fetchChain = useCallback(async () => {
+    const fetchChain = useCallback(async (forceRefresh = false) => {
         if (!selectedExpiry) return;
 
         setIsLoading(true);
         setError(null);
         setGreeksData({});
         try {
-            const chain = await getOptionChain(underlying.symbol, underlying.exchange, selectedExpiry, 15);
+            const chain = await getOptionChain(underlying.symbol, underlying.exchange, selectedExpiry, 15, forceRefresh);
+
+            // DEBUG: Log API response structure
+            console.log('[OptionChainPicker] API returned:', {
+                isNull: chain === null,
+                isUndefined: chain === undefined,
+                type: typeof chain,
+                hasChainArray: !!chain?.chain,
+                chainArrayLength: chain?.chain?.length,
+                underlying: chain?.underlying,
+                atmStrike: chain?.atmStrike,
+                underlyingLTP: chain?.underlyingLTP,
+                keys: chain ? Object.keys(chain) : []
+            });
+
+            // Check if API returned empty or null data
+            if (!chain || chain.chain?.length === 0) {
+                const reason = !chain ? 'null_response'
+                    : !chain.chain ? 'missing_chain_array'
+                    : 'empty_chain_array';
+                console.error('[OptionChainPicker] Empty chain:', {
+                    reason,
+                    chainValue: chain,
+                    underlying: underlying.symbol,
+                    expiry: selectedExpiry
+                });
+                setError(`⚠️ No data available (${reason}). Please wait 30-60 seconds and try again.`);
+                setOptionChain(null);
+                return;
+            }
+
             setOptionChain(chain);
-            setCeStrike(null);
-            setPeStrike(null);
+            setLegs([]); // Clear legs when chain changes
         } catch (err) {
-            setError('Failed to fetch option chain');
-            console.error(err);
+            // DEBUG: Log full error details
+            console.error('[OptionChainPicker] Fetch error:', {
+                message: err.message,
+                name: err.name,
+                underlying: underlying.symbol,
+                expiry: selectedExpiry,
+                fullError: err
+            });
+
+            // Check for rate limit errors (500 or explicit rate limit message)
+            if (err.message?.includes('500') || err.message?.includes('rate limit')) {
+                setError('⚠️ Broker rate limit hit. Please wait 30-60 seconds and try again.');
+            } else {
+                setError('Failed to fetch option chain');
+            }
         } finally {
             setIsLoading(false);
         }
     }, [underlying, selectedExpiry]);
+
+    // Force refresh - clears cache and refetches
+    const handleForceRefresh = useCallback(() => {
+        clearOptionChainCache(underlying.symbol, selectedExpiry);
+        fetchChain(true);
+    }, [underlying.symbol, selectedExpiry, fetchChain]);
 
     // Delay helper to avoid API rate limits
     const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -97,13 +149,10 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         setIsLoadingGreeks(true);
         const results = {};
 
-        // Rate limit: 30 req/min = 2000ms between requests
-        // Fetch only 10 strikes around ATM to reduce calls (20 total = CE + PE)
         const limitedRows = chainRows.slice(0, Math.min(chainRows.length, 15));
-        console.log('[Greeks] Fetching Greeks for', limitedRows.length, 'strikes (rate limit: 2s delay)');
+        console.log('[Greeks] Fetching Greeks for', limitedRows.length, 'strikes');
 
         for (const row of limitedRows) {
-            // CE Greeks
             if (row.ce?.symbol) {
                 try {
                     const ceGreeks = await fetchOptionGreeks(row.ce.symbol, underlying.exchange);
@@ -116,9 +165,8 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                 } catch (e) {
                     console.warn('[Greeks] CE failed:', row.ce.symbol, e.message);
                 }
-                await delay(2000); // Rate limit: 30 req/min = 2s between requests
+                await delay(2000);
             }
-            // PE Greeks
             if (row.pe?.symbol) {
                 try {
                     const peGreeks = await fetchOptionGreeks(row.pe.symbol, underlying.exchange);
@@ -131,9 +179,8 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                 } catch (e) {
                     console.warn('[Greeks] PE failed:', row.pe.symbol, e.message);
                 }
-                await delay(2000); // Rate limit: 30 req/min = 2s between requests
+                await delay(2000);
             }
-            // Update state progressively for better UX
             setGreeksData({ ...results });
         }
 
@@ -153,16 +200,74 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         }
     }, [isOpen, selectedExpiry, fetchChain]);
 
-    // Fetch Greeks when chain data loads
     useEffect(() => {
+        // DISABLED: Greeks API calls exhaust Upstox rate limit (30 calls × 2s = 60s of API calls)
+        // WebSocket now provides real-time LTP updates, so Greeks are less critical
+        // TODO: Re-enable when using broker with higher rate limits or when Greeks API is optimized
+        return;
         if (optionChain?.chain?.length > 0 && Object.keys(greeksData).length === 0) {
             fetchGreeks(optionChain.chain);
         }
     }, [optionChain, greeksData, fetchGreeks]);
 
+    // WebSocket subscription for real-time option chain price updates
+    // This avoids REST API rate limits by using WebSocket for live prices
+    useEffect(() => {
+        if (!isOpen || !optionChain?.chain?.length) return;
+
+        // Close any existing WebSocket connection
+        if (optionChainWsRef.current) {
+            optionChainWsRef.current.close();
+            optionChainWsRef.current = null;
+        }
+
+        // Build list of all option symbols (CE + PE)
+        const symbols = optionChain.chain.flatMap(row => [
+            row.ce?.symbol && { symbol: row.ce.symbol, exchange: 'NFO' },
+            row.pe?.symbol && { symbol: row.pe.symbol, exchange: 'NFO' }
+        ].filter(Boolean));
+
+        if (symbols.length === 0) return;
+
+        console.log('[OptionChainPicker] Subscribing to', symbols.length, 'option symbols via WebSocket');
+
+        // Subscribe to real-time updates
+        optionChainWsRef.current = subscribeToMultiTicker(symbols, (ticker) => {
+            setOptionChain(prev => {
+                if (!prev) return prev;
+                const newChain = prev.chain.map(row => {
+                    if (row.ce?.symbol === ticker.symbol) {
+                        return { ...row, ce: { ...row.ce, ltp: ticker.last } };
+                    }
+                    if (row.pe?.symbol === ticker.symbol) {
+                        return { ...row, pe: { ...row.pe, ltp: ticker.last } };
+                    }
+                    return row;
+                });
+                return { ...prev, chain: newChain };
+            });
+        });
+
+        // Cleanup on unmount or when dependencies change
+        return () => {
+            if (optionChainWsRef.current) {
+                console.log('[OptionChainPicker] Unsubscribing from option chain WebSocket');
+                optionChainWsRef.current.close();
+                optionChainWsRef.current = null;
+            }
+        };
+    }, [isOpen, optionChain?.underlying, optionChain?.expiryDate]);
+
     // Chain data
     const chainData = useMemo(() => optionChain?.chain || [], [optionChain]);
     const atmStrike = optionChain?.atmStrike || 0;
+
+    // Calculate strike gap for templates
+    const strikeGap = useMemo(() => {
+        if (chainData.length < 2) return 50;
+        const strikes = chainData.map(r => r.strike).sort((a, b) => a - b);
+        return strikes[1] - strikes[0];
+    }, [chainData]);
 
     // Calculate metrics
     const metrics = useMemo(() => {
@@ -184,7 +289,6 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         const straddlePrem = atmRow ? (parseFloat(atmRow.ce?.ltp || 0) + parseFloat(atmRow.pe?.ltp || 0)).toFixed(2) : '-';
         const pcr = totalCeOI > 0 ? (totalPeOI / totalCeOI).toFixed(2) : '-';
 
-        // Format OI in Cr/L
         const formatOI = (oi) => {
             if (oi >= 10000000) return (oi / 10000000).toFixed(1) + 'Cr';
             if (oi >= 100000) return (oi / 100000).toFixed(1) + 'L';
@@ -215,14 +319,17 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         return null;
     }, [greeksData, atmStrike, chainData]);
 
-    // Get expiry label type (CW, NW, CM, etc.)
+    // Net premium from selected legs
+    const netPremium = useMemo(() => calculateNetPremium(legs), [legs]);
+
+    // Get expiry label type
     const getExpiryLabel = (expiryStr, index) => {
         const dte = getDaysToExpiry(expiryStr);
-        if (index === 0) return 'CW'; // Current Week
-        if (index === 1) return 'NW'; // Next Week
+        if (index === 0) return 'CW';
+        if (index === 1) return 'NW';
         if (dte <= 7) return 'W' + (index + 1);
-        if (dte <= 35) return 'CM'; // Current Month
-        return 'NM'; // Next Month
+        if (dte <= 35) return 'CM';
+        return 'NM';
     };
 
     // Format expiry for tab display
@@ -247,7 +354,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         return diff > 0 ? `(ATM + ${diff})` : `(ATM - ${Math.abs(diff)})`;
     };
 
-    // Visible expiries (show 5 at a time)
+    // Visible expiries
     const visibleExpiries = useMemo(() => {
         const maxVisible = 5;
         return availableExpiries.slice(expiryScrollIndex, expiryScrollIndex + maxVisible);
@@ -256,45 +363,111 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
     const canScrollLeft = expiryScrollIndex > 0;
     const canScrollRight = expiryScrollIndex + 5 < availableExpiries.length;
 
-    // Handle strike click
-    const handleStrikeClick = useCallback((strike, type) => {
-        if (selectionMode === 'straddle') {
-            setCeStrike(strike);
-            setPeStrike(strike);
-        } else {
-            if (type === 'CE') setCeStrike(strike);
-            else setPeStrike(strike);
+    // Handle template selection
+    const handleTemplateSelect = useCallback((templateKey) => {
+        setSelectedTemplate(templateKey);
+
+        if (templateKey === 'custom') {
+            // Don't auto-fill for custom
+            return;
         }
-    }, [selectionMode]);
+
+        // Apply template from ATM strike
+        if (atmStrike && chainData.length > 0) {
+            const newLegs = applyTemplate(templateKey, atmStrike, strikeGap, chainData);
+            if (newLegs) {
+                setLegs(newLegs);
+            }
+        }
+    }, [atmStrike, strikeGap, chainData]);
+
+    // Handle option click - add leg in custom mode
+    const handleOptionClick = useCallback((strike, type, optionData) => {
+        if (selectedTemplate !== 'custom') {
+            // In template mode, clicking re-centers the template on this strike
+            const newLegs = applyTemplate(selectedTemplate, strike, strikeGap, chainData);
+            if (newLegs) {
+                setLegs(newLegs);
+            }
+            return;
+        }
+
+        // Custom mode - add leg
+        if (legs.length >= 4) {
+            console.warn('Maximum 4 legs allowed');
+            return;
+        }
+
+        // Check if this exact option is already added
+        const existingLeg = legs.find(l => l.symbol === optionData.symbol);
+        if (existingLeg) {
+            // Remove it instead
+            setLegs(legs.filter(l => l.symbol !== optionData.symbol));
+            return;
+        }
+
+        const newLeg = {
+            id: generateLegId(),
+            type,
+            strike,
+            symbol: optionData.symbol,
+            direction: 'buy',
+            quantity: 1,
+            ltp: optionData.ltp || 0,
+        };
+
+        setLegs([...legs, newLeg]);
+    }, [selectedTemplate, legs, strikeGap, chainData]);
+
+    // Toggle leg direction
+    const toggleLegDirection = useCallback((legId) => {
+        setLegs(legs.map(leg =>
+            leg.id === legId
+                ? { ...leg, direction: leg.direction === 'buy' ? 'sell' : 'buy' }
+                : leg
+        ));
+    }, [legs]);
+
+    // Remove leg
+    const removeLeg = useCallback((legId) => {
+        setLegs(legs.filter(leg => leg.id !== legId));
+    }, [legs]);
+
+    // Check if an option is in legs
+    const isOptionSelected = useCallback((symbol) => {
+        return legs.some(leg => leg.symbol === symbol);
+    }, [legs]);
+
+    // Get leg for an option
+    const getLegForOption = useCallback((symbol) => {
+        return legs.find(leg => leg.symbol === symbol);
+    }, [legs]);
 
     // Handle create
     const handleCreate = useCallback(() => {
-        if (!ceStrike || !peStrike || !optionChain || !selectedExpiry) return;
-
-        const ceRow = chainData.find(r => r.strike === ceStrike);
-        const peRow = chainData.find(r => r.strike === peStrike);
-
-        if (!ceRow?.ce || !peRow?.pe) return;
+        const validation = validateStrategy(legs);
+        if (!validation.valid) {
+            console.error('Invalid strategy:', validation.error);
+            return;
+        }
 
         const config = {
+            strategyType: selectedTemplate,
             underlying: underlying.symbol,
             exchange: underlying.exchange,
-            ceSymbol: ceRow.ce.symbol,
-            peSymbol: peRow.pe.symbol,
-            ceStrike,
-            peStrike,
             expiry: selectedExpiry,
-            displayName: formatStraddleName({
+            legs: legs,
+            displayName: formatStrategyName({
+                strategyType: selectedTemplate,
                 underlying: underlying.symbol,
-                ceStrike,
-                peStrike,
+                legs,
                 expiry: selectedExpiry
             })
         };
 
         onSelect(config);
         onClose();
-    }, [ceStrike, peStrike, optionChain, selectedExpiry, chainData, underlying, onSelect, onClose]);
+    }, [legs, selectedTemplate, underlying, selectedExpiry, onSelect, onClose]);
 
     // Format number
     const formatNumber = (num) => {
@@ -310,6 +483,8 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
 
     if (!isOpen) return null;
 
+    const templateKeys = ['straddle', 'strangle', 'iron-condor', 'butterfly', 'bull-call-spread', 'bear-put-spread', 'custom'];
+
     return (
         <div className={styles.overlay} onClick={onClose}>
             <div className={styles.modal} onClick={e => e.stopPropagation()}>
@@ -317,7 +492,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                 <div className={styles.header}>
                     <div className={styles.headerLeft}>
                         <TrendingUp size={18} />
-                        <h3>Option Chain</h3>
+                        <h3>Option Strategy</h3>
                         <select
                             className={styles.underlyingSelect}
                             value={underlying.symbol}
@@ -327,6 +502,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                     setUnderlying(found);
                                     setSelectedExpiry(null);
                                     setOptionChain(null);
+                                    setLegs([]);
                                 }
                             }}
                         >
@@ -349,43 +525,23 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                         {addOnsOpen && (
                             <div className={styles.addOnsMenu}>
                                 <label className={styles.addOnsItem}>
-                                    <input
-                                        type="checkbox"
-                                        checked={showDelta}
-                                        onChange={(e) => setShowDelta(e.target.checked)}
-                                    />
+                                    <input type="checkbox" checked={showDelta} onChange={(e) => setShowDelta(e.target.checked)} />
                                     <span>Delta</span>
                                 </label>
                                 <label className={styles.addOnsItem}>
-                                    <input
-                                        type="checkbox"
-                                        checked={showIV}
-                                        onChange={(e) => setShowIV(e.target.checked)}
-                                    />
+                                    <input type="checkbox" checked={showIV} onChange={(e) => setShowIV(e.target.checked)} />
                                     <span>IV</span>
                                 </label>
                                 <label className={styles.addOnsItem}>
-                                    <input
-                                        type="checkbox"
-                                        checked={showOI}
-                                        onChange={(e) => setShowOI(e.target.checked)}
-                                    />
+                                    <input type="checkbox" checked={showOI} onChange={(e) => setShowOI(e.target.checked)} />
                                     <span>OI</span>
                                 </label>
                                 <label className={styles.addOnsItem}>
-                                    <input
-                                        type="checkbox"
-                                        checked={showOIBars}
-                                        onChange={(e) => setShowOIBars(e.target.checked)}
-                                    />
+                                    <input type="checkbox" checked={showOIBars} onChange={(e) => setShowOIBars(e.target.checked)} />
                                     <span>OI Bars</span>
                                 </label>
                                 <label className={styles.addOnsItem}>
-                                    <input
-                                        type="checkbox"
-                                        checked={showPremium}
-                                        onChange={(e) => setShowPremium(e.target.checked)}
-                                    />
+                                    <input type="checkbox" checked={showPremium} onChange={(e) => setShowPremium(e.target.checked)} />
                                     <span>Premium</span>
                                 </label>
                             </div>
@@ -405,10 +561,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                 {/* Expiry Tabs */}
                 <div className={styles.expiryTabs}>
                     {canScrollLeft && (
-                        <button
-                            className={styles.scrollBtn}
-                            onClick={() => setExpiryScrollIndex(prev => Math.max(0, prev - 1))}
-                        >
+                        <button className={styles.scrollBtn} onClick={() => setExpiryScrollIndex(prev => Math.max(0, prev - 1))}>
                             <ChevronLeft size={16} />
                         </button>
                     )}
@@ -421,9 +574,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                 return (
                                     <button
                                         key={exp}
-                                        className={classNames(styles.expiryTab, {
-                                            [styles.activeTab]: selectedExpiry === exp
-                                        })}
+                                        className={classNames(styles.expiryTab, { [styles.activeTab]: selectedExpiry === exp })}
                                         onClick={() => setSelectedExpiry(exp)}
                                     >
                                         <span className={styles.tabDate}>{display}</span>
@@ -434,21 +585,71 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                         )}
                     </div>
                     {canScrollRight && (
-                        <button
-                            className={styles.scrollBtn}
-                            onClick={() => setExpiryScrollIndex(prev => prev + 1)}
-                        >
+                        <button className={styles.scrollBtn} onClick={() => setExpiryScrollIndex(prev => prev + 1)}>
                             <ChevronRight size={16} />
                         </button>
                     )}
                     <button
                         className={styles.refreshBtn}
-                        onClick={fetchChain}
+                        onClick={handleForceRefresh}
                         disabled={isLoading || !selectedExpiry}
+                        title="Refresh (clears cache)"
                     >
                         <RefreshCw size={14} className={isLoading ? styles.spinning : ''} />
                     </button>
                 </div>
+
+                {/* Strategy Template Selector */}
+                <div className={styles.strategySelector}>
+                    {templateKeys.map(key => (
+                        <button
+                            key={key}
+                            className={classNames(styles.strategyBtn, { [styles.active]: selectedTemplate === key })}
+                            onClick={() => handleTemplateSelect(key)}
+                            title={STRATEGY_TEMPLATES[key]?.description}
+                        >
+                            {STRATEGY_TEMPLATES[key]?.shortName || key}
+                        </button>
+                    ))}
+                </div>
+
+                {/* Leg Builder Panel */}
+                {legs.length > 0 && (
+                    <div className={styles.legBuilder}>
+                        <div className={styles.legBuilderHeader}>
+                            <span>Selected Legs ({legs.length}/4)</span>
+                            <span className={classNames(styles.netPremium, { [styles.credit]: netPremium < 0 })}>
+                                Net: {netPremium >= 0 ? `₹${netPremium.toFixed(2)} Debit` : `₹${Math.abs(netPremium).toFixed(2)} Credit`}
+                            </span>
+                        </div>
+                        <div className={styles.legsList}>
+                            {legs.map(leg => (
+                                <div key={leg.id} className={styles.legItem}>
+                                    <button
+                                        className={classNames(styles.legDirection, { [styles.buy]: leg.direction === 'buy', [styles.sell]: leg.direction === 'sell' })}
+                                        onClick={() => toggleLegDirection(leg.id)}
+                                    >
+                                        {leg.direction === 'buy' ? 'B' : 'S'}
+                                    </button>
+                                    <span className={styles.legStrike}>{leg.strike}</span>
+                                    <span className={classNames(styles.legType, { [styles.ce]: leg.type === 'CE', [styles.pe]: leg.type === 'PE' })}>
+                                        {leg.type}
+                                    </span>
+                                    <span className={styles.legLtp}>₹{formatLTP(leg.ltp)}</span>
+                                    <button className={styles.legRemove} onClick={() => removeLeg(leg.id)}>
+                                        <Trash2 size={12} />
+                                    </button>
+                                </div>
+                            ))}
+                            {legs.length < 4 && selectedTemplate === 'custom' && (
+                                <div className={styles.addLegHint}>
+                                    <Plus size={14} />
+                                    <span>Click options to add legs</span>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
 
                 {/* Metrics Bar */}
                 {metrics && (
@@ -464,7 +665,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                             <span className={styles.metricValue}>{metrics.pcr}</span>
                         </div>
                         <div className={styles.metric}>
-                            <span className={styles.metricLabel}>Straddle Prem</span>
+                            <span className={styles.metricLabel}>Straddle</span>
                             <span className={styles.metricValue}>{metrics.straddlePrem}</span>
                         </div>
                         <div className={styles.oiSummary}>
@@ -473,20 +674,6 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                             <div className={styles.oiDivider} />
                             <span className={styles.oiLabel}>PE OI</span>
                             <span className={styles.peOI}>{metrics.totalPeOIFormatted}</span>
-                        </div>
-                        <div className={styles.modeToggle}>
-                            <button
-                                className={classNames(styles.modeBtn, { [styles.active]: selectionMode === 'straddle' })}
-                                onClick={() => { setSelectionMode('straddle'); if (ceStrike) setPeStrike(ceStrike); }}
-                            >
-                                Straddle
-                            </button>
-                            <button
-                                className={classNames(styles.modeBtn, { [styles.active]: selectionMode === 'strangle' })}
-                                onClick={() => setSelectionMode('strangle')}
-                            >
-                                Strangle
-                            </button>
                         </div>
                     </div>
                 )}
@@ -501,7 +688,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                     ) : error ? (
                         <div className={styles.errorState}>
                             <p>{error}</p>
-                            <button onClick={fetchChain}>Retry</button>
+                            <button onClick={handleForceRefresh}>Retry (Clear Cache)</button>
                         </div>
                     ) : chainData.length === 0 ? (
                         <div className={styles.emptyState}>
@@ -534,6 +721,9 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                     const ceOIPercent = metrics?.maxOI ? ((row.ce?.oi || 0) / metrics.maxOI) * 100 : 0;
                                     const peOIPercent = metrics?.maxOI ? ((row.pe?.oi || 0) / metrics.maxOI) * 100 : 0;
 
+                                    const ceLeg = row.ce?.symbol ? getLegForOption(row.ce.symbol) : null;
+                                    const peLeg = row.pe?.symbol ? getLegForOption(row.pe.symbol) : null;
+
                                     return (
                                         <div
                                             key={row.strike}
@@ -546,10 +736,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                             {/* CE OI Bar */}
                                             {showOIBars && (
                                                 <div className={styles.colOIBar}>
-                                                    <div
-                                                        className={styles.oiBarCE}
-                                                        style={{ width: `${ceOIPercent}%` }}
-                                                    />
+                                                    <div className={styles.oiBarCE} style={{ width: `${ceOIPercent}%` }} />
                                                 </div>
                                             )}
 
@@ -563,11 +750,13 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                             {/* CE LTP - clickable */}
                                             <div
                                                 className={classNames(styles.colLTP, styles.clickable, styles.ceCell, {
-                                                    [styles.selected]: ceStrike === row.strike
+                                                    [styles.selected]: !!ceLeg,
+                                                    [styles.buySelected]: ceLeg?.direction === 'buy',
+                                                    [styles.sellSelected]: ceLeg?.direction === 'sell'
                                                 })}
-                                                onClick={() => handleStrikeClick(row.strike, 'CE')}
+                                                onClick={() => row.ce && handleOptionClick(row.strike, 'CE', row.ce)}
                                             >
-                                                {ceStrike === row.strike && <Check size={12} />}
+                                                {ceLeg && <span className={styles.legIndicator}>{ceLeg.direction === 'buy' ? 'B' : 'S'}</span>}
                                                 <span>{formatLTP(row.ce?.ltp)}</span>
                                                 {showDelta && greeksData[row.ce?.symbol]?.delta !== undefined && (
                                                     <span className={styles.delta}>({greeksData[row.ce.symbol].delta.toFixed(2)})</span>
@@ -577,9 +766,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                             {/* CE IV */}
                                             {showIV && (
                                                 <div className={classNames(styles.colIV, styles.ceCell)}>
-                                                    {greeksData[row.ce?.symbol]?.iv !== undefined
-                                                        ? `${greeksData[row.ce.symbol].iv.toFixed(1)}%`
-                                                        : '-'}
+                                                    {greeksData[row.ce?.symbol]?.iv !== undefined ? `${greeksData[row.ce.symbol].iv.toFixed(1)}%` : '-'}
                                                 </div>
                                             )}
 
@@ -599,24 +786,24 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                             {/* PE IV */}
                                             {showIV && (
                                                 <div className={classNames(styles.colIV, styles.peCell)}>
-                                                    {greeksData[row.pe?.symbol]?.iv !== undefined
-                                                        ? `${greeksData[row.pe.symbol].iv.toFixed(1)}%`
-                                                        : '-'}
+                                                    {greeksData[row.pe?.symbol]?.iv !== undefined ? `${greeksData[row.pe.symbol].iv.toFixed(1)}%` : '-'}
                                                 </div>
                                             )}
 
                                             {/* PE LTP - clickable */}
                                             <div
                                                 className={classNames(styles.colLTP, styles.clickable, styles.peCell, {
-                                                    [styles.selected]: peStrike === row.strike
+                                                    [styles.selected]: !!peLeg,
+                                                    [styles.buySelected]: peLeg?.direction === 'buy',
+                                                    [styles.sellSelected]: peLeg?.direction === 'sell'
                                                 })}
-                                                onClick={() => handleStrikeClick(row.strike, 'PE')}
+                                                onClick={() => row.pe && handleOptionClick(row.strike, 'PE', row.pe)}
                                             >
                                                 {showDelta && greeksData[row.pe?.symbol]?.delta !== undefined && (
                                                     <span className={styles.delta}>({greeksData[row.pe.symbol].delta.toFixed(2)})</span>
                                                 )}
                                                 <span>{formatLTP(row.pe?.ltp)}</span>
-                                                {peStrike === row.strike && <Check size={12} />}
+                                                {peLeg && <span className={styles.legIndicator}>{peLeg.direction === 'buy' ? 'B' : 'S'}</span>}
                                             </div>
 
                                             {/* PE OI */}
@@ -629,10 +816,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                             {/* PE OI Bar */}
                                             {showOIBars && (
                                                 <div className={styles.colOIBar}>
-                                                    <div
-                                                        className={styles.oiBarPE}
-                                                        style={{ width: `${peOIPercent}%` }}
-                                                    />
+                                                    <div className={styles.oiBarPE} style={{ width: `${peOIPercent}%` }} />
                                                 </div>
                                             )}
                                         </div>
@@ -646,29 +830,19 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                 {/* Footer */}
                 <div className={styles.footer}>
                     <div className={styles.selection}>
-                        {ceStrike && peStrike ? (
+                        {legs.length >= 2 ? (
                             <span>
-                                <strong>{underlying.symbol}</strong> {ceStrike === peStrike
-                                    ? `${ceStrike} Straddle`
-                                    : `${ceStrike}CE / ${peStrike}PE Strangle`}
-                                {chainData.length > 0 && (
-                                    <span className={styles.premiumInfo}>
-                                        {' '}| Premium: {
-                                            ceStrike === peStrike
-                                                ? chainData.find(r => r.strike === ceStrike)?.straddlePremium
-                                                : (
-                                                    (chainData.find(r => r.strike === ceStrike)?.ce?.ltp || 0) +
-                                                    (chainData.find(r => r.strike === peStrike)?.pe?.ltp || 0)
-                                                ).toFixed(2)
-                                        }
-                                    </span>
-                                )}
+                                <strong>{underlying.symbol}</strong>{' '}
+                                {STRATEGY_TEMPLATES[selectedTemplate]?.name || 'Custom'}{' '}
+                                <span className={styles.premiumInfo}>
+                                    | Net: {netPremium >= 0 ? `₹${netPremium.toFixed(2)}` : `-₹${Math.abs(netPremium).toFixed(2)}`}
+                                </span>
                             </span>
                         ) : (
                             <span className={styles.hint}>
-                                {selectionMode === 'straddle'
-                                    ? 'Click a strike to select straddle'
-                                    : 'Click CE and PE strikes to select strangle'}
+                                {selectedTemplate === 'custom'
+                                    ? 'Click options to add at least 2 legs'
+                                    : `Click on chain to place ${STRATEGY_TEMPLATES[selectedTemplate]?.name || 'strategy'}`}
                             </span>
                         )}
                     </div>
@@ -677,7 +851,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                         <button
                             className={styles.createBtn}
                             onClick={handleCreate}
-                            disabled={!ceStrike || !peStrike}
+                            disabled={legs.length < 2}
                         >
                             Create Chart
                         </button>

@@ -380,3 +380,12 @@ StarIcon.propTypes = {
     ...IconPropTypes,
     filled: PropTypes.bool
 };
+
+export const ArcIcon = ({ size = 28, ...props }) => (
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width={size} height={size} fill="none" stroke="currentColor" strokeWidth="1.5" {...props}>
+        <path d="M4 20 Q 14 4, 24 20" strokeLinecap="round" />
+        <circle cx="4" cy="20" r="2" fill="currentColor" stroke="none" />
+        <circle cx="24" cy="20" r="2" fill="currentColor" stroke="none" />
+    </svg>
+);
+ArcIcon.propTypes = IconPropTypes;

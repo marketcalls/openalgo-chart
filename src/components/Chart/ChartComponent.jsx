@@ -10,7 +10,7 @@ import {
 } from 'lightweight-charts';
 import styles from './ChartComponent.module.css';
 import { getKlines, getHistoricalKlines, subscribeToTicker } from '../../services/openalgo';
-import { combinePremiumOHLC } from '../../services/optionChain';
+import { combinePremiumOHLC, combineMultiLegOHLC } from '../../services/optionChain';
 import { getAccurateISTTimestamp, syncTimeWithAPI, shouldResync } from '../../services/timeService';
 import {
     calculateSMA,
@@ -54,6 +54,7 @@ const TOOL_MAP = {
     'highlighter': 'Highlighter',
     'rectangle': 'Rectangle',
     'circle': 'Circle',
+    'arc': 'Arc',
     'path': 'Path',
     'text': 'Text',
     'callout': 'Callout',
@@ -108,7 +109,7 @@ const ChartComponent = forwardRef(({
     isSessionBreakVisible = false,
     onIndicatorRemove,
     chartAppearance = {},
-    straddleConfig = null, // { ceSymbol, peSymbol, exchange, displayName }
+    strategyConfig = null, // { strategyType, legs: [{ id, symbol, direction, quantity }], exchange, displayName }
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
@@ -139,10 +140,10 @@ const ChartComponent = forwardRef(({
     const dataRef = useRef([]);
     const comparisonSeriesRefs = useRef(new Map());
 
-    // Straddle mode refs
-    const straddleWsRefs = useRef({ ce: null, pe: null }); // WebSocket refs for CE/PE
-    const straddleDataRef = useRef({ ce: [], pe: [] }); // Raw CE/PE data for combining
-    const straddleLatestRef = useRef({ ce: null, pe: null }); // Latest tick data for real-time
+    // Multi-leg strategy mode refs
+    const strategyWsRefs = useRef({}); // Map: legId -> WebSocket
+    const strategyDataRef = useRef({}); // Map: legId -> data array
+    const strategyLatestRef = useRef({}); // Map: legId -> latest price
 
     // Replay State
     const [isReplayMode, setIsReplayMode] = useState(false);
@@ -172,6 +173,11 @@ const ChartComponent = forwardRef(({
 
     // Flag to prevent operations on disposed chart (fixes "Object is disposed" error)
     const isDisposedRef = useRef(false);
+
+    // Shift+Click Quick Measure Tool refs and state
+    const isShiftPressedRef = useRef(false);
+    const measureStartPointRef = useRef(null);
+    const [measureData, setMeasureData] = useState(null);
 
     // Refs to track current prop values for use in closures (chart initialization useEffect)
     const symbolRef = useRef(symbol);
@@ -656,7 +662,120 @@ const ChartComponent = forwardRef(({
         };
     }, [activeTool, zoomChart, onToolUsed]);
 
+    // Shift+Click Quick Measure Tool - keyboard event listeners
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            if (e.key === 'Shift' && !isShiftPressedRef.current) {
+                isShiftPressedRef.current = true;
+                if (chartContainerRef.current) {
+                    chartContainerRef.current.style.cursor = 'crosshair';
+                }
+            }
+        };
 
+        const handleKeyUp = (e) => {
+            if (e.key === 'Shift') {
+                isShiftPressedRef.current = false;
+                measureStartPointRef.current = null;
+                if (chartContainerRef.current) {
+                    chartContainerRef.current.style.cursor = '';
+                }
+                setMeasureData(null);
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        window.addEventListener('keyup', handleKeyUp);
+
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown);
+            window.removeEventListener('keyup', handleKeyUp);
+        };
+    }, []);
+
+    // Shift+Click Quick Measure Tool - chart click handler
+    useEffect(() => {
+        if (!chartRef.current || !mainSeriesRef.current) return;
+
+        const formatTimeDiff = (ms) => {
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            const days = Math.floor(hours / 24);
+
+            if (days > 0) return `${days}d ${hours % 24}h`;
+            if (hours > 0) return `${hours}h ${minutes % 60}m`;
+            if (minutes > 0) return `${minutes}m`;
+            return `${seconds}s`;
+        };
+
+        const handleChartClick = (param) => {
+            if (!isShiftPressedRef.current) return;
+            if (!param.point || !param.time) return;
+
+            const chart = chartRef.current;
+            const series = mainSeriesRef.current;
+            if (!chart || !series) return;
+
+            const price = series.coordinateToPrice(param.point.y);
+            const logical = chart.timeScale().coordinateToLogical(param.point.x);
+
+            if (!measureStartPointRef.current) {
+                // First click - set start point
+                measureStartPointRef.current = {
+                    price,
+                    logical,
+                    time: param.time,
+                    x: param.point.x,
+                    y: param.point.y
+                };
+                // Show a subtle indicator that first point is set
+                setMeasureData({ isFirstPoint: true, x: param.point.x, y: param.point.y });
+            } else {
+                // Second click - calculate and show measurement
+                const start = measureStartPointRef.current;
+                const priceChange = price - start.price;
+                const percentChange = (priceChange / start.price) * 100;
+                const barCount = Math.abs(Math.round(logical - start.logical));
+
+                // Calculate time difference
+                const startTime = new Date(start.time * 1000);
+                const endTime = new Date(param.time * 1000);
+                const timeDiffMs = Math.abs(endTime - startTime);
+                const timeElapsed = formatTimeDiff(timeDiffMs);
+
+                setMeasureData({
+                    priceChange,
+                    percentChange,
+                    barCount,
+                    timeElapsed,
+                    position: {
+                        x: (start.x + param.point.x) / 2,
+                        y: Math.min(start.y, param.point.y) - 10
+                    },
+                    line: {
+                        x1: start.x, y1: start.y,
+                        x2: param.point.x, y2: param.point.y
+                    }
+                });
+
+                // Reset for next measurement
+                measureStartPointRef.current = null;
+            }
+        };
+
+        chartRef.current.subscribeClick(handleChartClick);
+
+        return () => {
+            if (chartRef.current) {
+                try {
+                    chartRef.current.unsubscribeClick(handleChartClick);
+                } catch (e) {
+                    // Chart may be disposed
+                }
+            }
+        };
+    }, [symbol, interval]);
 
     // Track chart visibility to avoid unnecessary RAF work
     useEffect(() => {
@@ -1342,7 +1461,7 @@ const ChartComponent = forwardRef(({
 
         const chart = chartRef.current;
 
-        const replacementSeries = createSeries(chart, chartType, symbol);
+        const replacementSeries = createSeries(chart, chartType, strategyConfig?.displayName || symbol);
         mainSeriesRef.current = replacementSeries;
         initializeLineTools(replacementSeries);
 
@@ -1420,7 +1539,7 @@ const ChartComponent = forwardRef(({
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chartType, symbol]);
+    }, [chartType, symbol, strategyConfig?.displayName]);
 
     // Load data when symbol/interval changes
     useEffect(() => {
@@ -1435,15 +1554,11 @@ const ChartComponent = forwardRef(({
             wsRef.current = null;
         }
 
-        // Close straddle WebSocket connections
-        if (straddleWsRefs.current.ce) {
-            straddleWsRefs.current.ce.close();
-            straddleWsRefs.current.ce = null;
-        }
-        if (straddleWsRefs.current.pe) {
-            straddleWsRefs.current.pe.close();
-            straddleWsRefs.current.pe = null;
-        }
+        // Close all strategy WebSocket connections
+        Object.values(strategyWsRefs.current).forEach(ws => {
+            if (ws?.close) ws.close();
+        });
+        strategyWsRefs.current = {};
 
         // Reset scroll-back loading refs when symbol/interval changes
         isLoadingOlderDataRef.current = false;
@@ -1462,23 +1577,26 @@ const ChartComponent = forwardRef(({
             try {
                 let data;
 
-                // Check if we're in straddle mode
-                if (straddleConfig && straddleConfig.ceSymbol && straddleConfig.peSymbol) {
-                    // Fetch both CE and PE data in parallel
-                    const straddleExchange = straddleConfig.exchange || 'NFO';
-                    const [ceData, peData] = await Promise.all([
-                        getKlines(straddleConfig.ceSymbol, straddleExchange, interval, 1000, abortController.signal),
-                        getKlines(straddleConfig.peSymbol, straddleExchange, interval, 1000, abortController.signal)
-                    ]);
+                // Check if we're in strategy mode (multi-leg)
+                if (strategyConfig && strategyConfig.legs?.length >= 2) {
+                    // Fetch all leg data in parallel
+                    const strategyExchange = strategyConfig.exchange || 'NFO';
+                    const legDataPromises = strategyConfig.legs.map(leg =>
+                        getKlines(leg.symbol, strategyExchange, interval, 1000, abortController.signal)
+                    );
+                    const legDataArrays = await Promise.all(legDataPromises);
 
                     if (cancelled) return;
 
-                    // Store raw data for real-time updates
-                    straddleDataRef.current = { ce: ceData, pe: peData };
+                    // Store raw data for real-time updates (keyed by leg id)
+                    strategyDataRef.current = {};
+                    strategyConfig.legs.forEach((leg, i) => {
+                        strategyDataRef.current[leg.id] = legDataArrays[i];
+                    });
 
-                    // Combine into single premium data
-                    data = combinePremiumOHLC(ceData, peData);
-                    logger.debug('[Straddle] Combined data length:', data.length, 'from CE:', ceData.length, 'PE:', peData.length);
+                    // Combine into single premium data using direction-aware calculation
+                    data = combineMultiLegOHLC(legDataArrays, strategyConfig.legs);
+                    logger.debug('[Strategy] Combined data length:', data.length, 'from', strategyConfig.legs.length, 'legs');
                 } else {
                     // Regular symbol mode
                     data = await getKlines(symbol, exchange, interval, 1000, abortController.signal);
@@ -1527,26 +1645,33 @@ const ChartComponent = forwardRef(({
                     }, 50);
 
                     // Set up WebSocket subscriptions based on mode
-                    if (straddleConfig && straddleConfig.ceSymbol && straddleConfig.peSymbol) {
-                        // Straddle mode: subscribe to both CE and PE
-                        const straddleExchange = straddleConfig.exchange || 'NFO';
+                    if (strategyConfig && strategyConfig.legs?.length >= 2) {
+                        // Strategy mode: subscribe to all legs
+                        const strategyExchange = strategyConfig.exchange || 'NFO';
 
-                        // Handler for straddle real-time updates
-                        const handleStraddleTick = (type) => (ticker) => {
+                        // Handler for multi-leg real-time updates
+                        const handleStrategyTick = (legConfig) => (ticker) => {
                             if (cancelled || !ticker) return;
 
                             const closePrice = Number(ticker.close);
                             if (!Number.isFinite(closePrice) || closePrice <= 0) return;
 
                             // Update the latest tick for this leg
-                            straddleLatestRef.current[type] = closePrice;
+                            strategyLatestRef.current[legConfig.id] = closePrice;
 
-                            // Only update chart if we have both ticks
-                            const cePrice = straddleLatestRef.current.ce;
-                            const pePrice = straddleLatestRef.current.pe;
-                            if (!cePrice || !pePrice) return;
+                            // Only update chart if all legs have ticks
+                            const allLegsHaveTicks = strategyConfig.legs.every(
+                                leg => strategyLatestRef.current[leg.id] != null
+                            );
+                            if (!allLegsHaveTicks) return;
 
-                            const combinedClose = cePrice + pePrice;
+                            // Calculate combined price with direction multiplier
+                            const combinedClose = strategyConfig.legs.reduce((sum, leg) => {
+                                const price = strategyLatestRef.current[leg.id];
+                                const multiplier = leg.direction === 'buy' ? 1 : -1;
+                                const qty = leg.quantity || 1;
+                                return sum + (multiplier * qty * price);
+                            }, 0);
 
                             const currentData = dataRef.current;
                             if (!currentData || currentData.length === 0) return;
@@ -1599,8 +1724,15 @@ const ChartComponent = forwardRef(({
                             }
                         };
 
-                        straddleWsRefs.current.ce = subscribeToTicker(straddleConfig.ceSymbol, straddleExchange, interval, handleStraddleTick('ce'));
-                        straddleWsRefs.current.pe = subscribeToTicker(straddleConfig.peSymbol, straddleExchange, interval, handleStraddleTick('pe'));
+                        // Subscribe to all legs
+                        strategyConfig.legs.forEach(leg => {
+                            strategyWsRefs.current[leg.id] = subscribeToTicker(
+                                leg.symbol,
+                                strategyExchange,
+                                interval,
+                                handleStrategyTick(leg)
+                            );
+                        });
                     } else {
                         // Regular symbol mode
                         wsRef.current = subscribeToTicker(symbol, exchange, interval, (ticker) => {
@@ -1708,20 +1840,17 @@ const ChartComponent = forwardRef(({
                 wsRef.current.close();
                 wsRef.current = null;
             }
-            // Clean up straddle WebSocket connections
-            if (straddleWsRefs.current.ce) {
-                straddleWsRefs.current.ce.close();
-                straddleWsRefs.current.ce = null;
-            }
-            if (straddleWsRefs.current.pe) {
-                straddleWsRefs.current.pe.close();
-                straddleWsRefs.current.pe = null;
-            }
-            // Reset straddle state
-            straddleLatestRef.current = { ce: null, pe: null };
+            // Clean up strategy WebSocket connections (N-leg support)
+            Object.values(strategyWsRefs.current).forEach(ws => {
+                if (ws) ws.close();
+            });
+            strategyWsRefs.current = {};
+            // Reset strategy state
+            strategyLatestRef.current = {};
+            strategyDataRef.current = {};
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [symbol, interval, straddleConfig]);
+    }, [symbol, interval, strategyConfig]);
 
     const emaLastValueRef = useRef(null);
 
@@ -3068,7 +3197,7 @@ const ChartComponent = forwardRef(({
             {/* OHLC Header Bar */}
             {ohlcData && (
                 <div className={styles.ohlcHeader} style={{ left: isToolbarVisible ? '55px' : '10px' }}>
-                    <span className={styles.ohlcSymbol}>{symbol} · {interval.toUpperCase()}</span>
+                    <span className={styles.ohlcSymbol}>{strategyConfig?.displayName || symbol} · {interval.toUpperCase()}</span>
                     <span className={`${styles.ohlcDot} ${ohlcData.isUp ? '' : styles.down}`}></span>
                     <div className={styles.ohlcValues}>
                         <span className={styles.ohlcItem}>
@@ -3096,7 +3225,60 @@ const ChartComponent = forwardRef(({
                 </div>
             )}
 
+            {/* Shift+Click Quick Measure Overlay */}
+            {measureData && !measureData.isFirstPoint && (
+                <div
+                    className={styles.measureOverlay}
+                    style={{
+                        left: measureData.position.x,
+                        top: measureData.position.y,
+                    }}
+                >
+                    {/* Dashed line between points */}
+                    <svg
+                        className={styles.measureLine}
+                        style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            height: '100%',
+                            pointerEvents: 'none',
+                            zIndex: 99,
+                        }}
+                    >
+                        <line
+                            x1={measureData.line.x1}
+                            y1={measureData.line.y1}
+                            x2={measureData.line.x2}
+                            y2={measureData.line.y2}
+                            stroke={measureData.priceChange >= 0 ? '#26a69a' : '#ef5350'}
+                            strokeWidth="1"
+                            strokeDasharray="4,4"
+                        />
+                    </svg>
+                    <div className={styles.measureBox}>
+                        <div className={measureData.priceChange >= 0 ? styles.measureUp : styles.measureDown}>
+                            {measureData.priceChange >= 0 ? '+' : ''}{measureData.priceChange.toFixed(2)}
+                            {' '}({measureData.percentChange >= 0 ? '+' : ''}{measureData.percentChange.toFixed(2)}%)
+                        </div>
+                        <div className={styles.measureDetails}>
+                            {measureData.barCount} bars · {measureData.timeElapsed}
+                        </div>
+                    </div>
+                </div>
+            )}
 
+            {/* First point indicator */}
+            {measureData && measureData.isFirstPoint && (
+                <div
+                    className={styles.measureStartPoint}
+                    style={{
+                        left: measureData.x - 4,
+                        top: measureData.y - 4,
+                    }}
+                />
+            )}
 
             {/* Replay Controls */}
             {isReplayMode && (

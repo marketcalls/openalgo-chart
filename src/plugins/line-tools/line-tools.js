@@ -1313,6 +1313,181 @@ class _t {
     return this._paneViews;
   }
 }
+
+// Arc Renderer - draws quadratic bezier curve
+class ArcRenderer {
+  _p1;
+  _p2;
+  _p3;
+  _options;
+  _selected;
+  constructor(t, e, i, s, o) {
+    this._p1 = t, this._p2 = e, this._p3 = i, this._options = s, this._selected = o;
+  }
+  draw(t) {
+    t.useBitmapCoordinateSpace((e) => {
+      if (this._p1.x === null || this._p1.y === null || this._p2.x === null || this._p2.y === null || this._p3.x === null || this._p3.y === null)
+        return;
+      const i = e.context, s = m(this._p1.x, e.horizontalPixelRatio), o = m(this._p1.y, e.verticalPixelRatio), n = m(this._p2.x, e.horizontalPixelRatio), r = m(this._p2.y, e.verticalPixelRatio), l = m(this._p3.x, e.horizontalPixelRatio), a = m(this._p3.y, e.verticalPixelRatio);
+
+      // Draw filled area under curve if background color is set
+      if (this._options.backgroundColor) {
+        i.beginPath();
+        i.moveTo(s, o);
+        i.quadraticCurveTo(n, r, l, a);
+        i.lineTo(l, a);
+        i.lineTo(s, o);
+        i.closePath();
+        i.fillStyle = this._options.backgroundColor;
+        i.fill();
+      }
+
+      // Draw the arc curve
+      i.beginPath();
+      i.moveTo(s, o);
+      i.quadraticCurveTo(n, r, l, a);
+      i.lineWidth = this._options.width * e.horizontalPixelRatio;
+      i.strokeStyle = this._options.lineColor;
+      O(i, this._options.lineStyle);
+      i.stroke();
+
+      // Draw selection anchors
+      if (this._selected) {
+        v(e, s, o);
+        v(e, n, r);
+        v(e, l, a);
+      }
+    });
+  }
+}
+
+// Arc PaneView - manages coordinate transformation
+class ArcPaneView {
+  _source;
+  _p1 = { x: null, y: null };
+  _p2 = { x: null, y: null };
+  _p3 = { x: null, y: null };
+  constructor(t) {
+    this._source = t;
+  }
+  update() {
+    this._p1 = T(
+      this._source._p1,
+      this._source._chart,
+      this._source._series
+    ), this._p2 = T(
+      this._source._p2,
+      this._source._chart,
+      this._source._series
+    ), this._p3 = T(
+      this._source._p3,
+      this._source._chart,
+      this._source._series
+    );
+  }
+  renderer() {
+    return new ArcRenderer(
+      this._p1,
+      this._p2,
+      this._p3,
+      this._source._options,
+      this._source._selected
+    );
+  }
+}
+
+// Arc default options
+const ArcDefaultOptions = {
+  lineColor: "#2962FF",
+  backgroundColor: "rgba(41, 98, 255, 0.2)",
+  width: 2,
+  lineStyle: 0,
+  locked: false
+};
+
+// Arc Tool - 3-point curve drawing tool
+class Arc {
+  _chart;
+  _series;
+  _p1;
+  _p2;
+  _p3;
+  _paneViews;
+  _options;
+  _selected = false;
+  _locked = false;
+  constructor(t, e, i, s, o, n) {
+    this._chart = t, this._series = e, this._p1 = i, this._p2 = s, this._p3 = o, this._options = {
+      ...ArcDefaultOptions,
+      ...n
+    }, this._paneViews = [new ArcPaneView(this)];
+  }
+  /**
+   * Update all three points of the arc
+   */
+  updatePoints(t, e, i) {
+    this._p1 = t, this._p2 = e, this._p3 = i, this.updateAllViews();
+  }
+  /**
+   * Update a single point by index
+   * @param index - 0 for start (p1), 1 for control/apex (p2), 2 for end (p3)
+   * @param point - New logical point
+   */
+  updatePointByIndex(t, e) {
+    t === 0 ? this._p1 = e : t === 1 ? this._p2 = e : t === 2 && (this._p3 = e), this.updateAllViews();
+  }
+  /**
+   * Set selection state and update visuals
+   */
+  setSelected(t) {
+    this._selected = t, this.updateAllViews();
+  }
+  applyOptions(t) {
+    Object.assign(this._options, t), this.updateAllViews(), this._chart.timeScale().applyOptions({});
+  }
+  /**
+   * Hit test to detect clicks on anchor points or near the arc curve
+   * @param x - Screen x coordinate
+   * @param y - Screen y coordinate
+   * @returns Hit test result indicating what was clicked
+   */
+  toolHitTest(t, e) {
+    const i = this._chart.timeScale(), s = this._series, o = i.logicalToCoordinate(this._p1.logical), n = s.priceToCoordinate(this._p1.price), r = i.logicalToCoordinate(this._p2.logical), l = s.priceToCoordinate(this._p2.price), a = i.logicalToCoordinate(this._p3.logical), c = s.priceToCoordinate(this._p3.price);
+    if (o === null || n === null || r === null || l === null || a === null || c === null)
+      return null;
+    const _ = 8;
+    // Check anchor points first
+    if (Math.hypot(t - o, e - n) < _) return { hit: true, type: "point", index: 0 };
+    if (Math.hypot(t - r, e - l) < _) return { hit: true, type: "point", index: 1 };
+    if (Math.hypot(t - a, e - c) < _) return { hit: true, type: "point", index: 2 };
+    // Check if near the curve by sampling points along the quadratic bezier
+    if (this._isNearCurve(t, e, o, n, r, l, a, c)) return { hit: true, type: "shape" };
+    return null;
+  }
+  /**
+   * Check if a point is near the quadratic bezier curve
+   */
+  _isNearCurve(px, py, x1, y1, x2, y2, x3, y3) {
+    const threshold = 10;
+    // Sample 20 points along the curve
+    for (let t = 0; t <= 1; t += 0.05) {
+      const cx = (1-t)*(1-t)*x1 + 2*(1-t)*t*x2 + t*t*x3;
+      const cy = (1-t)*(1-t)*y1 + 2*(1-t)*t*y2 + t*t*y3;
+      if (Math.hypot(px - cx, py - cy) < threshold) return true;
+    }
+    return false;
+  }
+  autoscaleInfo() {
+    return null;
+  }
+  updateAllViews() {
+    this._paneViews.forEach((t) => t.update());
+  }
+  paneViews() {
+    return this._paneViews;
+  }
+}
+
 class Ie {
   _points;
   _options;
@@ -5397,6 +5572,7 @@ class es extends Gt {
       "Callout",
       "CrossLine",
       "Circle",
+      "Arc",
       "Highlighter",
       "Path",
       "Arrow",
@@ -5453,7 +5629,7 @@ class es extends Gt {
     }), this._userPriceAlerts && (this.series.detachPrimitive(this._userPriceAlerts), this._userPriceAlerts = null), this._chartControls && (this._chartControls.removeControls(), this._chartControls = null), this._toolbar && (this._toolbar.destroy(), this._toolbar = null), this._alertNotifications && (this._alertNotifications.destroy(), this._alertNotifications = null), this._textInputDialog && this._textInputDialog.hide(), this._tools = [], this._activeTool = null, this._selectedTool = null, this._points = [], this._dragState = null, this._isDragging = !1, this._isDrawing = !1, this._lastPixelPoint = null, this._lastClickedTool = null, this._lastToolClickTime = 0, this._dragPrevState = null, this._activeToolType = "None", this._isRightClick = !1, this._historyManager.clear(), this._setChartInteraction(!0), super.detached();
   }
   startTool(t) {
-    this._isDragging && (this._isDragging = !1, this._dragState = null, this._dragPrevState = null, this.chart.applyOptions({ handleScroll: !0, handleScale: !0 })), this._deselectCurrentTool(), this._activeToolType = t, this._points = [], this._activeTool = null, this._lastPixelPoint = null, t !== "None" && t !== "Eraser" && t !== "Measure" ? this._toolbar?.showCollapsed(t) : this._toolbar?.hide(), t === "Brush" || t === "Highlighter" || t === "Triangle" || t === "TrendLine" || t === "HorizontalLine" || t === "VerticalLine" || t === "Rectangle" || t === "Circle" || t === "CrossLine" || t === "Path" || t === "Arrow" || t === "Ray" || t === "ExtendedLine" || t === "HorizontalRay" || t === "PriceRange" || t === "LongPosition" || t === "ShortPosition" || t === "ElliottImpulseWave" || t === "ElliottCorrectionWave" || t === "DateRange" || t === "FibExtension" || t === "UserPriceAlerts" || t === "Eraser" || t === "PriceLabel" || t === "Measure" ? this._setChartInteraction(!1) : this._setChartInteraction(!0), this._updateCursor();
+    this._isDragging && (this._isDragging = !1, this._dragState = null, this._dragPrevState = null, this.chart.applyOptions({ handleScroll: !0, handleScale: !0 })), this._deselectCurrentTool(), this._activeToolType = t, this._points = [], this._activeTool = null, this._lastPixelPoint = null, t !== "None" && t !== "Eraser" && t !== "Measure" ? this._toolbar?.showCollapsed(t) : this._toolbar?.hide(), t === "Brush" || t === "Highlighter" || t === "Triangle" || t === "Arc" || t === "TrendLine" || t === "HorizontalLine" || t === "VerticalLine" || t === "Rectangle" || t === "Circle" || t === "CrossLine" || t === "Path" || t === "Arrow" || t === "Ray" || t === "ExtendedLine" || t === "HorizontalRay" || t === "PriceRange" || t === "LongPosition" || t === "ShortPosition" || t === "ElliottImpulseWave" || t === "ElliottCorrectionWave" || t === "DateRange" || t === "FibExtension" || t === "UserPriceAlerts" || t === "Eraser" || t === "PriceLabel" || t === "Measure" ? this._setChartInteraction(!1) : this._setChartInteraction(!0), this._updateCursor();
   }
   clearTools() {
     this._tools.forEach((t) => {
@@ -5877,6 +6053,21 @@ class es extends Gt {
         const _ = this._activeTool;
         this._activeTool = null, this._points = [], this._selectTool(_);
       }
+    } else if (this._activeToolType === "Arc") {
+      if (this._points.length === 1) {
+        const l = this._points[0];
+        this._activeTool = new Arc(this.chart, this.series, l, l, l, this.getToolOptions(this._activeToolType)), this.series.attachPrimitive(this._activeTool), this._addTool(this._activeTool, this._activeToolType);
+      } else if (this._points.length === 2) {
+        if (this._activeTool instanceof Arc) {
+          const l = this._points[0], a = this._points[1];
+          this._activeTool.updatePoints(l, a, a);
+        }
+      } else if (this._points.length === 3 && this._activeTool instanceof Arc) {
+        const l = this._points[0], a = this._points[1], c = this._points[2];
+        this._activeTool.updatePoints(l, a, c);
+        const _ = this._activeTool;
+        this._activeTool = null, this._points = [], this._selectTool(_);
+      }
     } else if (this._activeToolType === "LongPosition") {
       if (this._points.length === 1) {
         const l = this._points[0];
@@ -6062,6 +6253,19 @@ class es extends Gt {
           this.chart.timeScale().applyOptions({});
         }
       } else if (this._activeToolType === "Triangle" && this._activeTool instanceof _t) {
+        const n = this.chart.timeScale(), r = t.point.x, l = n.coordinateToLogical(r);
+        if (l !== null) {
+          const a = { logical: l, price: e };
+          if (this._points.length === 1) {
+            const c = this._points[0];
+            this._activeTool.updatePoints(c, a, a);
+          } else if (this._points.length === 2) {
+            const c = this._points[0], _ = this._points[1];
+            this._activeTool.updatePoints(c, _, a);
+          }
+          this.chart.timeScale().applyOptions({});
+        }
+      } else if (this._activeToolType === "Arc" && this._activeTool instanceof Arc) {
         const n = this.chart.timeScale(), r = t.point.x, l = n.coordinateToLogical(r);
         if (l !== null) {
           const a = { logical: l, price: e };

@@ -959,8 +959,26 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
         const data = await response.json();
         logger.debug('[OpenAlgo] Option Chain response:', data);
 
+        // DEBUG: Log raw response structure
+        console.log('[OpenAlgo.getOptionChain] Raw response:', {
+            status: response.status,
+            hasData: !!data,
+            dataStatus: data?.status,
+            dataKeys: data ? Object.keys(data) : null
+        });
+
         // Response format: { status, underlying, underlying_ltp, expiry_date, atm_strike, chain: [...] }
         if (data && data.status === 'success') {
+            // DEBUG: Log transformation details
+            console.log('[OpenAlgo.getOptionChain] Transforming:', {
+                underlying: data.underlying,
+                underlyingLTP: data.underlying_ltp,
+                atmStrike: data.atm_strike,
+                expiryDate: data.expiry_date,
+                chainLength: data.chain?.length,
+                sampleRow: data.chain?.[0]
+            });
+
             return {
                 underlying: data.underlying,
                 underlyingLTP: parseFloat(data.underlying_ltp || 0),
@@ -970,9 +988,23 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
             };
         }
 
+        // DEBUG: Log why we're returning null
+        console.warn('[OpenAlgo.getOptionChain] Returning null:', {
+            dataIsNull: data === null,
+            dataStatus: data?.status,
+            expected: 'success'
+        });
+
         return null;
     } catch (error) {
-        console.error('Error fetching option chain:', error);
+        // DEBUG: Log full error details
+        console.error('[OpenAlgo.getOptionChain] Error:', {
+            message: error.message,
+            name: error.name,
+            underlying,
+            exchange,
+            expiryDate
+        });
         return null;
     }
 };
