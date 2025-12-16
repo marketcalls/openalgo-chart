@@ -649,6 +649,7 @@ export const subscribeToMultiTicker = (symbols, callback) => {
 
                     callback({
                         symbol: message.symbol,
+                        exchange: exchange, // Include exchange for proper matching
                         last: ltp,
                         open: parseFloat(data.open || prevClose),
                         chg: change,

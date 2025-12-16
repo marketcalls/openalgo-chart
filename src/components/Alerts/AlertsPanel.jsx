@@ -45,7 +45,9 @@ const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert
                                 return (
                                     <div key={alert.id} className={classNames(styles.item, styles[statusKey])}>
                                         <div className={styles.itemHeader}>
-                                            <span className={styles.symbol}>{alert.symbol}</span>
+                                            <span className={styles.symbol}>
+                                                {alert.symbol}{alert.exchange ? `:${alert.exchange}` : ''}
+                                            </span>
                                             <span className={classNames(styles.status, styles[statusKey])}>
                                                 {status}
                                             </span>
@@ -95,7 +97,9 @@ const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert
                             logs.map(log => (
                                 <div key={log.id} className={styles.logItem}>
                                     <div className={styles.logHeader}>
-                                        <span className={styles.symbol}>{log.symbol}</span>
+                                        <span className={styles.symbol}>
+                                            {log.symbol}{log.exchange ? `:${log.exchange}` : ''}
+                                        </span>
                                         <span className={styles.time}>{new Date(log.time).toLocaleTimeString()}</span>
                                     </div>
                                     <div className={styles.message}>

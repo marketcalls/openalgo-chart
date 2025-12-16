@@ -1636,7 +1636,7 @@ const ChartComponent = forwardRef(({
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [chartType, symbol]);
+    }, [chartType, symbol, exchange]);
 
     // Load data when symbol/interval changes
     useEffect(() => {
@@ -1816,7 +1816,7 @@ const ChartComponent = forwardRef(({
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [symbol, interval]);
+    }, [symbol, exchange, interval]);
 
     const emaLastValueRef = useRef(null);
 
@@ -2570,7 +2570,7 @@ const ChartComponent = forwardRef(({
                 }
             }
         };
-    }, [symbol, interval]); // Re-subscribe when symbol/interval changes
+    }, [symbol, exchange, interval]); // Re-subscribe when symbol/exchange/interval changes
 
 
 
@@ -3265,7 +3265,7 @@ const ChartComponent = forwardRef(({
             {/* OHLC Header Bar */}
             {ohlcData && (
                 <div className={styles.ohlcHeader} style={{ left: isToolbarVisible ? '55px' : '10px' }}>
-                    <span className={styles.ohlcSymbol}>{symbol} · {interval.toUpperCase()}</span>
+                    <span className={styles.ohlcSymbol}>{symbol}:{exchange} · {interval.toUpperCase()}</span>
                     <span className={`${styles.ohlcDot} ${ohlcData.isUp ? '' : styles.down}`}></span>
                     <div className={styles.ohlcValues}>
                         <span className={styles.ohlcItem}>

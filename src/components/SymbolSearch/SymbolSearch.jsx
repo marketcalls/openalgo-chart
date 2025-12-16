@@ -367,10 +367,16 @@ const SymbolSearch = ({ isOpen, onClose, onSelect, addedSymbols = [], isCompareM
 
     if (!isOpen) return null;
 
-    // Helper to check if a symbol is already added
+    // Helper to check if a symbol is already added (checks both symbol AND exchange)
     const isSymbolAdded = (sym) => {
         return addedSymbols.some(added => {
             const addedSymbol = typeof added === 'string' ? added : added.symbol;
+            const addedExchange = typeof added === 'string' ? null : added.exchange;
+            // If addedExchange is available, check both symbol and exchange
+            // Otherwise, fall back to just symbol check for backward compatibility
+            if (addedExchange) {
+                return addedSymbol === sym.symbol && addedExchange === sym.exchange;
+            }
             return addedSymbol === sym.symbol;
         });
     };

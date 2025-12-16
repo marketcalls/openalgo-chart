@@ -104,6 +104,7 @@ const TemplatePreview = ({ template, onLoad, onDelete, onToggleFavorite }) => {
 
     const indicatorSummaries = template.charts?.map(chart => ({
         symbol: chart.symbol,
+        exchange: chart.exchange || 'NSE',
         interval: chart.interval,
         indicators: layoutTemplateService.getIndicatorSummary(chart.indicators),
     })) || [];
@@ -148,7 +149,7 @@ const TemplatePreview = ({ template, onLoad, onDelete, onToggleFavorite }) => {
                     {indicatorSummaries.map((chart, index) => (
                         <div key={index} className={styles.chartCard}>
                             <div className={styles.chartSymbol}>
-                                {chart.symbol} <span className={styles.chartInterval}>{chart.interval}</span>
+                                {chart.symbol}:{chart.exchange} <span className={styles.chartInterval}>{chart.interval}</span>
                             </div>
                             {chart.indicators && (
                                 <div className={styles.chartIndicators}>
