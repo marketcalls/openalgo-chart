@@ -209,6 +209,15 @@
     display: none;
 }
 
+/* Keep actions visible when emoji picker is open */
+.dropdownItem.showActions .itemActions {
+    display: flex;
+}
+
+.dropdownItem.showActions .itemCount {
+    display: none;
+}
+
 .iconButton {
     display: flex;
     align-items: center;
@@ -238,6 +247,7 @@
     color: var(--tv-color-down);
 }
 
+/* Star button for favorites */
 .starButton {
     color: var(--tv-color-text-secondary);
 }
@@ -250,8 +260,46 @@
     color: #FFD700;
 }
 
-.starButton.starActive svg {
-    fill: #FFD700;
+/* Star container for positioning emoji picker */
+.starContainer {
+    position: relative;
+}
+
+/* Emoji picker popup */
+.emojiPicker {
+    position: absolute;
+    top: 100%;
+    right: 0;
+    margin-top: 4px;
+    padding: 8px;
+    background: var(--tv-color-dropdown-background);
+    border: 1px solid var(--tv-color-border);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+    z-index: 10000;
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 4px;
+    width: max-content;
+}
+
+.emojiOption {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    font-size: 18px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background-color 0.15s ease;
+}
+
+.emojiOption:hover {
+    background: var(--tv-color-toolbar-button-background-hover);
 }
 
 .dropdownFooter {
@@ -310,14 +358,4 @@
 .createInput::placeholder,
 .editInput::placeholder {
     color: var(--tv-color-text-secondary);
-}
-
-.favoriteIcon {
-    color: #FFD700;
-    fill: #FFD700;
-    flex-shrink: 0;
-}
-
-.dropdownItem.favorites {
-    border-bottom: 1px solid var(--tv-color-border);
 }

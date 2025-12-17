@@ -18,7 +18,9 @@ const Topbar = ({
     onDownloadImage, onCopyImage, onFullScreen,
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
     isReplayMode = false, onSettingsClick, onTemplatesClick,
-    onStraddleClick, strategyConfig = null
+    onStraddleClick, strategyConfig = null,
+    onQuickOptionClick, quickOptionBtnRef,
+    onIndicatorSettingsClick
 }) => {
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
@@ -647,19 +649,22 @@ const Topbar = ({
                                                             style={{ top: indicatorPos.top, left: indicatorPos.left }}
                                                         >
                                                             <div className={styles.dropdownSection}>Moving Averages</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.sma })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('sma'); }}>SMA (20)</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.ema })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('ema'); }}>EMA (20)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.sma?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('sma'); }}>SMA ({indicators.sma?.period || 20})</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.ema?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('ema'); }}>EMA ({indicators.ema?.period || 20})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Oscillators</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.rsi?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('rsi'); }}>RSI (14)</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.stochastic?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('stochastic'); }}>Stochastic (14, 3)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.rsi?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('rsi'); }}>RSI ({indicators.rsi?.period || 14})</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.stochastic?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('stochastic'); }}>Stochastic ({indicators.stochastic?.kPeriod || 14}, {indicators.stochastic?.dPeriod || 3})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Momentum</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.macd?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('macd'); }}>MACD (12, 26, 9)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.macd?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('macd'); }}>MACD ({indicators.macd?.fast || 12}, {indicators.macd?.slow || 26}, {indicators.macd?.signal || 9})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Volatility</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.bollingerBands?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('bollingerBands'); }}>Bollinger Bands (20, 2)</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.atr?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('atr'); }}>ATR (14)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.bollingerBands?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('bollingerBands'); }}>Bollinger Bands ({indicators.bollingerBands?.period || 20}, {indicators.bollingerBands?.stdDev || 2})</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.atr?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('atr'); }}>ATR ({indicators.atr?.period || 14})</div>
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div className={styles.dropdownSection}>Trend</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.supertrend?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('supertrend'); }}>Supertrend ({indicators.supertrend?.period || 10}, {indicators.supertrend?.multiplier || 3})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Volume</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.volume?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('volume'); }}>Volume</div>
@@ -667,6 +672,18 @@ const Topbar = ({
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Market Profile</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.tpo?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('tpo'); }}>TPO Profile (30m)</div>
+                                                            {/* Settings Button */}
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div
+                                                                className={classNames(styles.dropdownItem, styles.settingsItem)}
+                                                                onClick={(e) => { e.stopPropagation(); setShowIndicators(false); onIndicatorSettingsClick?.(); }}
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                    <circle cx="12" cy="12" r="3"/>
+                                                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                                                                </svg>
+                                                                Indicator Settings
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -687,6 +704,23 @@ const Topbar = ({
                                                     </div>
                                                     <div className={styles.text}>Replay</div>
                                                 </button>
+                                                {/* Quick Option Chart Button */}
+                                                <Tooltip content="Quick Option Chart" position="bottom">
+                                                    <div style={{ position: 'relative' }} ref={quickOptionBtnRef}>
+                                                        <button
+                                                            className={classNames(styles.button, styles.iconButton)}
+                                                            aria-label="Quick Option Chart"
+                                                            onClick={onQuickOptionClick}
+                                                        >
+                                                            <div className={styles.icon}>
+                                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+                                                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+                                                                </svg>
+                                                            </div>
+                                                        </button>
+                                                    </div>
+                                                </Tooltip>
                                             </div>
 
                                             {/* Undo / Redo */}

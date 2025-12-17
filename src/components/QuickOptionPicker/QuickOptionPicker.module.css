@@ -1,0 +1,322 @@
+.dropdown {
+    position: fixed;
+    width: 720px;
+    background: #ffffff;
+    border: 1px solid #e0e3eb;
+    border-radius: 10px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.18);
+    z-index: 10000;
+    overflow: hidden;
+}
+
+.header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 18px;
+    border-bottom: 1px solid #e0e3eb;
+    background: #f8f9fa;
+}
+
+.underlyingSelect {
+    padding: 6px 12px;
+    background: #ffffff;
+    border: 1px solid #e0e3eb;
+    border-radius: 6px;
+    color: #131722;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    min-width: 100px;
+}
+
+.spotPrice {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: #e3f2fd;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1976d2;
+}
+
+.spotLabel {
+    color: #787b86;
+    font-weight: 500;
+}
+
+.expiryTabs {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 1;
+}
+
+.scrollBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    background: transparent;
+    border: none;
+    color: #787b86;
+    cursor: pointer;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.scrollBtn:hover {
+    background: #e0e3eb;
+    color: #131722;
+}
+
+.expiryTab {
+    padding: 6px 12px;
+    background: #ffffff;
+    border: 1px solid #e0e3eb;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #787b86;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.expiryTab:hover {
+    border-color: #00bcd4;
+    color: #131722;
+}
+
+.expiryTab.activeTab {
+    background: #00bcd4;
+    border-color: #00bcd4;
+    color: white;
+}
+
+.loadingText {
+    font-size: 12px;
+    color: #787b86;
+}
+
+.refreshBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: transparent;
+    border: 1px solid #e0e3eb;
+    border-radius: 6px;
+    color: #787b86;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.refreshBtn:hover:not(:disabled) {
+    background: #f0f3fa;
+    color: #131722;
+}
+
+.refreshBtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+/* Metrics Bar */
+.metricsBar {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    padding: 12px 18px;
+    background: #fafafa;
+    border-bottom: 1px solid #e0e3eb;
+    font-size: 13px;
+}
+
+.metric {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.metricLabel {
+    color: #787b86;
+}
+
+.metricValue {
+    font-weight: 600;
+    color: #131722;
+}
+
+.metricValue.bullish {
+    color: #26a69a;
+}
+
+.metricValue.bearish {
+    color: #ef5350;
+}
+
+.content {
+    max-height: 480px;
+    overflow-y: auto;
+}
+
+.loadingState,
+.errorState,
+.emptyState {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 120px;
+    color: #787b86;
+    font-size: 14px;
+}
+
+/* 7-column grid: OI Bar | CE OI | CE LTP | Strike | PE LTP | PE OI | OI Bar */
+.tableHeader {
+    display: grid;
+    grid-template-columns: 70px 85px 100px 100px 100px 85px 70px;
+    padding: 10px 14px;
+    background: #f8f9fa;
+    border-bottom: 1px solid #e0e3eb;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.tableHeader > div {
+    font-size: 11px;
+    font-weight: 600;
+    color: #787b86;
+    text-align: center;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.tableBody {
+    padding: 4px 0;
+}
+
+.tableRow {
+    display: grid;
+    grid-template-columns: 70px 85px 100px 100px 100px 85px 70px;
+    padding: 8px 14px;
+    transition: background-color 0.1s ease;
+    align-items: center;
+}
+
+.tableRow:hover {
+    background: #f8f9fa;
+}
+
+.tableRow.atmRow {
+    background: #e0f7fa;
+}
+
+.tableRow.atmRow:hover {
+    background: #b2ebf2;
+}
+
+/* OI Bar columns */
+.colOIBar {
+    height: 20px;
+    display: flex;
+    align-items: center;
+}
+
+.colOIBar.ce {
+    justify-content: flex-end;
+}
+
+.colOIBar.pe {
+    justify-content: flex-start;
+}
+
+.oiBarInner {
+    height: 16px;
+    border-radius: 3px;
+    min-width: 3px;
+    transition: width 0.2s ease;
+}
+
+.oiBarInner.ce {
+    background: linear-gradient(to left, #ef9a9a, #ef5350);
+}
+
+.oiBarInner.pe {
+    background: linear-gradient(to right, #80cbc4, #26a69a);
+}
+
+/* OI columns */
+.colOI {
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    color: #787b86;
+    font-variant-numeric: tabular-nums;
+}
+
+/* LTP columns */
+.colCE,
+.colPE {
+    font-size: 14px;
+    font-weight: 600;
+    text-align: center;
+    padding: 6px 8px;
+    border-radius: 4px;
+    font-variant-numeric: tabular-nums;
+}
+
+.colCE {
+    color: #ef5350;
+}
+
+.colPE {
+    color: #26a69a;
+}
+
+/* ITM highlighting */
+.colCE.itm,
+.colPE.itm {
+    background: #fff8e1;
+}
+
+/* Strike column */
+.colStrike {
+    font-size: 14px;
+    font-weight: 700;
+    text-align: center;
+    color: #131722;
+    font-variant-numeric: tabular-nums;
+}
+
+.clickable {
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.clickable:hover {
+    transform: scale(1.05);
+}
+
+.colCE.clickable:hover {
+    background: #ffebee;
+}
+
+.colPE.clickable:hover {
+    background: #e8f5e9;
+}
+
+/* Animations */
+.spinning {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}

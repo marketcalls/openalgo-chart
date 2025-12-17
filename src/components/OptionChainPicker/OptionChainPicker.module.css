@@ -60,6 +60,12 @@
     cursor: pointer;
 }
 
+.headerStats {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
 .spotPrice {
     font-size: 13px;
     color: #787b86;
@@ -70,6 +76,31 @@
 
 .spotPrice strong {
     color: #2962ff;
+}
+
+.aggregatedOI {
+    display: flex;
+    gap: 12px;
+    font-size: 12px;
+    padding: 4px 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+}
+
+.ceOIHeader {
+    color: #ef5350;
+    font-weight: 600;
+}
+
+.peOIHeader {
+    color: #26a69a;
+    font-weight: 600;
+}
+
+.oiLoading {
+    color: #787b86;
+    font-style: italic;
+    font-size: 11px;
 }
 
 .closeButton {
@@ -657,6 +688,42 @@
     height: 14px;
     accent-color: #00bcd4;
     cursor: pointer;
+}
+
+.addOnsDivider {
+    height: 1px;
+    background: #e0e3eb;
+    margin: 4px 0;
+}
+
+.strikeCountItem {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 14px;
+    font-size: 12px;
+    color: #131722;
+}
+
+.strikeSelect {
+    padding: 3px 8px;
+    font-size: 11px;
+    border: 1px solid #e0e3eb;
+    border-radius: 4px;
+    background: #ffffff;
+    color: #131722;
+    cursor: pointer;
+    min-width: 60px;
+}
+
+.strikeSelect:hover {
+    border-color: #00bcd4;
+}
+
+.strikeSelect:focus {
+    outline: none;
+    border-color: #00bcd4;
 }
 
 /* Dynamic Grid Columns based on visibility */

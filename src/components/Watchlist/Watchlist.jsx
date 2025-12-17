@@ -103,14 +103,14 @@ const Watchlist = ({
     onDeleteSection,
     collapsedSections = [],
     onToggleSection,
-    // Quick-access favorites props
-    favoriteWatchlists = [],
-    onToggleFavorite,
     // Track selected symbol for add section above
     selectedSymbolIndex = null,
     // Import/Export props
     onExport,
     onImport,
+    // Favorites props
+    favoriteWatchlists = [],
+    onToggleFavorite,
 }) => {
     const hasMultipleWatchlists = watchlists.length > 0 && onSwitchWatchlist;
     const [sortConfig, setSortConfig] = useState({ key: null, direction: 'asc' });
@@ -463,22 +463,12 @@ const Watchlist = ({
                             const insertIndex = selectedSymbolIndex !== null ? selectedSymbolIndex : items.length;
                             onAddSection?.(sectionName, insertIndex);
                         }}
-                        onToggleFavorite={onToggleFavorite}
                         onExport={onExport}
                         onImport={onImport}
+                        onToggleFavorite={onToggleFavorite}
                     />
                 ) : (
                     <span className={styles.title}>Watchlist</span>
-                )}
-
-                {hasMultipleWatchlists && activeWatchlistId !== 'wl_favorites' && watchlists.find(wl => wl.id === 'wl_favorites') && (
-                    <button
-                        className={styles.favoriteTag}
-                        onClick={() => onSwitchWatchlist('wl_favorites')}
-                        title="Switch to Favorites"
-                    >
-                        Favorites
-                    </button>
                 )}
 
                 <div className={styles.actions}>
@@ -486,19 +476,19 @@ const Watchlist = ({
                 </div>
             </div>
 
-            {favoriteWatchlists.length > 0 && hasMultipleWatchlists && (
+            {/* Quick-access favorites bar */}
+            {favoriteWatchlists.length > 0 && (
                 <div className={styles.quickAccessRow}>
-                    {/* Cap to 12 favorite watchlists to prevent overflow */}
-                    {favoriteWatchlists.slice(0, 12).map(wl => (
+                    {favoriteWatchlists.map(wl => (
                         <button
                             key={wl.id}
                             className={classNames(styles.quickAccessBtn, {
-                                [styles.active]: wl.id === activeWatchlistId
+                                [styles.active]: wl.id === activeWatchlistId,
                             })}
-                            onClick={() => onSwitchWatchlist(wl.id)}
+                            onClick={() => onSwitchWatchlist?.(wl.id)}
                             title={wl.name}
                         >
-                            {wl.name.charAt(0).toUpperCase()}
+                            {wl.favoriteEmoji || wl.name.charAt(0)}
                         </button>
                     ))}
                 </div>

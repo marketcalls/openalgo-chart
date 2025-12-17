@@ -23,10 +23,12 @@ import CommandPalette from './components/CommandPalette/CommandPalette';
 import LayoutTemplateDialog from './components/LayoutTemplates/LayoutTemplateDialog';
 import ShortcutsDialog from './components/ShortcutsDialog/ShortcutsDialog';
 import { OptionChainPicker } from './components/OptionChainPicker';
+import QuickOptionPicker from './components/QuickOptionPicker/QuickOptionPicker';
 import { initTimeService } from './services/timeService';
 import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
+import IndicatorSettingsModal from './components/IndicatorSettings/IndicatorSettingsModal';
 
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
@@ -74,14 +76,6 @@ const safeParseJSON = (value, fallback) => {
 
 const ALERT_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-// Favorites watchlist - always pinned at top
-const FAVORITES_WATCHLIST = {
-  id: 'wl_favorites',
-  name: 'Favorites',
-  symbols: [],
-  isFavorites: true,
-};
-
 // Default watchlist for new users or migration
 const DEFAULT_WATCHLIST = {
   id: 'wl_default',
@@ -104,9 +98,16 @@ const migrateWatchlistData = () => {
 
   // If new format exists, validate and use it
   if (newData && newData.lists && Array.isArray(newData.lists)) {
-    // Ensure Favorites watchlist exists (for existing users upgrading)
-    if (!newData.lists.find(wl => wl.id === 'wl_favorites')) {
-      newData.lists.unshift(FAVORITES_WATCHLIST);
+    // Filter out any old Favorites watchlist
+    newData.lists = newData.lists.filter(wl => wl.id !== 'wl_favorites');
+    // Ensure at least one watchlist exists
+    if (newData.lists.length === 0) {
+      newData.lists.push(DEFAULT_WATCHLIST);
+      newData.activeListId = 'wl_default';
+    }
+    // Update activeListId if it was pointing to favorites
+    if (newData.activeListId === 'wl_favorites') {
+      newData.activeListId = newData.lists[0].id;
     }
     return newData;
   }
@@ -115,10 +116,9 @@ const migrateWatchlistData = () => {
   const oldData = safeParseJSON(localStorage.getItem('tv_watchlist'), null);
 
   if (oldData && Array.isArray(oldData) && oldData.length > 0) {
-    // Migrate old format to new format with Favorites
+    // Migrate old format to new format
     return {
       lists: [
-        FAVORITES_WATCHLIST,
         {
           ...DEFAULT_WATCHLIST,
           symbols: oldData.map(s => typeof s === 'string' ? { symbol: s, exchange: 'NSE' } : s),
@@ -128,9 +128,9 @@ const migrateWatchlistData = () => {
     };
   }
 
-  // Return default with Favorites first
+  // Return default
   return {
-    lists: [FAVORITES_WATCHLIST, DEFAULT_WATCHLIST],
+    lists: [DEFAULT_WATCHLIST],
     activeListId: 'wl_default',
   };
 };
@@ -218,22 +218,43 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [charts, setCharts] = useState(() => {
     const saved = safeParseJSON(localStorage.getItem('tv_saved_layout'), null);
     const defaultIndicators = {
-      sma: false,
-      ema: false,
+      // Moving Averages
+      sma: { enabled: false, period: 20, color: '#2196F3' },
+      ema: { enabled: false, period: 20, color: '#FF9800' },
+      // Oscillators
       rsi: { enabled: false, period: 14, color: '#7B1FA2' },
-      macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
-      bollingerBands: { enabled: false, period: 20, stdDev: 2 },
-      volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
-      atr: { enabled: false, period: 14, color: '#FF9800' },
       stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
+      // Momentum
+      macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
+      // Volatility
+      bollingerBands: { enabled: false, period: 20, stdDev: 2, color: '#2962FF' },
+      atr: { enabled: false, period: 14, color: '#FF9800' },
+      // Trend
+      supertrend: { enabled: false, period: 10, multiplier: 3, upColor: '#089981', downColor: '#F23645' },
+      // Volume
+      volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
       vwap: { enabled: false, color: '#FF9800' }
     };
+    // Migration function: converts old boolean SMA/EMA to object format
+    const migrateIndicators = (indicators) => {
+      const migrated = { ...indicators };
+      // Migrate boolean SMA to object
+      if (typeof migrated.sma === 'boolean') {
+        migrated.sma = { enabled: migrated.sma, period: 20, color: '#2196F3' };
+      }
+      // Migrate boolean EMA to object
+      if (typeof migrated.ema === 'boolean') {
+        migrated.ema = { enabled: migrated.ema, period: 20, color: '#FF9800' };
+      }
+      return migrated;
+    };
+
     if (saved && Array.isArray(saved.charts)) {
       // Merge saved indicators with defaults to ensure new indicators are present
       // Also ensure strategyConfig exists (for migration from older versions)
       return saved.charts.map(chart => ({
         ...chart,
-        indicators: { ...defaultIndicators, ...chart.indicators },
+        indicators: migrateIndicators({ ...defaultIndicators, ...chart.indicators }),
         strategyConfig: chart.strategyConfig ?? null
       }));
     }
@@ -280,6 +301,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
   // Multi-leg strategy chart state
   const [isStraddlePickerOpen, setIsStraddlePickerOpen] = useState(false);
+  // Quick option chart picker
+  const [isQuickOptionOpen, setIsQuickOptionOpen] = useState(false);
+  const quickOptionBtnRef = useRef(null);
   // strategyConfig is now per-chart, stored in charts[].strategyConfig
   // const [indicators, setIndicators] = useState({ sma: false, ema: false }); // Moved to charts state
   const [toasts, setToasts] = useState([]);
@@ -580,6 +604,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   ) || watchlistsState.lists[0];
   const watchlistSymbols = activeWatchlist?.symbols || [];
 
+  // Derive favorite watchlists for quick-access bar
+  const favoriteWatchlists = watchlistsState.lists.filter(wl => wl.isFavorite);
+
   // Create a stable key for symbol SET (ignores order and section markers, only changes on add/remove symbols)
   // This prevents full reload when just reordering or adding sections
   const watchlistSymbolsKey = React.useMemo(() => {
@@ -591,11 +618,6 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       .join(',');
     return `${watchlistsState.activeListId}:${symbolSet}`;
   }, [watchlistSymbols, watchlistsState.activeListId]);
-
-  // Derive favorite watchlists for quick-access row
-  const favoriteWatchlists = watchlistsState.lists.filter(wl =>
-    wl.isFavorite || wl.id === 'wl_favorites'
-  );
 
   const [watchlistData, setWatchlistData] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState(true);
@@ -1068,22 +1090,19 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setWatchlistsState(prev => ({ ...prev, activeListId: id }));
   };
 
-  // Toggle watchlist favorite status for quick-access (max 12)
-  const handleToggleWatchlistFavorite = (id) => {
-    const targetWl = watchlistsState.lists.find(wl => wl.id === id);
-    const currentFavoriteCount = watchlistsState.lists.filter(wl => wl.isFavorite).length;
-
-    // If trying to add a new favorite and already at max
-    if (!targetWl?.isFavorite && currentFavoriteCount >= 12) {
-      showToast('Maximum 12 favorite watchlists allowed', 'warning');
-      return;
-    }
-
+  // Toggle favorite status for a watchlist with optional emoji
+  const handleToggleWatchlistFavorite = (id, emoji) => {
     setWatchlistsState(prev => ({
       ...prev,
-      lists: prev.lists.map(wl =>
-        wl.id === id ? { ...wl, isFavorite: !wl.isFavorite } : wl
-      ),
+      lists: prev.lists.map(wl => {
+        if (wl.id !== id) return wl;
+        // If emoji provided, favorite with that emoji; if null, unfavorite
+        if (emoji) {
+          return { ...wl, isFavorite: true, favoriteEmoji: emoji };
+        } else {
+          return { ...wl, isFavorite: false, favoriteEmoji: undefined };
+        }
+      }),
     }));
   };
 
@@ -1371,12 +1390,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
       const currentIndicator = chart.indicators[name];
 
-      // Handle boolean indicators (sma, ema)
-      if (typeof currentIndicator === 'boolean') {
-        return { ...chart, indicators: { ...chart.indicators, [name]: !currentIndicator } };
-      }
-
-      // Handle object indicators (rsi, macd, etc.) - toggle the 'enabled' property
+      // All indicators are now objects with 'enabled' property
       if (typeof currentIndicator === 'object' && currentIndicator !== null) {
         return {
           ...chart,
@@ -1390,6 +1404,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       return chart;
     }));
   };
+
+  // Update indicator settings (period, color, etc.)
+  const updateIndicatorSettings = useCallback((newIndicators) => {
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+      return { ...chart, indicators: newIndicators };
+    }));
+  }, [activeChartId]);
 
   // Handler for removing indicator from pane (called from ChartComponent)
   const handleIndicatorRemove = (indicatorType) => {
@@ -1425,6 +1447,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isTimerVisible, setIsTimerVisible] = useState(false);
   const [isSessionBreakVisible, setIsSessionBreakVisible] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isIndicatorSettingsOpen, setIsIndicatorSettingsOpen] = useState(false);
   const [websocketUrl, setWebsocketUrl] = useState(() => {
     return localStorage.getItem('oa_ws_url') || '127.0.0.1:8765';
   });
@@ -2205,6 +2228,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onTemplatesClick={handleTemplatesClick}
             onStraddleClick={() => setIsStraddlePickerOpen(true)}
             strategyConfig={activeChart?.strategyConfig}
+            onQuickOptionClick={() => setIsQuickOptionOpen(!isQuickOptionOpen)}
+            quickOptionBtnRef={quickOptionBtnRef}
+            onIndicatorSettingsClick={() => setIsIndicatorSettingsOpen(true)}
           />
         }
         leftToolbar={
@@ -2288,15 +2314,15 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               onDeleteWatchlist={handleDeleteWatchlist}
               onClearWatchlist={handleClearWatchlist}
               onCopyWatchlist={handleCopyWatchlist}
+              // Favorites for quick-access
+              favoriteWatchlists={favoriteWatchlists}
+              onToggleFavorite={handleToggleWatchlistFavorite}
               // Section management (TradingView flat array model)
               onAddSection={handleAddSection}
               onRenameSection={handleRenameSection}
               onDeleteSection={handleDeleteSection}
               collapsedSections={activeWatchlist?.collapsedSections || []}
               onToggleSection={handleToggleSection}
-              // Quick-access favorites props
-              favoriteWatchlists={favoriteWatchlists}
-              onToggleFavorite={handleToggleWatchlistFavorite}
               // Import/Export props
               onExport={handleExportWatchlist}
               onImport={handleImportWatchlist}
@@ -2407,6 +2433,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         onChartAppearanceChange={handleChartAppearanceChange}
         onResetChartAppearance={handleResetChartAppearance}
       />
+      <IndicatorSettingsModal
+        isOpen={isIndicatorSettingsOpen}
+        onClose={() => setIsIndicatorSettingsOpen(false)}
+        theme={theme}
+        indicators={activeChart.indicators}
+        onIndicatorSettingsChange={updateIndicatorSettings}
+      />
       <LayoutTemplateDialog
         isOpen={isTemplateDialogOpen}
         onClose={() => setIsTemplateDialogOpen(false)}
@@ -2434,6 +2467,22 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           setIsStraddlePickerOpen(false);
         }}
         spotPrice={activeChart?.ltp || null}
+      />
+      <QuickOptionPicker
+        isOpen={isQuickOptionOpen}
+        onClose={() => setIsQuickOptionOpen(false)}
+        onSelect={(symbol, exchange) => {
+          setCharts(prev => prev.map(chart =>
+            chart.id === activeChartId ? {
+              ...chart,
+              symbol: symbol,
+              exchange: exchange,
+              strategyConfig: null
+            } : chart
+          ));
+          setIsQuickOptionOpen(false);
+        }}
+        anchorRef={quickOptionBtnRef}
       />
     </>
   );

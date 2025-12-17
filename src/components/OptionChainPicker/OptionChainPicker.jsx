@@ -33,12 +33,29 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
     const [addOnsOpen, setAddOnsOpen] = useState(false);
     const addOnsRef = useRef(null);
 
+    // Configurable strike count (persisted in localStorage)
+    const [strikeCount, setStrikeCount] = useState(() => {
+        const saved = localStorage.getItem('optionChainStrikeCount');
+        return saved ? parseInt(saved, 10) : 15;
+    });
+    const STRIKE_COUNT_OPTIONS = [10, 15, 20, 25, 30, 50];
+
     // WebSocket ref for real-time option chain updates
     const optionChainWsRef = useRef(null);
 
     // Greeks state
     const [greeksData, setGreeksData] = useState({});
     const [isLoadingGreeks, setIsLoadingGreeks] = useState(false);
+
+    // Aggregated OI across all expiries
+    const [allExpiriesOI, setAllExpiriesOI] = useState({
+        totalCeOI: 0,
+        totalPeOI: 0,
+        isLoading: false,
+        loadedCount: 0,
+        totalExpiries: 0
+    });
+    const oiFetchAbortRef = useRef(false);
 
     // Close dropdown on outside click
     useEffect(() => {
@@ -79,7 +96,7 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         setError(null);
         setGreeksData({});
         try {
-            const chain = await getOptionChain(underlying.symbol, underlying.exchange, selectedExpiry, 15, forceRefresh);
+            const chain = await getOptionChain(underlying.symbol, underlying.exchange, selectedExpiry, strikeCount, forceRefresh);
 
             // DEBUG: Log API response structure
             console.log('[OptionChainPicker] API returned:', {
@@ -131,13 +148,69 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         } finally {
             setIsLoading(false);
         }
-    }, [underlying, selectedExpiry]);
+    }, [underlying, selectedExpiry, strikeCount]);
 
     // Force refresh - clears cache and refetches
     const handleForceRefresh = useCallback(() => {
         clearOptionChainCache(underlying.symbol, selectedExpiry);
         fetchChain(true);
     }, [underlying.symbol, selectedExpiry, fetchChain]);
+
+    // Fetch aggregated OI across all expiries
+    const fetchAllExpiriesOI = useCallback(async () => {
+        if (!availableExpiries.length) return;
+
+        oiFetchAbortRef.current = false;
+        setAllExpiriesOI({
+            totalCeOI: 0,
+            totalPeOI: 0,
+            isLoading: true,
+            loadedCount: 0,
+            totalExpiries: availableExpiries.length
+        });
+
+        let totalCeOI = 0;
+        let totalPeOI = 0;
+
+        for (let i = 0; i < availableExpiries.length; i++) {
+            if (oiFetchAbortRef.current) {
+                console.log('[OI Aggregation] Fetch aborted');
+                break;
+            }
+
+            const expiry = availableExpiries[i];
+            try {
+                const chain = await getOptionChain(underlying.symbol, underlying.exchange, expiry, strikeCount, false);
+
+                if (chain?.chain) {
+                    chain.chain.forEach(row => {
+                        totalCeOI += row.ce?.oi || 0;
+                        totalPeOI += row.pe?.oi || 0;
+                    });
+                }
+
+                // Update progress
+                setAllExpiriesOI(prev => ({
+                    ...prev,
+                    totalCeOI,
+                    totalPeOI,
+                    loadedCount: i + 1
+                }));
+
+                // Rate limit delay between API calls
+                if (i < availableExpiries.length - 1) {
+                    await new Promise(r => setTimeout(r, 2000));
+                }
+            } catch (e) {
+                console.warn('[OI Aggregation] Failed for expiry:', expiry, e.message);
+            }
+        }
+
+        setAllExpiriesOI(prev => ({
+            ...prev,
+            isLoading: false
+        }));
+    }, [availableExpiries, underlying, strikeCount]);
 
     // Delay helper to avoid API rate limits
     const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
@@ -199,6 +272,28 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
             fetchChain();
         }
     }, [isOpen, selectedExpiry, fetchChain]);
+
+    // Fetch aggregated OI when expiries are loaded
+    useEffect(() => {
+        if (isOpen && availableExpiries.length > 0) {
+            fetchAllExpiriesOI();
+        }
+        // Cleanup: abort fetch on close or underlying change
+        return () => {
+            oiFetchAbortRef.current = true;
+        };
+    }, [isOpen, availableExpiries, fetchAllExpiriesOI]);
+
+    // Reset aggregated OI when underlying changes
+    useEffect(() => {
+        setAllExpiriesOI({
+            totalCeOI: 0,
+            totalPeOI: 0,
+            isLoading: false,
+            loadedCount: 0,
+            totalExpiries: 0
+        });
+    }, [underlying]);
 
     useEffect(() => {
         // DISABLED: Greeks API calls exhaust Upstox rate limit (30 calls × 2s = 60s of API calls)
@@ -481,6 +576,14 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         return ltp.toFixed(1);
     };
 
+    // Format OI with Cr/L suffix
+    const formatOI = (oi) => {
+        if (!oi && oi !== 0) return '-';
+        if (oi >= 10000000) return (oi / 10000000).toFixed(1) + 'Cr';
+        if (oi >= 100000) return (oi / 100000).toFixed(1) + 'L';
+        return oi.toLocaleString('en-IN');
+    };
+
     if (!isOpen) return null;
 
     const templateKeys = ['straddle', 'strangle', 'iron-condor', 'butterfly', 'bull-call-spread', 'bear-put-spread', 'custom'];
@@ -544,13 +647,50 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
                                     <input type="checkbox" checked={showPremium} onChange={(e) => setShowPremium(e.target.checked)} />
                                     <span>Premium</span>
                                 </label>
+                                <div className={styles.addOnsDivider} />
+                                <div className={styles.strikeCountItem}>
+                                    <span>Strikes:</span>
+                                    <select
+                                        value={strikeCount}
+                                        onChange={(e) => {
+                                            const val = parseInt(e.target.value, 10);
+                                            setStrikeCount(val);
+                                            localStorage.setItem('optionChainStrikeCount', val.toString());
+                                        }}
+                                        className={styles.strikeSelect}
+                                    >
+                                        {STRIKE_COUNT_OPTIONS.map(opt => (
+                                            <option key={opt} value={opt}>
+                                                {opt === 50 ? 'All' : `±${opt}`}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
                             </div>
                         )}
                     </div>
 
                     {optionChain && (
-                        <div className={styles.spotPrice}>
-                            Spot: <strong>{formatNumber(optionChain.underlyingLTP)}</strong>
+                        <div className={styles.headerStats}>
+                            <div className={styles.spotPrice}>
+                                Spot: <strong>{formatNumber(optionChain.underlyingLTP)}</strong>
+                            </div>
+                            <div className={styles.aggregatedOI}>
+                                {allExpiriesOI.isLoading ? (
+                                    <span className={styles.oiLoading}>
+                                        OI: Loading ({allExpiriesOI.loadedCount}/{allExpiriesOI.totalExpiries})...
+                                    </span>
+                                ) : allExpiriesOI.totalExpiries > 0 ? (
+                                    <>
+                                        <span className={styles.ceOIHeader}>
+                                            CE: {formatOI(allExpiriesOI.totalCeOI)}
+                                        </span>
+                                        <span className={styles.peOIHeader}>
+                                            PE: {formatOI(allExpiriesOI.totalPeOI)}
+                                        </span>
+                                    </>
+                                ) : null}
+                            </div>
                         </div>
                     )}
                     <button className={styles.closeButton} onClick={onClose}>

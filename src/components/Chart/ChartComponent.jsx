@@ -21,7 +21,8 @@ import {
     calculateVolume,
     calculateATR,
     calculateStochastic,
-    calculateVWAP
+    calculateVWAP,
+    calculateSupertrend
 } from '../../utils/indicators';
 import { calculateTPO } from '../../utils/indicators/tpo';
 import { TPOProfilePrimitive } from '../../plugins/tpo-profile/TPOProfilePrimitive';
@@ -120,6 +121,7 @@ const ChartComponent = forwardRef(({
     const emaSeriesRef = useRef(null);
     const bollingerSeriesRef = useRef({ upper: null, middle: null, lower: null });
     const vwapSeriesRef = useRef(null);
+    const supertrendSeriesRef = useRef(null);
     // Integrated indicator series refs (displayed within main chart)
     const volumeSeriesRef = useRef(null);
     const rsiSeriesRef = useRef(null);
@@ -1901,20 +1903,26 @@ const ChartComponent = forwardRef(({
 
 
         // SMA Indicator
-        if (indicatorsConfig.sma) {
+        if (indicatorsConfig.sma?.enabled) {
+            const smaPeriod = indicatorsConfig.sma.period || 20;
+            const smaColor = indicatorsConfig.sma.color || '#2196F3';
             // Only create series if chart is ready, otherwise just calculate data for later
             if (!smaSeriesRef.current && canAddSeries) {
                 smaSeriesRef.current = chartRef.current.addSeries(LineSeries, {
-                    color: '#2962FF',
+                    color: smaColor,
                     lineWidth: 2,
-                    title: 'SMA 20',
+                    title: `SMA ${smaPeriod}`,
                     priceLineVisible: false,
                     lastValueVisible: false
                 });
             }
+            // Update color and title if series exists (in case settings changed)
+            if (smaSeriesRef.current) {
+                smaSeriesRef.current.applyOptions({ color: smaColor, title: `SMA ${smaPeriod}` });
+            }
             // Set data if series exists
             if (smaSeriesRef.current && typeof calculateSMA === 'function') {
-                const smaData = calculateSMA(data, 20);
+                const smaData = calculateSMA(data, smaPeriod);
                 if (smaData && smaData.length > 0) {
                     smaSeriesRef.current.setData(smaData);
                 }
@@ -1927,20 +1935,26 @@ const ChartComponent = forwardRef(({
         }
 
         // EMA Indicator
-        if (indicatorsConfig.ema) {
+        if (indicatorsConfig.ema?.enabled) {
+            const emaPeriod = indicatorsConfig.ema.period || 20;
+            const emaColor = indicatorsConfig.ema.color || '#FF9800';
             // Only create series if chart is ready, otherwise just calculate data for later
             if (!emaSeriesRef.current && canAddSeries) {
                 emaSeriesRef.current = chartRef.current.addSeries(LineSeries, {
-                    color: '#FF6D00',
+                    color: emaColor,
                     lineWidth: 2,
-                    title: 'EMA 20',
+                    title: `EMA ${emaPeriod}`,
                     priceLineVisible: false,
                     lastValueVisible: false
                 });
             }
+            // Update color and title if series exists (in case settings changed)
+            if (emaSeriesRef.current) {
+                emaSeriesRef.current.applyOptions({ color: emaColor, title: `EMA ${emaPeriod}` });
+            }
             // Set data if series exists
             if (emaSeriesRef.current && typeof calculateEMA === 'function') {
-                const emaData = calculateEMA(data, 20);
+                const emaData = calculateEMA(data, emaPeriod);
                 if (emaData && emaData.length > 0) {
                     emaSeriesRef.current.setData(emaData);
                 }
@@ -2033,6 +2047,33 @@ const ChartComponent = forwardRef(({
             if (vwapSeriesRef.current) {
                 chartRef.current.removeSeries(vwapSeriesRef.current);
                 vwapSeriesRef.current = null;
+            }
+        }
+
+        // Supertrend Indicator (overlay on main chart with color-coded line)
+        if (indicatorsConfig.supertrend?.enabled) {
+            if (!supertrendSeriesRef.current && canAddSeries) {
+                supertrendSeriesRef.current = chartRef.current.addSeries(LineSeries, {
+                    color: '#26a69a', // Default green, will be overridden per-point
+                    lineWidth: 2,
+                    title: 'Supertrend',
+                    priceLineVisible: false,
+                    lastValueVisible: true,
+                    crosshairMarkerVisible: true
+                });
+            }
+            if (supertrendSeriesRef.current && typeof calculateSupertrend === 'function') {
+                const period = indicatorsConfig.supertrend.period || 10;
+                const multiplier = indicatorsConfig.supertrend.multiplier || 3;
+                const supertrendData = calculateSupertrend(data, period, multiplier);
+                if (supertrendData && supertrendData.length > 0) {
+                    supertrendSeriesRef.current.setData(supertrendData);
+                }
+            }
+        } else {
+            if (supertrendSeriesRef.current) {
+                chartRef.current.removeSeries(supertrendSeriesRef.current);
+                supertrendSeriesRef.current = null;
             }
         }
 
