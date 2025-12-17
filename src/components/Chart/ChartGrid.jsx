@@ -39,8 +39,8 @@ const ChartGrid = ({
                         symbol={chart.symbol}
                         exchange={chart.exchange || 'NSE'}
                         interval={chart.interval}
-                        onAlertsSync={onAlertsSync ? (alerts) => onAlertsSync(chart.id, chart.symbol, alerts) : undefined}
-                        onAlertTriggered={onAlertTriggered ? (evt) => onAlertTriggered(chart.id, chart.symbol, evt) : undefined}
+                        onAlertsSync={onAlertsSync ? (alerts) => onAlertsSync(chart.id, chart.symbol, chart.exchange || 'NSE', alerts) : undefined}
+                        onAlertTriggered={onAlertTriggered ? (evt) => onAlertTriggered(chart.id, chart.symbol, chart.exchange || 'NSE', evt) : undefined}
                         onReplayModeChange={onReplayModeChange ? (isActive) => onReplayModeChange(chart.id, isActive) : undefined}
                         {...chartProps}
                         indicators={chart.indicators}

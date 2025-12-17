@@ -82,6 +82,7 @@ const SkeletonRow = () => (
 
 const Watchlist = ({
     currentSymbol,
+    currentExchange = 'NSE',
     items,
     onSymbolSelect,
     onAddClick,
@@ -576,7 +577,7 @@ const Watchlist = ({
                                                 <WatchlistItem
                                                     key={`${item.symbol}-${item.exchange}`}
                                                     item={item}
-                                                    isActive={currentSymbol === item.symbol}
+                                                    isActive={currentSymbol === item.symbol && currentExchange === (item.exchange || 'NSE')}
                                                     isDragging={draggedIndex === globalIndex}
                                                     columnWidths={columnWidths}
                                                     minColumnWidth={MIN_COLUMN_WIDTH}
@@ -605,7 +606,7 @@ const Watchlist = ({
                                         <WatchlistItem
                                             key={`${item.symbol}-${item.exchange}`}
                                             item={item}
-                                            isActive={currentSymbol === item.symbol}
+                                            isActive={currentSymbol === item.symbol && currentExchange === (item.exchange || 'NSE')}
                                             isDragging={draggedIndex === globalIndex}
                                             columnWidths={columnWidths}
                                             minColumnWidth={MIN_COLUMN_WIDTH}

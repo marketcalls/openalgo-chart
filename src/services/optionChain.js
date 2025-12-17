@@ -153,6 +153,40 @@ export const getDaysToExpiry = (expiryStr) => {
 };
 
 /**
+ * Get expiry label type (CW, NW, CM, etc.)
+ * @param {string} expiryStr - Expiry string
+ * @param {number} index - Index in expiry list
+ * @returns {string} Label like "CW", "NW", "CM", "NM"
+ */
+export const getExpiryLabel = (expiryStr, index) => {
+    const dte = getDaysToExpiry(expiryStr);
+    if (index === 0) return 'CW'; // Current Week
+    if (index === 1) return 'NW'; // Next Week
+    if (dte <= 7) return 'W' + (index + 1);
+    if (dte <= 35) return 'CM'; // Current Month
+    return 'NM'; // Next Month
+};
+
+/**
+ * Format expiry for TradingView-style tab display
+ * @param {string} expiryStr - Expiry string like "18DEC25"
+ * @param {number} index - Index in expiry list
+ * @returns {Object} { display: "18 DEC '25", dte: 0, label: "CW" }
+ */
+export const formatExpiryTab = (expiryStr, index) => {
+    const date = parseExpiryDate(expiryStr);
+    if (!date) return { display: expiryStr, dte: 0, label: '' };
+
+    const day = date.getDate();
+    const month = date.toLocaleDateString('en-IN', { month: 'short' }).toUpperCase();
+    const year = date.getFullYear().toString().slice(-2);
+    const dte = getDaysToExpiry(expiryStr);
+    const label = getExpiryLabel(expiryStr, index);
+
+    return { display: `${day} ${month} '${year}`, dte, label };
+};
+
+/**
  * Get option chain for an underlying using OpenAlgo Option Chain API
  * Uses caching to reduce API calls and avoid Upstox rate limits
  * @param {string} underlying - Underlying symbol (NIFTY, BANKNIFTY)
@@ -165,15 +199,6 @@ export const getDaysToExpiry = (expiryStr) => {
 export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = null, strikeCount = 15, forceRefresh = false) => {
     const cacheKey = getCacheKey(underlying, expiryDate);
     const cached = optionChainCache.get(cacheKey);
-
-    // DEBUG: Log cache status
-    console.log('[OptionChain] Cache status:', {
-        cacheKey,
-        hasCached: !!cached,
-        isFresh: cached ? isCacheValid(cached) : false,
-        cacheAge: cached ? Math.round((Date.now() - cached.timestamp) / 1000) + 's' : 'N/A',
-        forceRefresh
-    });
 
     // Return cached data if valid and not forcing refresh
     if (!forceRefresh && isCacheValid(cached)) {
@@ -223,69 +248,58 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
             throw new Error('Option chain API unavailable (rate limit)');
         }
 
-        console.log('[OptionChain] API response:', {
-            underlying: result.underlying,
-            ltp: result.underlyingLTP,
-            atm: result.atmStrike,
-            expiry: result.expiryDate,
-            chainLength: result.chain?.length
-        });
-
         // Transform chain data to our format
         // API returns: { strike, ce: { symbol, label, ltp, bid, ask, oi, volume, ... }, pe: { ... } }
-        const chain = (result.chain || []).map((row, idx) => {
-            const strike = parseFloat(row.strike);
-
-            // DEBUG: Validate row data
-            if (isNaN(strike)) {
-                console.warn('[OptionChain] Invalid strike at row', idx, ':', row.strike);
-            }
-            if (!row.ce?.symbol && !row.pe?.symbol) {
-                console.warn('[OptionChain] Row missing both CE/PE symbols:', idx, row);
-            }
-
-            return {
-                strike,
-                ce: row.ce ? {
-                    symbol: row.ce.symbol,
-                    ltp: parseFloat(row.ce.ltp || 0),
-                    bid: parseFloat(row.ce.bid || 0),
-                    ask: parseFloat(row.ce.ask || 0),
-                    oi: parseInt(row.ce.oi || 0),
-                    volume: parseInt(row.ce.volume || 0),
-                    label: row.ce.label, // ITM, ATM, OTM
-                    lotSize: parseInt(row.ce.lot_size || 0)
-                } : null,
-                pe: row.pe ? {
-                    symbol: row.pe.symbol,
-                    ltp: parseFloat(row.pe.ltp || 0),
-                    bid: parseFloat(row.pe.bid || 0),
-                    ask: parseFloat(row.pe.ask || 0),
-                    oi: parseInt(row.pe.oi || 0),
-                    volume: parseInt(row.pe.volume || 0),
-                    label: row.pe.label, // ITM, ATM, OTM
-                    lotSize: parseInt(row.pe.lot_size || 0)
-                } : null,
-                straddlePremium: (parseFloat(row.ce?.ltp || 0) + parseFloat(row.pe?.ltp || 0)).toFixed(2)
-            };
-        });
-
-        // DEBUG: Log transformation result
-        console.log('[OptionChain] Transforming chain:', {
-            inputRowCount: result.chain?.length,
-            outputRowCount: chain.length,
-            sampleOutput: chain[0],
-            transformedFields: chain[0] ? Object.keys(chain[0]) : []
-        });
+        const chain = (result.chain || []).map(row => ({
+            strike: parseFloat(row.strike),
+            ce: row.ce ? {
+                symbol: row.ce.symbol,
+                ltp: parseFloat(row.ce.ltp || 0),
+                prevClose: parseFloat(row.ce.prev_close || 0),
+                open: parseFloat(row.ce.open || 0),
+                high: parseFloat(row.ce.high || 0),
+                low: parseFloat(row.ce.low || 0),
+                bid: parseFloat(row.ce.bid || 0),
+                ask: parseFloat(row.ce.ask || 0),
+                oi: parseInt(row.ce.oi || 0),
+                volume: parseInt(row.ce.volume || 0),
+                label: row.ce.label, // ITM, ATM, OTM
+                lotSize: parseInt(row.ce.lotsize || row.ce.lot_size || 0)
+            } : null,
+            pe: row.pe ? {
+                symbol: row.pe.symbol,
+                ltp: parseFloat(row.pe.ltp || 0),
+                prevClose: parseFloat(row.pe.prev_close || 0),
+                open: parseFloat(row.pe.open || 0),
+                high: parseFloat(row.pe.high || 0),
+                low: parseFloat(row.pe.low || 0),
+                bid: parseFloat(row.pe.bid || 0),
+                ask: parseFloat(row.pe.ask || 0),
+                oi: parseInt(row.pe.oi || 0),
+                volume: parseInt(row.pe.volume || 0),
+                label: row.pe.label, // ITM, ATM, OTM
+                lotSize: parseInt(row.pe.lotsize || row.pe.lot_size || 0)
+            } : null,
+            straddlePremium: (parseFloat(row.ce?.ltp || 0) + parseFloat(row.pe?.ltp || 0)).toFixed(2)
+        }))
 
         // Parse expiry date for display
         const expiryDateObj = parseExpiryDate(result.expiryDate);
         const dte = getDaysToExpiry(result.expiryDate);
 
+        // Calculate underlying change and percentage
+        const underlyingLTP = result.underlyingLTP || 0;
+        const underlyingPrevClose = result.underlyingPrevClose || result.underlying_prev_close || 0;
+        const change = underlyingPrevClose > 0 ? underlyingLTP - underlyingPrevClose : 0;
+        const changePercent = underlyingPrevClose > 0 ? (change / underlyingPrevClose) * 100 : 0;
+
         const processedData = {
             underlying: result.underlying,
             exchange,
-            underlyingLTP: result.underlyingLTP,
+            underlyingLTP,
+            underlyingPrevClose,
+            change,
+            changePercent,
             atmStrike: result.atmStrike,
             expiryDate: result.expiryDate,
             expiryDateObj,
@@ -538,6 +552,8 @@ export default {
     parseExpiryDate,
     formatExpiryDate,
     getDaysToExpiry,
+    getExpiryLabel,
+    formatExpiryTab,
     getOptionChain,
     getAvailableExpiries,
     fetchOptionGreeks,

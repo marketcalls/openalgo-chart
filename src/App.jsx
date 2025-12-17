@@ -24,6 +24,7 @@ import LayoutTemplateDialog from './components/LayoutTemplates/LayoutTemplateDia
 import ShortcutsDialog from './components/ShortcutsDialog/ShortcutsDialog';
 import { OptionChainPicker } from './components/OptionChainPicker';
 import QuickOptionPicker from './components/QuickOptionPicker/QuickOptionPicker';
+import OptionChainModal from './components/OptionChainModal';
 import { initTimeService } from './services/timeService';
 import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
@@ -266,6 +267,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   // Derived state for active chart
   const activeChart = charts.find(c => c.id === activeChartId) || charts[0];
   const currentSymbol = activeChart.symbol;
+  const currentExchange = activeChart.exchange || 'NSE';
   const currentInterval = activeChart.interval;
 
   // Refs for multiple charts
@@ -305,6 +307,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isQuickOptionOpen, setIsQuickOptionOpen] = useState(false);
   const quickOptionBtnRef = useRef(null);
   // strategyConfig is now per-chart, stored in charts[].strategyConfig
+  const [isOptionChainOpen, setIsOptionChainOpen] = useState(false);
   // const [indicators, setIndicators] = useState({ sma: false, ema: false }); // Moved to charts state
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = React.useRef(0);
@@ -613,7 +616,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     const symbolSet = watchlistSymbols
       // Filter out section markers
       .filter(s => !(typeof s === 'string' && s.startsWith('###')))
-      .map(s => typeof s === 'string' ? s : s.symbol)
+      // Use composite key (symbol-exchange) to properly detect new symbols from different exchanges
+      .map(s => typeof s === 'string' ? `${s}-NSE` : `${s.symbol}-${s.exchange || 'NSE'}`)
       .sort()
       .join(',');
     return `${watchlistsState.activeListId}:${symbolSet}`;
@@ -679,14 +683,18 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     let initialDataLoaded = false;
     const abortController = new AbortController();
 
-    // Extract actual symbols (not section markers)
-    const currentSymbols = watchlistSymbols
+    // Extract actual symbols (not section markers) as composite keys for proper tracking
+    // Use symbol-exchange composite key to handle same symbol from different exchanges
+    const currentSymbolKeys = watchlistSymbols
       .filter(s => !(typeof s === 'string' && s.startsWith('###')))
-      .map(s => typeof s === 'string' ? s : s.symbol);
+      .map(s => {
+        if (typeof s === 'string') return `${s}-NSE`; // Legacy string format defaults to NSE
+        return `${s.symbol}-${s.exchange || 'NSE'}`;
+      });
 
-    logger.debug('[Watchlist Effect] currentSymbols:', currentSymbols);
+    logger.debug('[Watchlist Effect] currentSymbolKeys:', currentSymbolKeys);
 
-    const currentSymbolsSet = new Set(currentSymbols);
+    const currentSymbolsSet = new Set(currentSymbolKeys);
     const prevSymbolsSet = new Set(prevSymbolsRef.current || []);
 
     // Check if this is a watchlist switch (different list ID)
@@ -695,12 +703,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
     logger.debug('[Watchlist Effect] isInitialLoad:', isInitialLoad, 'isListSwitch:', isListSwitch);
 
-    // Detect added and removed symbols
-    const addedSymbols = currentSymbols.filter(s => !prevSymbolsSet.has(s));
-    const removedSymbols = (prevSymbolsRef.current || []).filter(s => !currentSymbolsSet.has(s));
+    // Detect added and removed symbol keys (composite: symbol-exchange)
+    const addedSymbolKeys = currentSymbolKeys.filter(s => !prevSymbolsSet.has(s));
+    const removedSymbolKeys = (prevSymbolsRef.current || []).filter(s => !currentSymbolsSet.has(s));
 
     // Update refs for next time
-    prevSymbolsRef.current = currentSymbols;
+    prevSymbolsRef.current = currentSymbolKeys;
     lastActiveListIdRef.current = watchlistsState.activeListId;
 
     // Helper to fetch a symbol's data
@@ -797,7 +805,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
             if (!mounted || !initialDataLoaded) return;
             setWatchlistData(prev => {
-              const index = prev.findIndex(item => item.symbol === ticker.symbol);
+              // Match by both symbol AND exchange for correct updates
+              const tickerExchange = ticker.exchange || 'NSE';
+              const index = prev.findIndex(item =>
+                item.symbol === ticker.symbol && item.exchange === tickerExchange
+              );
               if (index !== -1) {
                 const newData = [...prev];
                 newData[index] = {
@@ -811,14 +823,16 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               }
               // Fallback: Create item from WebSocket data if quotes API failed
               // Use ref to avoid stale closure - watchlistSymbols changes but callback stays same
-              const symbolData = watchlistSymbolsRef.current.find(s =>
-                (typeof s === 'string' ? s : s.symbol) === ticker.symbol
-              );
+              // Match by both symbol AND exchange
+              const symbolData = watchlistSymbolsRef.current.find(s => {
+                if (typeof s === 'string') return s === ticker.symbol;
+                return s.symbol === ticker.symbol && s.exchange === tickerExchange;
+              });
               if (symbolData) {
                 console.log('=== WEBSOCKET FALLBACK: Adding', ticker.symbol, '===');
                 return [...prev, {
                   symbol: ticker.symbol,
-                  exchange: typeof symbolData === 'string' ? 'NSE' : (symbolData.exchange || 'NSE'),
+                  exchange: tickerExchange,
                   last: ticker.last.toFixed(2),
                   chg: ticker.chg.toFixed(2),
                   chgP: ticker.chgP.toFixed(2) + '%',
@@ -848,10 +862,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
     // Incremental update for adding symbols (no full reload)
     const hydrateAddedSymbols = async () => {
+      // Match watchlist symbols against addedSymbolKeys (which are in format "SYMBOL-EXCHANGE")
       const addedSymbolObjs = watchlistSymbols.filter(symObj => {
         if (typeof symObj === 'string' && symObj.startsWith('###')) return false;
-        const symbol = typeof symObj === 'string' ? symObj : symObj.symbol;
-        return addedSymbols.includes(symbol);
+        // Create composite key for this symbol object
+        const key = typeof symObj === 'string'
+          ? `${symObj}-NSE`
+          : `${symObj.symbol}-${symObj.exchange || 'NSE'}`;
+        return addedSymbolKeys.includes(key);
       });
 
       const promises = addedSymbolObjs.map(fetchSymbol);
@@ -866,24 +884,28 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     // Decide update strategy
     // Note: watchlistData.length === 0 check handles React strict mode double-invocation
     // where first effect's cleanup aborts requests before they complete
-    const needsFullReload = isInitialLoad || isListSwitch || (currentSymbols.length > 0 && watchlistData.length === 0);
+    const needsFullReload = isInitialLoad || isListSwitch || (currentSymbolKeys.length > 0 && watchlistData.length === 0);
 
     console.log('=== UPDATE STRATEGY ===');
     console.log('isInitialLoad:', isInitialLoad, 'isListSwitch:', isListSwitch);
-    console.log('watchlistData.length:', watchlistData.length, 'currentSymbols.length:', currentSymbols.length);
+    console.log('watchlistData.length:', watchlistData.length, 'currentSymbolKeys.length:', currentSymbolKeys.length);
     console.log('needsFullReload:', needsFullReload);
-    console.log('addedSymbols:', addedSymbols.length, 'removedSymbols:', removedSymbols.length);
+    console.log('addedSymbolKeys:', addedSymbolKeys.length, 'removedSymbolKeys:', removedSymbolKeys.length);
 
     if (needsFullReload) {
       // Full reload for initial load, watchlist switch, or empty data
       console.log('>>> Calling hydrateWatchlist()');
       hydrateWatchlist();
-    } else if (removedSymbols.length > 0 || addedSymbols.length > 0) {
+    } else if (removedSymbolKeys.length > 0 || addedSymbolKeys.length > 0) {
       // Incremental update
-      if (removedSymbols.length > 0) {
-        setWatchlistData(prev => prev.filter(item => !removedSymbols.includes(item.symbol)));
+      if (removedSymbolKeys.length > 0) {
+        // Parse composite keys to filter out removed items
+        setWatchlistData(prev => prev.filter(item => {
+          const itemKey = `${item.symbol}-${item.exchange || 'NSE'}`;
+          return !removedSymbolKeys.includes(itemKey);
+        }));
       }
-      if (addedSymbols.length > 0) {
+      if (addedSymbolKeys.length > 0) {
         hydrateAddedSymbols();
       }
     }
@@ -979,7 +1001,10 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         let hasChanges = false;
         const newAlerts = prevAlerts.map(alert => {
           if (alert._source === 'lineTools') return alert; // never auto-trigger plugin alerts
-          if (alert.status !== 'Active' || alert.symbol !== ticker.symbol) return alert;
+          // Match by both symbol AND exchange (fallback to NSE if not specified)
+          const alertExchange = alert.exchange || 'NSE';
+          const tickerExchange = ticker.exchange || 'NSE';
+          if (alert.status !== 'Active' || alert.symbol !== ticker.symbol || alertExchange !== tickerExchange) return alert;
 
           const currentPrice = parseFloat(ticker.last);
           const targetPrice = parseFloat(alert.price);
@@ -993,17 +1018,18 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
             const displayPrice = formatPrice(targetPrice);
 
-            // Log the alert
+            // Log the alert with exchange
             const logEntry = {
               id: Date.now(),
               alertId: alert.id,
               symbol: alert.symbol,
-              message: `Alert triggered: ${alert.symbol} crossed ${displayPrice}`,
+              exchange: alertExchange,
+              message: `Alert triggered: ${alert.symbol}:${alertExchange} crossed ${displayPrice}`,
               time: new Date().toISOString()
             };
             setAlertLogs(prev => [logEntry, ...prev]);
             setUnreadAlertCount(prev => prev + 1);
-            showToast(`Alert Triggered: ${alert.symbol} at ${displayPrice}`, 'info');
+            showToast(`Alert Triggered: ${alert.symbol}:${alertExchange} at ${displayPrice}`, 'info');
 
             return { ...alert, status: 'Triggered' };
           }
@@ -1029,12 +1055,15 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     }));
     // Optimistically update data order - only for actual symbols, not section markers
     setWatchlistData(prev => {
-      const dataMap = new Map(prev.map(item => [item.symbol, item]));
+      // Use composite key (symbol-exchange) for proper mapping
+      const dataMap = new Map(prev.map(item => [`${item.symbol}-${item.exchange || 'NSE'}`, item]));
       return newItems
         .filter(item => typeof item !== 'string' || !item.startsWith('###'))
         .map(sym => {
-          const symbolName = typeof sym === 'string' ? sym : sym.symbol;
-          return dataMap.get(symbolName);
+          const key = typeof sym === 'string'
+            ? `${sym}-NSE`
+            : `${sym.symbol}-${sym.exchange || 'NSE'}`;
+          return dataMap.get(key);
         })
         .filter(Boolean);
     });
@@ -1314,13 +1343,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       setCharts(prev => prev.map(chart => {
         if (chart.id === activeChartId) {
           const currentComparisons = chart.comparisonSymbols || [];
-          const exists = currentComparisons.find(c => c.symbol === symbol);
+          // Check both symbol AND exchange to allow same symbol from different exchanges
+          const exists = currentComparisons.find(c => c.symbol === symbol && c.exchange === exchange);
 
           if (exists) {
-            // Remove
+            // Remove (match both symbol and exchange)
             return {
               ...chart,
-              comparisonSymbols: currentComparisons.filter(c => c.symbol !== symbol)
+              comparisonSymbols: currentComparisons.filter(c => !(c.symbol === symbol && c.exchange === exchange))
             };
           } else {
             // Add
@@ -1339,9 +1369,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       // Do not close search in compare mode to allow multiple selections
     } else {
       // Add to watchlist mode
-      const existsInWatchlist = watchlistSymbols.some(s =>
-        (typeof s === 'string' ? s : s.symbol) === symbol
-      );
+      // Check both symbol AND exchange to allow same symbol from different exchanges
+      const existsInWatchlist = watchlistSymbols.some(s => {
+        if (typeof s === 'string') return s === symbol;
+        return s.symbol === symbol && s.exchange === exchange;
+      });
       if (!existsInWatchlist) {
         setWatchlistsState(prev => ({
           ...prev,
@@ -1359,11 +1391,24 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
   const handleRemoveFromWatchlist = (symbolData) => {
     const symbolToRemove = typeof symbolData === 'string' ? symbolData : symbolData.symbol;
+    const exchangeToRemove = typeof symbolData === 'string' ? null : symbolData.exchange;
     setWatchlistsState(prev => ({
       ...prev,
       lists: prev.lists.map(wl =>
         wl.id === prev.activeListId
-          ? { ...wl, symbols: wl.symbols.filter(s => s.symbol !== symbolToRemove) }
+          ? {
+            ...wl,
+            symbols: wl.symbols.filter(s => {
+              // If s is a string, compare by symbol name only
+              if (typeof s === 'string') return s !== symbolToRemove;
+              // If we have exchange info, match both symbol and exchange
+              if (exchangeToRemove) {
+                return !(s.symbol === symbolToRemove && s.exchange === exchangeToRemove);
+              }
+              // Fallback: match by symbol only (backward compatibility)
+              return s.symbol !== symbolToRemove;
+            })
+          }
           : wl
       ),
     }));
@@ -1420,13 +1465,60 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
       const currentIndicator = chart.indicators[indicatorType];
 
-      // Only handle object indicators
+      // Handle object indicators (rsi, macd, volume, etc.)
       if (typeof currentIndicator === 'object' && currentIndicator !== null) {
         return {
           ...chart,
           indicators: {
             ...chart.indicators,
             [indicatorType]: { ...currentIndicator, enabled: false }
+          }
+        };
+      }
+
+      // Handle boolean indicators (sma, ema)
+      if (typeof currentIndicator === 'boolean') {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: false
+          }
+        };
+      }
+
+      return chart;
+    }));
+  };
+
+  // Handler for toggling indicator visibility (hide/show without removing)
+  const handleIndicatorVisibilityToggle = (indicatorType) => {
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+
+      const currentIndicator = chart.indicators[indicatorType];
+
+      // Handle object indicators (rsi, macd, volume, etc.)
+      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: {
+              ...currentIndicator,
+              hidden: !currentIndicator.hidden
+            }
+          }
+        };
+      }
+
+      // Handle boolean indicators (sma, ema) - convert to object to support hiding
+      if (typeof currentIndicator === 'boolean' && currentIndicator) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: { enabled: true, hidden: true }
           }
         };
       }
@@ -1707,6 +1799,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     const newAlert = {
       id: Date.now(),
       symbol: currentSymbol,
+      exchange: currentExchange,
       price: priceDisplay,
       condition: `Crossing ${priceDisplay}`,
       status: 'Active',
@@ -1717,7 +1810,10 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setAlerts(prev => [...prev, newAlert]);
 
     // Show toast with formatted price
-    showToast(`Alert created for ${currentSymbol} at ${priceDisplay}`, 'success');
+    showToast(`Alert created for ${currentSymbol}:${currentExchange} at ${priceDisplay}`, 'success');
+
+    // Set flag to skip the next sync notification (prevent duplicate toast)
+    skipNextSyncRef.current = { type: 'add', alertId: newAlert.id, chartId: activeChartId };
 
     // Also create a visual alert on the active chart via the line-tools alerts primitive
     const activeRef = chartRefs.current[activeChartId];
@@ -1793,12 +1889,30 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setAlerts(prev => prev.map(a => a.id === id ? { ...a, status: 'Paused' } : a));
   };
 
-  const handleChartAlertsSync = (chartId, symbol, chartAlerts) => {
+  const handleChartAlertsSync = (chartId, symbol, exchange, chartAlerts) => {
     const syncInfo = skipNextSyncRef.current;
 
     // If pausing, skip sync entirely (preserve paused alert in state)
     if (syncInfo && syncInfo.type === 'pause') {
       skipNextSyncRef.current = null;
+      return;
+    }
+
+    // If adding via handleSaveAlert, just update the externalId (alert already exists, no new toast)
+    if (syncInfo && syncInfo.type === 'add' && syncInfo.chartId === chartId) {
+      skipNextSyncRef.current = null;
+
+      // Find the new chart alert that was just created
+      const existingForChart = alerts.filter(a => a._source === 'lineTools' && a.chartId === chartId && a.status === 'Active');
+      const existingExternalIds = new Set(existingForChart.map(a => a.externalId));
+      const newChartAlert = (chartAlerts || []).find(a => !existingExternalIds.has(a.id));
+
+      if (newChartAlert) {
+        // Update the dialog-created alert with externalId and mark as lineTools source
+        setAlerts(prev => prev.map(a =>
+          a.id === syncInfo.alertId ? { ...a, externalId: newChartAlert.id, _source: 'lineTools', chartId } : a
+        ));
+      }
       return;
     }
 
@@ -1855,12 +1969,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           conditionDisplay = a.condition;
         }
 
-        showToast(`Alert created for ${symbol} at ${priceDisplay}`, 'success');
+        showToast(`Alert created for ${symbol}:${exchange} at ${priceDisplay}`, 'success');
 
         return {
           id: `lt-${chartId}-${a.id}`,
           externalId: a.id,
           symbol,
+          exchange,
           price: priceDisplay,
           condition: conditionDisplay,
           status: 'Active',
@@ -1874,7 +1989,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     });
   };
 
-  const handleChartAlertTriggered = (chartId, symbol, evt) => {
+  const handleChartAlertTriggered = (chartId, symbol, exchange, evt) => {
     const displayPrice = formatPrice(evt.price ?? evt.alertPrice);
     const timestamp = evt.timestamp ? new Date(evt.timestamp).toISOString() : new Date().toISOString();
 
@@ -1883,12 +1998,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       id: Date.now(),
       alertId: evt.externalId || evt.alertId,
       symbol,
-      message: `Alert triggered: ${symbol} crossed ${displayPrice}`,
+      exchange,
+      message: `Alert triggered: ${symbol}:${exchange} crossed ${displayPrice}`,
       time: timestamp,
     };
     setAlertLogs(prev => [logEntry, ...prev]);
     setUnreadAlertCount(prev => prev + 1);
-    showToast(`Alert Triggered: ${symbol} at ${displayPrice}`, 'info');
+    showToast(`Alert Triggered: ${symbol}:${exchange} at ${displayPrice}`, 'info');
 
     // Mark corresponding alert as Triggered in the Alerts tab, or add a new history row
     setAlerts(prev => {
@@ -1906,6 +2022,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           id: `lt-${chartId}-${evt.externalId || evt.alertId}-triggered-${Date.now()}`,
           externalId: evt.externalId || evt.alertId,
           symbol,
+          exchange,
           price: displayPrice,
           condition: evt.condition || `Crossing ${displayPrice}`,
           status: 'Triggered',
@@ -1934,6 +2051,20 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   // Template handlers
   const handleTemplatesClick = () => {
     setIsTemplateDialogOpen(true);
+  };
+
+  // Option Chain handlers
+  const handleOptionChainClick = () => {
+    setIsOptionChainOpen(true);
+  };
+
+  const handleOptionSelect = (symbol, exchange) => {
+    // Load the selected option chart in the active chart
+    setCharts(prev => prev.map(chart =>
+      chart.id === activeChartId ? { ...chart, symbol, exchange } : chart
+    ));
+    setIsOptionChainOpen(false);
+
   };
 
   const handleLoadTemplate = useCallback((template) => {
@@ -2231,6 +2362,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onQuickOptionClick={() => setIsQuickOptionOpen(!isQuickOptionOpen)}
             quickOptionBtnRef={quickOptionBtnRef}
             onIndicatorSettingsClick={() => setIsIndicatorSettingsOpen(true)}
+            onOptionChainClick={handleOptionChainClick}
           />
         }
         leftToolbar={
@@ -2278,20 +2410,29 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           activeRightPanel === 'watchlist' ? (
             <Watchlist
               currentSymbol={currentSymbol}
+              currentExchange={currentExchange}
               items={(() => {
                 // Merge section markers with live data
                 // activeWatchlist.symbols contains both ###section markers and symbol objects
                 const symbols = activeWatchlist?.symbols || [];
-                const dataMap = new Map(watchlistData.map(item => [item.symbol, item]));
+                // Use composite key (symbol-exchange) to properly map live data for same symbol from different exchanges
+                const dataMap = new Map(watchlistData.map(item => [`${item.symbol}-${item.exchange}`, item]));
 
                 return symbols.map(item => {
                   // If it's a section marker, keep it as-is
                   if (typeof item === 'string' && item.startsWith('###')) {
                     return item;
                   }
-                  // Otherwise, find the live data for this symbol
+                  // Otherwise, find the live data for this symbol+exchange combination
                   const symbolName = typeof item === 'string' ? item : item.symbol;
-                  return dataMap.get(symbolName) || item;
+                  const exchange = typeof item === 'string' ? 'NSE' : (item.exchange || 'NSE');
+                  const compositeKey = `${symbolName}-${exchange}`;
+                  // Merge live data with the item, preserving the original exchange
+                  const liveData = dataMap.get(compositeKey);
+                  if (liveData) {
+                    return { ...liveData, exchange }; // Ensure exchange is from original item
+                  }
+                  return item;
                 });
               })()}
               isLoading={watchlistLoading}
@@ -2370,6 +2511,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             isTimerVisible={isTimerVisible}
             isSessionBreakVisible={isSessionBreakVisible}
             onIndicatorRemove={handleIndicatorRemove}
+            onIndicatorVisibilityToggle={handleIndicatorVisibilityToggle}
             chartAppearance={chartAppearance}
           />
         }
@@ -2378,7 +2520,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         isOpen={isSearchOpen}
         onClose={() => setIsSearchOpen(false)}
         onSelect={handleSymbolChange}
-        addedSymbols={searchMode === 'compare' ? (activeChart.comparisonSymbols || []).map(s => s.symbol) : []}
+        addedSymbols={searchMode === 'compare' ? (activeChart.comparisonSymbols || []) : []}
         isCompareMode={searchMode === 'compare'}
       />
       <CommandPalette
@@ -2483,6 +2625,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           setIsQuickOptionOpen(false);
         }}
         anchorRef={quickOptionBtnRef}
+      />
+      <OptionChainModal
+        isOpen={isOptionChainOpen}
+        onClose={() => setIsOptionChainOpen(false)}
+        onSelectOption={handleOptionSelect}
       />
     </>
   );
