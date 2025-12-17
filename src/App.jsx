@@ -226,7 +226,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
       atr: { enabled: false, period: 14, color: '#FF9800' },
       stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
-      vwap: { enabled: false, color: '#FF9800' }
+      vwap: { enabled: false, color: '#FF9800' },
+      supertrend: { enabled: false, period: 10, multiplier: 3 },
+      tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
     };
     if (saved && Array.isArray(saved.charts)) {
       // Merge saved indicators with defaults to ensure new indicators are present
@@ -1503,7 +1505,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
           atr: { enabled: false, period: 14, color: '#FF9800' },
           stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
-          vwap: { enabled: false, color: '#FF9800' }
+          vwap: { enabled: false, color: '#FF9800' },
+          supertrend: { enabled: false, period: 10, multiplier: 3 },
+          tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
         };
         for (let i = newCharts.length; i < count; i++) {
           newCharts.push({
@@ -1975,7 +1979,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
         atr: { enabled: false, period: 14, color: '#FF9800' },
         stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
-        vwap: { enabled: false, color: '#FF9800' }
+        vwap: { enabled: false, color: '#FF9800' },
+        supertrend: { enabled: false, period: 10, multiplier: 3 },
+        tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
       };
 
       const loadedCharts = template.charts.map((chart, index) => ({

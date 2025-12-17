@@ -18,7 +18,13 @@ export { calculateMACD } from './macd';
 export { calculateBollingerBands } from './bollingerBands';
 export { calculateATR } from './atr';
 
+// Trend
+export { calculateSupertrend } from './supertrend';
+
 // Volume
 export { calculateVolume } from './volume';
 export { calculateVWAP } from './vwap';
+
+// Market Profile
+export { calculateTPO, tpoToRenderData, getTPOStats } from './tpo';
 
