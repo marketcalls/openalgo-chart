@@ -38,6 +38,7 @@ A professional charting application using `lightweight-charts` and React.
 - ATR (Average True Range)
 - Stochastic
 - VWAP
+- Supertrend (ATR-based trend indicator)
 
 ### Drawing Tools
 - Trend lines
@@ -67,6 +68,8 @@ A professional charting application using `lightweight-charts` and React.
 - Keyboard shortcuts
 - Command palette
 - Shift+Click Quick Measure Tool (measure distance between any two points)
+- Indicator Settings (configure periods, multipliers, colors for all indicators)
+- Quick Option Picker (fast option chain selection from toolbar)
 
 ## Quick Start
 
@@ -107,6 +110,23 @@ npm run preview
 ```
 
 ## Recent Updates
+
+### Supertrend Indicator
+- New Supertrend indicator using ATR-based trend detection
+- Green line when bullish (price above support), red when bearish (price below resistance)
+- Configurable period and multiplier settings
+
+### Indicator Settings Modal
+- New dedicated modal for configuring all indicator parameters
+- Adjust periods, multipliers, and colors for each indicator
+- Sidebar navigation by category (Moving Averages, Oscillators, Momentum, Volatility, Trend, Volume)
+- Real-time preview of settings changes on chart
+
+### Quick Option Picker
+- Fast option chain access from toolbar (chain link icon)
+- Shows Call/Put LTP, OI, OI bars, and strike prices
+- Click any option to instantly chart it
+- Displays spot price, PCR ratio, and ATM premium
 
 ### Arc Drawing Tool
 - New Arc tool for highlighting chart patterns (cup and handle, rounded bottoms, etc.)
