@@ -62,6 +62,19 @@ const PositionTracker = ({
     }
   }, [showAddSymbol]);
 
+  // Calculate % change from opening price (intraday) instead of prev_close
+  const calculateIntradayChange = (item) => {
+    const ltp = parseFloat(item.last) || 0;
+    const openPrice = parseFloat(item.open) || 0;
+
+    // Use opening price for intraday % change calculation
+    if (openPrice > 0 && ltp > 0) {
+      return ((ltp - openPrice) / openPrice) * 100;
+    }
+    // Fallback to chgP (based on prev_close) if open not available
+    return parseFloat(item.chgP) || 0;
+  };
+
   // Process and rank the data
   const rankedData = useMemo(() => {
     let dataToRank = [];
@@ -72,7 +85,8 @@ const PositionTracker = ({
         symbol: item.symbol,
         exchange: item.exchange || 'NSE',
         ltp: parseFloat(item.last) || 0,
-        percentChange: parseFloat(item.chgP) || 0,
+        openPrice: parseFloat(item.open) || 0,
+        percentChange: calculateIntradayChange(item),
       }));
     } else {
       // Custom mode - filter watchlistData to only show custom symbols
@@ -85,7 +99,8 @@ const PositionTracker = ({
           symbol: item.symbol,
           exchange: item.exchange || 'NSE',
           ltp: parseFloat(item.last) || 0,
-          percentChange: parseFloat(item.chgP) || 0,
+          openPrice: parseFloat(item.open) || 0,
+          percentChange: calculateIntradayChange(item),
         }));
     }
 
