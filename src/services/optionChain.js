@@ -3,7 +3,81 @@
  * Handles option chain fetching using OpenAlgo Option Chain API
  */
 
-import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, searchSymbols } from './openalgo';
+import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, getKlines, searchSymbols } from './openalgo';
+
+// ==================== OPTION CHAIN CACHE ====================
+// Cache to reduce API calls and avoid Upstox rate limits (30 req/min)
+const optionChainCache = new Map();
+const CACHE_TTL_MS = 300000; // 5 minutes cache (increased from 60s to avoid rate limits)
+const STORAGE_KEY = 'optionChainCache';
+
+// Rate limit protection: Track last API call time to prevent rapid repeated calls
+let lastApiCallTime = 0;
+const MIN_API_INTERVAL_MS = 5000; // Minimum 5 seconds between API calls
+
+// Generate cache key from underlying and expiry
+const getCacheKey = (underlying, expiry) => `${underlying}_${expiry || 'default'}`;
+
+// Check if cache entry is still valid
+const isCacheValid = (cacheEntry) => {
+    if (!cacheEntry) return false;
+    return Date.now() - cacheEntry.timestamp < CACHE_TTL_MS;
+};
+
+// Load cache from localStorage on init (survives page refresh)
+const loadCacheFromStorage = () => {
+    try {
+        const stored = localStorage.getItem(STORAGE_KEY);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            Object.entries(parsed).forEach(([key, value]) => {
+                optionChainCache.set(key, value);
+            });
+            console.log('[OptionChain] Loaded', optionChainCache.size, 'cache entries from storage');
+        }
+    } catch (e) {
+        console.warn('[OptionChain] Failed to load cache from storage:', e.message);
+    }
+};
+
+// Save cache to localStorage
+const saveCacheToStorage = () => {
+    try {
+        const obj = Object.fromEntries(optionChainCache);
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    } catch (e) {
+        console.warn('[OptionChain] Failed to save cache to storage:', e.message);
+    }
+};
+
+// Load cache from storage on module init
+loadCacheFromStorage();
+
+/**
+ * Clear option chain cache
+ * @param {string} underlying - Optional: clear only for this underlying
+ * @param {string} expiry - Optional: clear only for this expiry
+ */
+export const clearOptionChainCache = (underlying = null, expiry = null) => {
+    if (underlying && expiry) {
+        const key = getCacheKey(underlying, expiry);
+        optionChainCache.delete(key);
+        console.log('[OptionChain] Cache cleared for:', key);
+    } else if (underlying) {
+        // Clear all entries for this underlying
+        for (const key of optionChainCache.keys()) {
+            if (key.startsWith(underlying + '_')) {
+                optionChainCache.delete(key);
+            }
+        }
+        console.log('[OptionChain] Cache cleared for underlying:', underlying);
+    } else {
+        optionChainCache.clear();
+        console.log('[OptionChain] Full cache cleared');
+    }
+    // Also update localStorage
+    saveCacheToStorage();
+};
 
 // Common F&O underlyings with their index exchanges
 export const UNDERLYINGS = [
@@ -114,38 +188,67 @@ export const formatExpiryTab = (expiryStr, index) => {
 
 /**
  * Get option chain for an underlying using OpenAlgo Option Chain API
+ * Uses caching to reduce API calls and avoid Upstox rate limits
  * @param {string} underlying - Underlying symbol (NIFTY, BANKNIFTY)
  * @param {string} exchange - Exchange (NFO, BFO) - will be converted to index exchange for API
  * @param {string} expiryDate - Optional expiry date in DDMMMYY format
  * @param {number} strikeCount - Number of strikes above/below ATM (default 15)
+ * @param {boolean} forceRefresh - Skip cache and fetch fresh data
  * @returns {Promise<Object>} Option chain data with LTP, OI, etc.
  */
-export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = null, strikeCount = 15) => {
+export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = null, strikeCount = 15, forceRefresh = false) => {
+    const cacheKey = getCacheKey(underlying, expiryDate);
+    const cached = optionChainCache.get(cacheKey);
+
+    // Return cached data if valid and not forcing refresh
+    if (!forceRefresh && isCacheValid(cached)) {
+        console.log('[OptionChain] Using cached data for:', cacheKey, '(age:', Math.round((Date.now() - cached.timestamp) / 1000), 's)');
+        return cached.data;
+    }
+
+    // Rate limit protection: Don't call API too rapidly
+    const timeSinceLastCall = Date.now() - lastApiCallTime;
+    if (timeSinceLastCall < MIN_API_INTERVAL_MS) {
+        const waitTime = MIN_API_INTERVAL_MS - timeSinceLastCall;
+        console.log('[OptionChain] Rate limit protection: waiting', waitTime, 'ms before API call');
+
+        // If we have stale cache, return it instead of waiting
+        if (cached) {
+            console.log('[OptionChain] Using stale cache to avoid rate limit');
+            return cached.data;
+        }
+
+        // Wait before making the call
+        await new Promise(resolve => setTimeout(resolve, waitTime));
+    }
+
     try {
         // Find the underlying config to get correct index exchange
+        // For known indices (NIFTY, BANKNIFTY), use their indexExchange (NSE_INDEX/BSE_INDEX)
+        // For stocks (not in UNDERLYINGS), use 'NSE' or 'BSE' directly
         const underlyingConfig = UNDERLYINGS.find(u => u.symbol === underlying);
-        const indexExchange = underlyingConfig?.indexExchange || (exchange === 'BFO' ? 'BSE_INDEX' : 'NSE_INDEX');
+        const indexExchange = underlyingConfig?.indexExchange || (exchange === 'BFO' ? 'BSE' : 'NSE');
 
-        console.log('[OptionChain] Fetching chain:', { underlying, indexExchange, expiryDate, strikeCount });
+        console.log('[OptionChain] Fetching fresh chain:', { underlying, indexExchange, expiryDate, strikeCount });
+
+        // Update last API call time
+        lastApiCallTime = Date.now();
 
         // Call OpenAlgo Option Chain API
         const result = await fetchOptionChainAPI(underlying, indexExchange, expiryDate, strikeCount);
 
         if (!result) {
             console.error('[OptionChain] API returned null');
-            return {
-                underlying,
-                exchange,
-                underlyingLTP: 0,
-                atmStrike: 0,
-                expiryDate: null,
-                expiries: [],
-                chain: [],
-                chainByExpiry: {}
-            };
+
+            // Use stale cache if available (better than empty data)
+            if (cached) {
+                console.log('[OptionChain] API returned null, using stale cache for:', cacheKey);
+                return cached.data;
+            }
+
+            // No cache available - throw error so component shows correct message
+            throw new Error('Option chain API unavailable (rate limit)');
         }
-
-
 
         // Transform chain data to our format
         // API returns: { strike, ce: { symbol, label, ltp, bid, ask, oi, volume, ... }, pe: { ... } }
@@ -178,8 +281,9 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
                 volume: parseInt(row.pe.volume || 0),
                 label: row.pe.label, // ITM, ATM, OTM
                 lotSize: parseInt(row.pe.lotsize || row.pe.lot_size || 0)
-            } : null
-        }));
+            } : null,
+            straddlePremium: (parseFloat(row.ce?.ltp || 0) + parseFloat(row.pe?.ltp || 0)).toFixed(2)
+        }))
 
         // Parse expiry date for display
         const expiryDateObj = parseExpiryDate(result.expiryDate);
@@ -191,7 +295,7 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
         const change = underlyingPrevClose > 0 ? underlyingLTP - underlyingPrevClose : 0;
         const changePercent = underlyingPrevClose > 0 ? (change / underlyingPrevClose) * 100 : 0;
 
-        return {
+        const processedData = {
             underlying: result.underlying,
             exchange,
             underlyingLTP,
@@ -208,8 +312,27 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
                 [result.expiryDate]: chain
             }
         };
+
+        // Store in cache only if we have valid data
+        if (chain.length > 0) {
+            optionChainCache.set(cacheKey, {
+                data: processedData,
+                timestamp: Date.now()
+            });
+            saveCacheToStorage(); // Persist to localStorage
+            console.log('[OptionChain] Cached data for:', cacheKey);
+        }
+
+        return processedData;
     } catch (error) {
         console.error('[OptionChain] Error fetching option chain:', error);
+
+        // On error, return stale cache if available (better than nothing)
+        if (cached) {
+            console.log('[OptionChain] API error, returning stale cache for:', cacheKey);
+            return cached.data;
+        }
+
         return {
             underlying,
             exchange,
@@ -275,6 +398,157 @@ export const fetchOptionGreeks = async (symbol, exchange = 'NFO') => {
     return await getOptionGreeks(symbol, exchange);
 };
 
+/**
+ * Combine CE and PE OHLC data into straddle/strangle premium
+ * @param {Array} ceData - CE candle data
+ * @param {Array} peData - PE candle data
+ * @returns {Array} Combined OHLC data
+ */
+export const combinePremiumOHLC = (ceData, peData) => {
+    if (!ceData?.length || !peData?.length) return [];
+
+    // Create a map of PE data by timestamp for O(1) lookup
+    const peMap = new Map(peData.map(d => [d.time, d]));
+
+    const combined = [];
+    for (const ce of ceData) {
+        const pe = peMap.get(ce.time);
+        if (pe) {
+            combined.push({
+                time: ce.time,
+                open: ce.open + pe.open,
+                high: ce.high + pe.high,
+                low: ce.low + pe.low,
+                close: ce.close + pe.close,
+                volume: (ce.volume || 0) + (pe.volume || 0)
+            });
+        }
+    }
+
+    return combined;
+};
+
+/**
+ * Combine multiple leg OHLC data into strategy premium
+ * Handles buy/sell direction for each leg
+ * @param {Array<Array>} legDataArrays - Array of OHLC arrays for each leg
+ * @param {Array<Object>} legConfigs - Leg configurations with direction and quantity
+ * @returns {Array} Combined OHLC data
+ */
+export const combineMultiLegOHLC = (legDataArrays, legConfigs) => {
+    if (!legDataArrays?.length || !legConfigs?.length) return [];
+    if (legDataArrays.length !== legConfigs.length) {
+        console.warn('[combineMultiLegOHLC] Mismatch between data arrays and configs');
+        return [];
+    }
+
+    // Create time-indexed maps for each leg
+    const legMaps = legDataArrays.map(data =>
+        new Map((data || []).map(candle => [candle.time, candle]))
+    );
+
+    // Get all unique timestamps from all legs
+    const allTimes = new Set();
+    legDataArrays.forEach(data => {
+        if (data) data.forEach(d => allTimes.add(d.time));
+    });
+
+    const combined = [];
+    const sortedTimes = Array.from(allTimes).sort((a, b) => a - b);
+
+    for (const time of sortedTimes) {
+        // Check if all legs have data for this time
+        const hasAllLegs = legMaps.every(map => map.has(time));
+        if (!hasAllLegs) continue;
+
+        let open = 0, high = 0, low = 0, close = 0, volume = 0;
+
+        legConfigs.forEach((leg, i) => {
+            const candle = legMaps[i].get(time);
+            const multiplier = leg.direction === 'buy' ? 1 : -1;
+            const qty = leg.quantity || 1;
+
+            open += multiplier * qty * candle.open;
+            high += multiplier * qty * candle.high;
+            low += multiplier * qty * candle.low;
+            close += multiplier * qty * candle.close;
+            volume += candle.volume || 0;
+        });
+
+        // Recalculate true high/low for strategies with sells
+        // (the high of a net short position may be lower than open)
+        const allPrices = [open, high, low, close];
+        const trueHigh = Math.max(...allPrices);
+        const trueLow = Math.min(...allPrices);
+
+        combined.push({
+            time,
+            open,
+            high: trueHigh,
+            low: trueLow,
+            close,
+            volume
+        });
+    }
+
+    return combined;
+};
+
+/**
+ * Fetch combined straddle/strangle premium data
+ * @param {string} ceSymbol - CE option symbol
+ * @param {string} peSymbol - PE option symbol
+ * @param {string} exchange - Exchange (NFO, BFO)
+ * @param {string} interval - Time interval
+ * @returns {Promise<Array>} Combined OHLC data
+ */
+export const fetchStraddlePremium = async (ceSymbol, peSymbol, exchange = 'NFO', interval = '5m') => {
+    try {
+        const [ceData, peData] = await Promise.all([
+            getKlines(ceSymbol, exchange, interval),
+            getKlines(peSymbol, exchange, interval)
+        ]);
+
+        return combinePremiumOHLC(ceData, peData);
+    } catch (error) {
+        console.error('Error fetching straddle premium:', error);
+        return [];
+    }
+};
+
+/**
+ * Format straddle display name
+ * @param {Object} config - Straddle config with ceSymbol, peSymbol, etc.
+ * @returns {string} Display name
+ */
+export const formatStraddleName = (config) => {
+    if (!config) return '';
+
+    const { underlying, ceStrike, peStrike, expiry } = config;
+
+    // Handle expiry as string (DDMMMYY) or Date
+    let expiryStr;
+    if (typeof expiry === 'string') {
+        expiryStr = expiry;
+    } else if (expiry instanceof Date) {
+        expiryStr = formatExpiryDate(expiry);
+    } else {
+        expiryStr = '';
+    }
+
+    // Parse for display
+    const day = expiryStr.slice(0, 2);
+    const month = expiryStr.slice(2, 5);
+
+    if (ceStrike === peStrike) {
+        // Straddle (same strike)
+        return `${underlying} ${ceStrike} Straddle (${day} ${month})`;
+    } else {
+        // Strangle (different strikes)
+        return `${underlying} ${ceStrike}/${peStrike} Strangle (${day} ${month})`;
+    }
+};
+
 export default {
     UNDERLYINGS,
     parseExpiryDate,
@@ -284,5 +558,9 @@ export default {
     formatExpiryTab,
     getOptionChain,
     getAvailableExpiries,
-    fetchOptionGreeks
+    fetchOptionGreeks,
+    combinePremiumOHLC,
+    combineMultiLegOHLC,
+    fetchStraddlePremium,
+    formatStraddleName
 };

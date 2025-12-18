@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from './components/Layout/Layout';
 import Topbar from './components/Topbar/Topbar';
 import DrawingToolbar from './components/Toolbar/DrawingToolbar';
@@ -22,12 +22,14 @@ import MobileNav from './components/MobileNav';
 import CommandPalette from './components/CommandPalette/CommandPalette';
 import LayoutTemplateDialog from './components/LayoutTemplates/LayoutTemplateDialog';
 import ShortcutsDialog from './components/ShortcutsDialog/ShortcutsDialog';
+import { OptionChainPicker } from './components/OptionChainPicker';
 import OptionChainModal from './components/OptionChainModal';
 import { initTimeService } from './services/timeService';
 import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
-
+import IndicatorSettingsModal from './components/IndicatorSettings/IndicatorSettingsModal';
+import PositionTracker from './components/PositionTracker';
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
 
@@ -74,14 +76,6 @@ const safeParseJSON = (value, fallback) => {
 
 const ALERT_RETENTION_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-// Favorites watchlist - always pinned at top
-const FAVORITES_WATCHLIST = {
-  id: 'wl_favorites',
-  name: 'Favorites',
-  symbols: [],
-  isFavorites: true,
-};
-
 // Default watchlist for new users or migration
 const DEFAULT_WATCHLIST = {
   id: 'wl_default',
@@ -104,9 +98,16 @@ const migrateWatchlistData = () => {
 
   // If new format exists, validate and use it
   if (newData && newData.lists && Array.isArray(newData.lists)) {
-    // Ensure Favorites watchlist exists (for existing users upgrading)
-    if (!newData.lists.find(wl => wl.id === 'wl_favorites')) {
-      newData.lists.unshift(FAVORITES_WATCHLIST);
+    // Filter out any old Favorites watchlist
+    newData.lists = newData.lists.filter(wl => wl.id !== 'wl_favorites');
+    // Ensure at least one watchlist exists
+    if (newData.lists.length === 0) {
+      newData.lists.push(DEFAULT_WATCHLIST);
+      newData.activeListId = 'wl_default';
+    }
+    // Update activeListId if it was pointing to favorites
+    if (newData.activeListId === 'wl_favorites') {
+      newData.activeListId = newData.lists[0].id;
     }
     return newData;
   }
@@ -115,10 +116,9 @@ const migrateWatchlistData = () => {
   const oldData = safeParseJSON(localStorage.getItem('tv_watchlist'), null);
 
   if (oldData && Array.isArray(oldData) && oldData.length > 0) {
-    // Migrate old format to new format with Favorites
+    // Migrate old format to new format
     return {
       lists: [
-        FAVORITES_WATCHLIST,
         {
           ...DEFAULT_WATCHLIST,
           symbols: oldData.map(s => typeof s === 'string' ? { symbol: s, exchange: 'NSE' } : s),
@@ -128,9 +128,9 @@ const migrateWatchlistData = () => {
     };
   }
 
-  // Return default with Favorites first
+  // Return default
   return {
-    lists: [FAVORITES_WATCHLIST, DEFAULT_WATCHLIST],
+    lists: [DEFAULT_WATCHLIST],
     activeListId: 'wl_default',
   };
 };
@@ -218,27 +218,50 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [charts, setCharts] = useState(() => {
     const saved = safeParseJSON(localStorage.getItem('tv_saved_layout'), null);
     const defaultIndicators = {
-      sma: false,
-      ema: false,
+      // Moving Averages
+      sma: { enabled: false, period: 20, color: '#2196F3' },
+      ema: { enabled: false, period: 20, color: '#FF9800' },
+      // Oscillators
       rsi: { enabled: false, period: 14, color: '#7B1FA2' },
-      macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
-      bollingerBands: { enabled: false, period: 20, stdDev: 2 },
-      volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
-      atr: { enabled: false, period: 14, color: '#FF9800' },
       stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
+      // Momentum
+      macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
+      // Volatility
+      bollingerBands: { enabled: false, period: 20, stdDev: 2, color: '#2962FF' },
+      atr: { enabled: false, period: 14, color: '#FF9800' },
+      // Trend
+      supertrend: { enabled: false, period: 10, multiplier: 3, upColor: '#089981', downColor: '#F23645' },
+      // Volume
+      volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
       vwap: { enabled: false, color: '#FF9800' },
-      supertrend: { enabled: false, period: 10, multiplier: 3 },
+      // Profile
       tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
     };
+    // Migration function: converts old boolean SMA/EMA to object format
+    const migrateIndicators = (indicators) => {
+      const migrated = { ...indicators };
+      // Migrate boolean SMA to object
+      if (typeof migrated.sma === 'boolean') {
+        migrated.sma = { enabled: migrated.sma, period: 20, color: '#2196F3' };
+      }
+      // Migrate boolean EMA to object
+      if (typeof migrated.ema === 'boolean') {
+        migrated.ema = { enabled: migrated.ema, period: 20, color: '#FF9800' };
+      }
+      return migrated;
+    };
+
     if (saved && Array.isArray(saved.charts)) {
       // Merge saved indicators with defaults to ensure new indicators are present
+      // Also ensure strategyConfig exists (for migration from older versions)
       return saved.charts.map(chart => ({
         ...chart,
-        indicators: { ...defaultIndicators, ...chart.indicators }
+        indicators: migrateIndicators({ ...defaultIndicators, ...chart.indicators }),
+        strategyConfig: chart.strategyConfig ?? null
       }));
     }
     return [
-      { id: 1, symbol: 'RELIANCE', exchange: 'NSE', interval: localStorage.getItem('tv_interval') || '1d', indicators: defaultIndicators, comparisonSymbols: [] }
+      { id: 1, symbol: 'RELIANCE', exchange: 'NSE', interval: localStorage.getItem('tv_interval') || '1d', indicators: defaultIndicators, comparisonSymbols: [], strategyConfig: null }
     ];
   });
 
@@ -279,7 +302,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
   const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
+  // Multi-leg strategy chart state
+  const [isStraddlePickerOpen, setIsStraddlePickerOpen] = useState(false);
+  // strategyConfig is now per-chart, stored in charts[].strategyConfig
   const [isOptionChainOpen, setIsOptionChainOpen] = useState(false);
+  const [optionChainInitialSymbol, setOptionChainInitialSymbol] = useState(null);
   // const [indicators, setIndicators] = useState({ sma: false, ema: false }); // Moved to charts state
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = React.useRef(0);
@@ -346,6 +373,21 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
   // Right Panel State
   const [activeRightPanel, setActiveRightPanel] = useState('watchlist');
+
+  // Position Tracker State
+  const [positionTrackerSettings, setPositionTrackerSettings] = useState(() => {
+    const saved = safeParseJSON(localStorage.getItem('tv_position_tracker_settings'), null);
+    return saved || { sourceMode: 'watchlist', customSymbols: [] };
+  });
+
+  // Persist position tracker settings
+  useEffect(() => {
+    try {
+      localStorage.setItem('tv_position_tracker_settings', JSON.stringify(positionTrackerSettings));
+    } catch (error) {
+      console.error('Failed to persist position tracker settings:', error);
+    }
+  }, [positionTrackerSettings]);
 
   // Theme State
   const [theme, setTheme] = useState(() => {
@@ -579,6 +621,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   ) || watchlistsState.lists[0];
   const watchlistSymbols = activeWatchlist?.symbols || [];
 
+  // Derive favorite watchlists for quick-access bar
+  const favoriteWatchlists = watchlistsState.lists.filter(wl => wl.isFavorite);
+
   // Create a stable key for symbol SET (ignores order and section markers, only changes on add/remove symbols)
   // This prevents full reload when just reordering or adding sections
   const watchlistSymbolsKey = React.useMemo(() => {
@@ -592,13 +637,16 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     return `${watchlistsState.activeListId}:${symbolSet}`;
   }, [watchlistSymbols, watchlistsState.activeListId]);
 
-  // Derive favorite watchlists for quick-access row
-  const favoriteWatchlists = watchlistsState.lists.filter(wl =>
-    wl.isFavorite || wl.id === 'wl_favorites'
-  );
-
   const [watchlistData, setWatchlistData] = useState([]);
   const [watchlistLoading, setWatchlistLoading] = useState(true);
+
+  // Ref to store current watchlist symbols - fixes stale closure in WebSocket callback
+  const watchlistSymbolsRef = useRef([]);
+
+  // Keep ref updated when watchlistSymbols changes
+  useEffect(() => {
+    watchlistSymbolsRef.current = watchlistSymbols;
+  }, [watchlistSymbols]);
 
   // Initialize TimeService on app mount - syncs time with WorldTimeAPI
   useEffect(() => {
@@ -622,11 +670,19 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
   // Fetch watchlist data - only when authenticated (with incremental updates)
   useEffect(() => {
+    // DIAGNOSTIC - force console output (logger.debug may be suppressed)
+    console.log('=== WATCHLIST EFFECT ===');
+    console.log('isAuthenticated:', isAuthenticated);
+    console.log('watchlistSymbols count:', watchlistSymbols.length);
+    console.log('watchlistSymbolsKey:', watchlistSymbolsKey);
+
     logger.debug('[Watchlist Effect] Running, isAuthenticated:', isAuthenticated);
 
     // Don't fetch if not authenticated yet
     if (isAuthenticated !== true) {
+      console.log('=== SKIPPING - NOT AUTHENTICATED ===');
       logger.debug('[Watchlist Effect] Skipping - not authenticated');
+      setWatchlistLoading(false);
       return;
     }
 
@@ -701,11 +757,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
     // Full reload function (for initial load or watchlist switch)
     const hydrateWatchlist = async () => {
+      console.log('=== HYDRATE WATCHLIST CALLED ===');
       logger.debug('[Watchlist] hydrateWatchlist called');
       watchlistFetchingRef.current = true; // Mark fetch in progress
       setWatchlistLoading(true);
       try {
         const symbolObjs = watchlistSymbols.filter(s => !(typeof s === 'string' && s.startsWith('###')));
+        console.log('symbolObjs to fetch:', symbolObjs.map(s => typeof s === 'string' ? s : s.symbol));
         logger.debug('[Watchlist] Processing symbols:', symbolObjs);
 
         // Show cached data immediately for instant UX
@@ -731,23 +789,33 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         }
 
         // ALWAYS fetch fresh prices from API for ALL symbols
+        console.log('Fetching fresh quotes for', symbolObjs.length, 'symbols');
         logger.debug('[Watchlist] Fetching fresh quotes for all', symbolObjs.length, 'symbols');
         const fetchPromises = symbolObjs.map(fetchSymbol);
         const results = await Promise.all(fetchPromises);
         const validResults = results.filter(r => r !== null);
 
+        console.log('=== API RESULTS ===');
+        console.log('Total results:', results.length, 'Valid results:', validResults.length);
+        console.log('Sample result:', validResults[0]);
         logger.debug('[Watchlist] Fresh quotes received:', validResults.length);
 
         if (mounted && validResults.length > 0) {
           // Replace cached data with fresh data
+          console.log('=== SETTING WATCHLIST DATA ===', validResults.length, 'items');
           setWatchlistData(validResults);
+        }
+
+        // Always set up WebSocket for real-time updates (even if REST API failed)
+        // WebSocket can populate data when REST API is rate-limited
+        if (mounted) {
           setWatchlistLoading(false);
           initialDataLoaded = true;
 
-          // Setup WebSocket for real-time updates
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.close();
           }
+          console.log('=== SETTING UP WEBSOCKET for', symbolObjs.length, 'symbols ===');
           ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
             if (!mounted || !initialDataLoaded) return;
             setWatchlistData(prev => {
@@ -761,6 +829,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
                 newData[index] = {
                   ...newData[index],
                   last: ticker.last.toFixed(2),
+                  open: ticker.open,
+                  volume: ticker.volume,
                   chg: ticker.chg.toFixed(2),
                   chgP: ticker.chgP.toFixed(2) + '%',
                   up: ticker.chg >= 0
@@ -768,16 +838,20 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
                 return newData;
               }
               // Fallback: Create item from WebSocket data if quotes API failed
+              // Use ref to avoid stale closure - watchlistSymbols changes but callback stays same
               // Match by both symbol AND exchange
-              const symbolData = watchlistSymbols.find(s => {
+              const symbolData = watchlistSymbolsRef.current.find(s => {
                 if (typeof s === 'string') return s === ticker.symbol;
                 return s.symbol === ticker.symbol && s.exchange === tickerExchange;
               });
               if (symbolData) {
+                console.log('=== WEBSOCKET FALLBACK: Adding', ticker.symbol, '===');
                 return [...prev, {
                   symbol: ticker.symbol,
                   exchange: tickerExchange,
                   last: ticker.last.toFixed(2),
+                  open: ticker.open,
+                  volume: ticker.volume,
                   chg: ticker.chg.toFixed(2),
                   chgP: ticker.chgP.toFixed(2) + '%',
                   up: ticker.chg >= 0
@@ -786,11 +860,6 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               return prev;
             });
           });
-        } else if (mounted && symbolsWithCachedData.length === 0) {
-          // No cached data and no fresh data - show empty
-          setWatchlistData([]);
-          setWatchlistLoading(false);
-          initialDataLoaded = true;
         }
       } catch (error) {
         // Ignore abort errors - they're expected when effect re-runs
@@ -831,8 +900,19 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     };
 
     // Decide update strategy
-    if (isInitialLoad || isListSwitch) {
-      // Full reload for initial load or watchlist switch
+    // Note: watchlistData.length === 0 check handles React strict mode double-invocation
+    // where first effect's cleanup aborts requests before they complete
+    const needsFullReload = isInitialLoad || isListSwitch || (currentSymbolKeys.length > 0 && watchlistData.length === 0);
+
+    console.log('=== UPDATE STRATEGY ===');
+    console.log('isInitialLoad:', isInitialLoad, 'isListSwitch:', isListSwitch);
+    console.log('watchlistData.length:', watchlistData.length, 'currentSymbolKeys.length:', currentSymbolKeys.length);
+    console.log('needsFullReload:', needsFullReload);
+    console.log('addedSymbolKeys:', addedSymbolKeys.length, 'removedSymbolKeys:', removedSymbolKeys.length);
+
+    if (needsFullReload) {
+      // Full reload for initial load, watchlist switch, or empty data
+      console.log('>>> Calling hydrateWatchlist()');
       hydrateWatchlist();
     } else if (removedSymbolKeys.length > 0 || addedSymbolKeys.length > 0) {
       // Incremental update
@@ -850,12 +930,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     // If no changes (just reorder or sections), do nothing
 
     return () => {
-      // Only mark unmounted and abort if fetch is NOT in progress
-      // This prevents killing in-flight requests and returning null for successful responses
-      if (!watchlistFetchingRef.current) {
-        mounted = false;
-        abortController.abort();
-      }
+      // Always cleanup previous effect - new effect will start fresh
+      // Each effect has its own mounted/abortController, so this is safe
+      mounted = false;
+      abortController.abort();
+      watchlistFetchingRef.current = false;
       if (ws && ws.readyState === WebSocket.OPEN) {
         ws.close();
       }
@@ -1058,22 +1137,19 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setWatchlistsState(prev => ({ ...prev, activeListId: id }));
   };
 
-  // Toggle watchlist favorite status for quick-access (max 12)
-  const handleToggleWatchlistFavorite = (id) => {
-    const targetWl = watchlistsState.lists.find(wl => wl.id === id);
-    const currentFavoriteCount = watchlistsState.lists.filter(wl => wl.isFavorite).length;
-
-    // If trying to add a new favorite and already at max
-    if (!targetWl?.isFavorite && currentFavoriteCount >= 12) {
-      showToast('Maximum 12 favorite watchlists allowed', 'warning');
-      return;
-    }
-
+  // Toggle favorite status for a watchlist with optional emoji
+  const handleToggleWatchlistFavorite = (id, emoji) => {
     setWatchlistsState(prev => ({
       ...prev,
-      lists: prev.lists.map(wl =>
-        wl.id === id ? { ...wl, isFavorite: !wl.isFavorite } : wl
-      ),
+      lists: prev.lists.map(wl => {
+        if (wl.id !== id) return wl;
+        // If emoji provided, favorite with that emoji; if null, unfavorite
+        if (emoji) {
+          return { ...wl, isFavorite: true, favoriteEmoji: emoji };
+        } else {
+          return { ...wl, isFavorite: false, favoriteEmoji: undefined };
+        }
+      }),
     }));
   };
 
@@ -1109,6 +1185,58 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       activeListId: newId,
     }));
     showToast(`Created copy: ${newName}`, 'success');
+  };
+
+  // Export watchlist to CSV
+  const handleExportWatchlist = (id) => {
+    const watchlist = watchlistsState.lists.find(wl => wl.id === id);
+    if (!watchlist) return;
+
+    const symbols = watchlist.symbols || [];
+    const csvContent = symbols
+      .filter(s => typeof s !== 'string' || !s.startsWith('###'))
+      .map(s => {
+        const symbol = typeof s === 'string' ? s : s.symbol;
+        const exchange = typeof s === 'string' ? 'NSE' : (s.exchange || 'NSE');
+        return `${symbol},${exchange}`;
+      })
+      .join('\n');
+
+    const blob = new Blob([`symbol,exchange\n${csvContent}`], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${watchlist.name || 'watchlist'}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast(`Exported ${symbols.filter(s => typeof s !== 'string' || !s.startsWith('###')).length} symbols`, 'success');
+  };
+
+  // Import symbols to watchlist from CSV
+  const handleImportWatchlist = (symbols, id) => {
+    if (!symbols || symbols.length === 0) return;
+
+    setWatchlistsState(prev => ({
+      ...prev,
+      lists: prev.lists.map(wl => {
+        if (wl.id !== id) return wl;
+        // Get existing symbol names to avoid duplicates
+        const existingSymbols = new Set(
+          (wl.symbols || [])
+            .filter(s => typeof s !== 'string' || !s.startsWith('###'))
+            .map(s => typeof s === 'string' ? s : s.symbol)
+        );
+        // Filter out duplicates
+        const newSymbols = symbols.filter(s => !existingSymbols.has(s.symbol));
+        return {
+          ...wl,
+          symbols: [...(wl.symbols || []), ...newSymbols]
+        };
+      })
+    }));
+    showToast(`Imported ${symbols.length} symbols`, 'success');
   };
 
   // Add a section to the watchlist at a specific index (TradingView model: insert ###SECTION string)
@@ -1226,7 +1354,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
     if (searchMode === 'switch') {
       setCharts(prev => prev.map(chart =>
-        chart.id === activeChartId ? { ...chart, symbol: symbol, exchange: exchange } : chart
+        chart.id === activeChartId ? { ...chart, symbol: symbol, exchange: exchange, strategyConfig: null } : chart
       ));
     } else if (searchMode === 'compare') {
       const colors = ['#f57f17', '#e91e63', '#9c27b0', '#673ab7', '#3f51b5'];
@@ -1325,12 +1453,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
       const currentIndicator = chart.indicators[name];
 
-      // Handle boolean indicators (sma, ema)
-      if (typeof currentIndicator === 'boolean') {
-        return { ...chart, indicators: { ...chart.indicators, [name]: !currentIndicator } };
-      }
-
-      // Handle object indicators (rsi, macd, etc.) - toggle the 'enabled' property
+      // All indicators are now objects with 'enabled' property
       if (typeof currentIndicator === 'object' && currentIndicator !== null) {
         return {
           ...chart,
@@ -1344,6 +1467,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       return chart;
     }));
   };
+
+  // Update indicator settings (period, color, etc.)
+  const updateIndicatorSettings = useCallback((newIndicators) => {
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+      return { ...chart, indicators: newIndicators };
+    }));
+  }, [activeChartId]);
 
   // Handler for removing indicator from pane (called from ChartComponent)
   const handleIndicatorRemove = (indicatorType) => {
@@ -1426,6 +1557,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isTimerVisible, setIsTimerVisible] = useState(false);
   const [isSessionBreakVisible, setIsSessionBreakVisible] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isIndicatorSettingsOpen, setIsIndicatorSettingsOpen] = useState(false);
   const [websocketUrl, setWebsocketUrl] = useState(() => {
     return localStorage.getItem('oa_ws_url') || '127.0.0.1:8765';
   });
@@ -1952,8 +2084,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       chart.id === activeChartId ? { ...chart, symbol, exchange } : chart
     ));
     setIsOptionChainOpen(false);
-
   };
+
+  // Open option chain for a specific symbol (from chart right-click)
+  const handleOpenOptionChainForSymbol = useCallback((symbol, exchange) => {
+    setOptionChainInitialSymbol({ symbol, exchange });
+    setIsOptionChainOpen(true);
+  }, []);
 
   const handleLoadTemplate = useCallback((template) => {
     if (!template) return;
@@ -2247,7 +2384,10 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onSaveLayout={handleSaveLayout}
             onSettingsClick={handleSettingsClick}
             onTemplatesClick={handleTemplatesClick}
-            onOptionChainClick={handleOptionChainClick}
+            onStraddleClick={() => setIsStraddlePickerOpen(true)}
+            strategyConfig={activeChart?.strategyConfig}
+            onIndicatorSettingsClick={() => setIsIndicatorSettingsOpen(true)}
+            onOptionsClick={() => setIsOptionChainOpen(true)}
           />
         }
         leftToolbar={
@@ -2325,7 +2465,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
                 const symbol = typeof symData === 'string' ? symData : symData.symbol;
                 const exchange = typeof symData === 'string' ? 'NSE' : (symData.exchange || 'NSE');
                 setCharts(prev => prev.map(chart =>
-                  chart.id === activeChartId ? { ...chart, symbol: symbol, exchange: exchange } : chart
+                  chart.id === activeChartId ? { ...chart, symbol: symbol, exchange: exchange, strategyConfig: null } : chart
                 ));
               }}
               onAddClick={handleAddClick}
@@ -2340,15 +2480,18 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               onDeleteWatchlist={handleDeleteWatchlist}
               onClearWatchlist={handleClearWatchlist}
               onCopyWatchlist={handleCopyWatchlist}
+              // Favorites for quick-access
+              favoriteWatchlists={favoriteWatchlists}
+              onToggleFavorite={handleToggleWatchlistFavorite}
               // Section management (TradingView flat array model)
               onAddSection={handleAddSection}
               onRenameSection={handleRenameSection}
               onDeleteSection={handleDeleteSection}
               collapsedSections={activeWatchlist?.collapsedSections || []}
               onToggleSection={handleToggleSection}
-              // Quick-access favorites props
-              favoriteWatchlists={favoriteWatchlists}
-              onToggleFavorite={handleToggleWatchlistFavorite}
+              // Import/Export props
+              onExport={handleExportWatchlist}
+              onImport={handleImportWatchlist}
             />
           ) : activeRightPanel === 'alerts' ? (
             <AlertsPanel
@@ -2357,6 +2500,23 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               onRemoveAlert={handleRemoveAlert}
               onRestartAlert={handleRestartAlert}
               onPauseAlert={handlePauseAlert}
+            />
+          ) : activeRightPanel === 'position_tracker' ? (
+            <PositionTracker
+              sourceMode={positionTrackerSettings.sourceMode}
+              customSymbols={positionTrackerSettings.customSymbols}
+              watchlistData={watchlistData}
+              isLoading={watchlistLoading}
+              onSourceModeChange={(mode) => setPositionTrackerSettings(prev => ({ ...prev, sourceMode: mode }))}
+              onCustomSymbolsChange={(symbols) => setPositionTrackerSettings(prev => ({ ...prev, customSymbols: symbols }))}
+              onSymbolSelect={(symData) => {
+                const symbol = typeof symData === 'string' ? symData : symData.symbol;
+                const exchange = typeof symData === 'string' ? 'NSE' : (symData.exchange || 'NSE');
+                setCharts(prev => prev.map(chart =>
+                  chart.id === activeChartId ? { ...chart, symbol: symbol, exchange: exchange, strategyConfig: null } : chart
+                ));
+              }}
+              isAuthenticated={isAuthenticated}
             />
           ) : null
         }
@@ -2395,6 +2555,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onIndicatorRemove={handleIndicatorRemove}
             onIndicatorVisibilityToggle={handleIndicatorVisibilityToggle}
             chartAppearance={chartAppearance}
+            onOpenOptionChain={handleOpenOptionChainForSymbol}
           />
         }
       />
@@ -2457,6 +2618,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         onChartAppearanceChange={handleChartAppearanceChange}
         onResetChartAppearance={handleResetChartAppearance}
       />
+      <IndicatorSettingsModal
+        isOpen={isIndicatorSettingsOpen}
+        onClose={() => setIsIndicatorSettingsOpen(false)}
+        theme={theme}
+        indicators={activeChart.indicators}
+        onIndicatorSettingsChange={updateIndicatorSettings}
+      />
       <LayoutTemplateDialog
         isOpen={isTemplateDialogOpen}
         onClose={() => setIsTemplateDialogOpen(false)}
@@ -2474,10 +2642,25 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         isOpen={isShortcutsDialogOpen}
         onClose={() => setIsShortcutsDialogOpen(false)}
       />
+      <OptionChainPicker
+        isOpen={isStraddlePickerOpen}
+        onClose={() => setIsStraddlePickerOpen(false)}
+        onSelect={(config) => {
+          setCharts(prev => prev.map(chart =>
+            chart.id === activeChartId ? { ...chart, strategyConfig: config } : chart
+          ));
+          setIsStraddlePickerOpen(false);
+        }}
+        spotPrice={activeChart?.ltp || null}
+      />
       <OptionChainModal
         isOpen={isOptionChainOpen}
-        onClose={() => setIsOptionChainOpen(false)}
+        onClose={() => {
+          setIsOptionChainOpen(false);
+          setOptionChainInitialSymbol(null);
+        }}
         onSelectOption={handleOptionSelect}
+        initialSymbol={optionChainInitialSymbol}
       />
     </>
   );

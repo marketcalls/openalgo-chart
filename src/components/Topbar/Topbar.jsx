@@ -17,7 +17,9 @@ const Topbar = ({
     onUndo, onRedo, onMenuClick, theme, onToggleTheme,
     onDownloadImage, onCopyImage, onFullScreen,
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
-    isReplayMode = false, onSettingsClick, onTemplatesClick, onOptionChainClick
+    isReplayMode = false, onSettingsClick, onTemplatesClick,
+    onStraddleClick, strategyConfig = null,
+    onIndicatorSettingsClick, onOptionsClick
 }) => {
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
@@ -409,6 +411,23 @@ const Topbar = ({
                                                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M13.5 6a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM4 14.5a9.5 9.5 0 1 1 19 0 9.5 9.5 0 0 1-19 0z"></path><path fill="currentColor" d="M9 14h4v-4h1v4h4v1h-4v4h-1v-4H9v-1z"></path></svg>
                                                     </div>
                                                 </button>
+                                                {/* Strategy Chart Button */}
+                                                <Tooltip content={strategyConfig ? strategyConfig.displayName : "Create Option Strategy Chart"} position="bottom">
+                                                    <button
+                                                        className={classNames(styles.button, styles.iconButton, { [styles.isActive]: !!strategyConfig })}
+                                                        aria-label="Option Strategy Chart"
+                                                        onClick={onStraddleClick}
+                                                    >
+                                                        <div className={styles.icon}>
+                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                <path d="M3 17l6-6 4 4 8-8" />
+                                                                <path d="M17 7h4v4" />
+                                                                <path d="M3 7l6 6 4-4 8 8" />
+                                                                <path d="M17 17h4v-4" />
+                                                            </svg>
+                                                        </div>
+                                                    </button>
+                                                </Tooltip>
                                             </div>
                                             {/* Timeframes */}
                                             <div className={styles.separatorWrap}><div className={styles.separator}></div></div>
@@ -629,29 +648,41 @@ const Topbar = ({
                                                             style={{ top: indicatorPos.top, left: indicatorPos.left }}
                                                         >
                                                             <div className={styles.dropdownSection}>Moving Averages</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.sma === true || (typeof indicators.sma === 'object' && indicators.sma?.enabled) })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('sma'); }}>SMA (20)</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.ema === true || (typeof indicators.ema === 'object' && indicators.ema?.enabled) })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('ema'); }}>EMA (20)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.sma?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('sma'); }}>SMA ({indicators.sma?.period || 20})</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.ema?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('ema'); }}>EMA ({indicators.ema?.period || 20})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Oscillators</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.rsi?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('rsi'); }}>RSI (14)</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.stochastic?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('stochastic'); }}>Stochastic (14, 3)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.rsi?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('rsi'); }}>RSI ({indicators.rsi?.period || 14})</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.stochastic?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('stochastic'); }}>Stochastic ({indicators.stochastic?.kPeriod || 14}, {indicators.stochastic?.dPeriod || 3})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Momentum</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.macd?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('macd'); }}>MACD (12, 26, 9)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.macd?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('macd'); }}>MACD ({indicators.macd?.fast || 12}, {indicators.macd?.slow || 26}, {indicators.macd?.signal || 9})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Volatility</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.bollingerBands?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('bollingerBands'); }}>Bollinger Bands (20, 2)</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.atr?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('atr'); }}>ATR (14)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.bollingerBands?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('bollingerBands'); }}>Bollinger Bands ({indicators.bollingerBands?.period || 20}, {indicators.bollingerBands?.stdDev || 2})</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.atr?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('atr'); }}>ATR ({indicators.atr?.period || 14})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Trend</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.supertrend?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('supertrend'); }}>Supertrend (10, 3)</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.supertrend?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('supertrend'); }}>Supertrend ({indicators.supertrend?.period || 10}, {indicators.supertrend?.multiplier || 3})</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Volume</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.volume?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('volume'); }}>Volume</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.vwap?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('vwap'); }}>VWAP</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Market Profile</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.tpo?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('tpo'); }}>TPO Profile</div>
+                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.tpo?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('tpo'); }}>TPO Profile (30m)</div>
+                                                            {/* Settings Button */}
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div
+                                                                className={classNames(styles.dropdownItem, styles.settingsItem)}
+                                                                onClick={(e) => { e.stopPropagation(); setShowIndicators(false); onIndicatorSettingsClick?.(); }}
+                                                            >
+                                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                                                    <circle cx="12" cy="12" r="3" />
+                                                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                                                                </svg>
+                                                                Indicator Settings
+                                                            </div>
                                                         </div>
                                                     )}
                                                 </div>
@@ -672,17 +703,12 @@ const Topbar = ({
                                                     </div>
                                                     <div className={styles.text}>Replay</div>
                                                 </button>
-                                                {onOptionChainClick && (
-                                                    <button className={classNames(styles.button)} aria-label="Option Chain" onClick={onOptionChainClick}>
-                                                        <div className={styles.icon}>
-                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor">
-                                                                <path d="M4 7h9v1H4V7zm0 5h9v1H4v-1zm0 5h9v1H4v-1zm11-10h9v1h-9V7zm0 5h9v1h-9v-1zm0 5h9v1h-9v-1z" />
-                                                                <circle cx="14" cy="14" r="2.5" fill="none" stroke="currentColor" strokeWidth="1" />
-                                                            </svg>
-                                                        </div>
-                                                        <div className={styles.text}>Options</div>
-                                                    </button>
-                                                )}
+                                                <button className={styles.button} aria-label="Option Chain" onClick={onOptionsClick}>
+                                                    <div className={styles.icon}>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M4 7h2v2H4V7zm4 0h16v2H8V7zM4 13h2v2H4v-2zm4 0h16v2H8v-2zM4 19h2v2H4v-2zm4 0h16v2H8v-2z"></path></svg>
+                                                    </div>
+                                                    <div className={styles.text}>Options</div>
+                                                </button>
                                             </div>
 
                                             {/* Undo / Redo */}

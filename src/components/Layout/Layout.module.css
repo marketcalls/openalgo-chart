@@ -79,6 +79,43 @@
   background-color: var(--tv-color-pane-background, #131722);
   border-left: 1px solid var(--tv-color-border, #2A2E39);
   overflow: hidden;
+  position: relative; /* For absolute resize handle */
+}
+
+/* Resize handle for watchlist panel */
+.resizeHandle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: ew-resize;
+  background: transparent;
+  z-index: 10;
+  transition: background-color 0.15s ease;
+}
+
+.resizeHandle::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 2px;
+  height: 40px;
+  background-color: transparent;
+  border-radius: 1px;
+  transition: background-color 0.15s ease;
+}
+
+.resizeHandle:hover::before,
+.resizeHandleActive::before {
+  background-color: var(--tv-color-brand, #2962ff);
+}
+
+.resizeHandle:hover,
+.resizeHandleActive {
+  background-color: rgba(41, 98, 255, 0.1);
 }
 
 /* Mobile watchlist - slide-out panel */

@@ -1,7 +1,10 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { ChevronDown, Plus, Trash2, Edit2, Check, X, Star, Copy, Eraser, Layers } from 'lucide-react';
+import { ChevronDown, Plus, Trash2, Edit2, Check, X, Copy, Eraser, Layers, Download, Upload, Star } from 'lucide-react';
 import styles from './WatchlistSelector.module.css';
 import classNames from 'classnames';
+
+// Finance-related emoji palette for favorites
+const EMOJI_PALETTE = ['📈', '📉', '📊', '💹', '💰', '💵', '💎', '🏦', '🎯', '⭐', '🔥', '🚀', '💼', '📋', '🏆'];
 
 const WatchlistSelector = ({
     watchlists,
@@ -13,6 +16,8 @@ const WatchlistSelector = ({
     onClear,
     onCopy,
     onAddSection,
+    onExport,
+    onImport,
     onToggleFavorite,
 }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -21,9 +26,11 @@ const WatchlistSelector = ({
     const [editingId, setEditingId] = useState(null);
     const [editName, setEditName] = useState('');
     const [showClearConfirm, setShowClearConfirm] = useState(false);
+    const [emojiPickerForId, setEmojiPickerForId] = useState(null); // ID of watchlist showing emoji picker
     const dropdownRef = useRef(null);
     const createInputRef = useRef(null);
     const editInputRef = useRef(null);
+    const fileInputRef = useRef(null);
 
     const activeWatchlist = watchlists.find(wl => wl.id === activeId) || watchlists[0];
 
@@ -44,6 +51,7 @@ const WatchlistSelector = ({
                 setShowCreateInput(false);
                 setEditingId(null);
                 setShowClearConfirm(false);
+                setEmojiPickerForId(null);
             }
         };
 
@@ -161,6 +169,76 @@ const WatchlistSelector = ({
         setIsOpen(false);
     };
 
+    // Export watchlist to CSV
+    const handleExportClick = () => {
+        if (onExport) {
+            onExport(activeId);
+        } else {
+            // Fallback: export current watchlist symbols as CSV
+            const symbols = activeWatchlist?.symbols || [];
+            const csvContent = symbols
+                .filter(s => typeof s !== 'string' || !s.startsWith('###'))
+                .map(s => {
+                    const symbol = typeof s === 'string' ? s : s.symbol;
+                    const exchange = typeof s === 'string' ? 'NSE' : (s.exchange || 'NSE');
+                    return `${symbol},${exchange}`;
+                })
+                .join('\n');
+
+            const blob = new Blob([`symbol,exchange\n${csvContent}`], { type: 'text/csv' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${activeWatchlist?.name || 'watchlist'}.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        setIsOpen(false);
+    };
+
+    // Import watchlist from CSV
+    const handleImportClick = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileChange = (e) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            const text = event.target?.result;
+            if (typeof text !== 'string') return;
+
+            const lines = text.split('\n').filter(line => line.trim());
+            const symbols = [];
+
+            lines.forEach((line, index) => {
+                // Skip header row
+                if (index === 0 && line.toLowerCase().includes('symbol')) return;
+
+                const parts = line.split(',').map(p => p.trim());
+                if (parts[0]) {
+                    symbols.push({
+                        symbol: parts[0].toUpperCase(),
+                        exchange: parts[1]?.toUpperCase() || 'NSE'
+                    });
+                }
+            });
+
+            if (symbols.length > 0 && onImport) {
+                onImport(symbols, activeId);
+            }
+        };
+        reader.readAsText(file);
+
+        // Reset file input
+        e.target.value = '';
+        setIsOpen(false);
+    };
+
     return (
         <div className={styles.selector} ref={dropdownRef}>
             <button className={styles.selectorButton} onClick={handleToggle}>
@@ -246,6 +324,18 @@ const WatchlistSelector = ({
                                 <span>Add section</span>
                             </button>
                         )}
+
+                        <div className={styles.menuDivider} />
+
+                        <button className={styles.menuItem} onClick={handleExportClick}>
+                            <Download size={14} />
+                            <span>Export to CSV</span>
+                        </button>
+
+                        <button className={styles.menuItem} onClick={handleImportClick}>
+                            <Upload size={14} />
+                            <span>Import from CSV</span>
+                        </button>
                     </div>
 
                     <div className={styles.divider} />
@@ -281,13 +371,12 @@ const WatchlistSelector = ({
                     {/* Watchlist items */}
                     <div className={styles.dropdownList}>
                         {sortedWatchlists.map(wl => {
-                            const isFavorites = wl.id === 'wl_favorites';
                             return (
                                 <div
                                     key={wl.id}
                                     className={classNames(styles.dropdownItem, {
                                         [styles.active]: wl.id === activeId,
-                                        [styles.favorites]: isFavorites,
+                                        [styles.showActions]: emojiPickerForId === wl.id,
                                     })}
                                     onClick={() => !editingId && handleSelect(wl.id)}
                                 >
@@ -317,43 +406,68 @@ const WatchlistSelector = ({
                                         </div>
                                     ) : (
                                         <>
-                                            {isFavorites && <Star size={14} className={styles.favoriteIcon} />}
                                             <span className={styles.itemName}>{wl.name}</span>
                                             <span className={styles.itemCount}>
                                                 {wl.symbols?.length || 0}
                                             </span>
-                                            {!isFavorites && (
-                                                <div className={styles.itemActions}>
-                                                    <button
-                                                        className={classNames(styles.iconButton, styles.starButton, {
-                                                            [styles.starActive]: wl.isFavorite
-                                                        })}
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            onToggleFavorite?.(wl.id);
-                                                        }}
-                                                        title={wl.isFavorite ? "Remove from quick access" : "Add to quick access"}
-                                                    >
-                                                        <Star size={12} />
-                                                    </button>
-                                                    <button
-                                                        className={styles.iconButton}
-                                                        onClick={(e) => handleEditClick(e, wl)}
-                                                        title="Rename"
-                                                    >
-                                                        <Edit2 size={12} />
-                                                    </button>
-                                                    {watchlists.length > 1 && (
+                                            <div className={styles.itemActions}>
+                                                {onToggleFavorite && (
+                                                    <div className={styles.starContainer}>
                                                         <button
-                                                            className={classNames(styles.iconButton, styles.deleteButton)}
-                                                            onClick={(e) => handleDeleteClick(e, wl.id)}
-                                                            title="Delete"
+                                                            className={classNames(styles.iconButton, styles.starButton, {
+                                                                [styles.starActive]: wl.isFavorite,
+                                                            })}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                if (wl.isFavorite) {
+                                                                    // Already favorite - unfavorite it
+                                                                    onToggleFavorite(wl.id, null);
+                                                                } else {
+                                                                    // Not favorite - show emoji picker
+                                                                    setEmojiPickerForId(wl.id);
+                                                                }
+                                                            }}
+                                                            title={wl.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
                                                         >
-                                                            <Trash2 size={12} />
+                                                            <Star size={12} fill={wl.isFavorite ? 'currentColor' : 'none'} />
                                                         </button>
-                                                    )}
-                                                </div>
-                                            )}
+                                                        {/* Emoji picker popup */}
+                                                        {emojiPickerForId === wl.id && (
+                                                            <div className={styles.emojiPicker} onClick={(e) => e.stopPropagation()}>
+                                                                {EMOJI_PALETTE.map(emoji => (
+                                                                    <button
+                                                                        key={emoji}
+                                                                        className={styles.emojiOption}
+                                                                        onClick={(e) => {
+                                                                            e.stopPropagation();
+                                                                            onToggleFavorite(wl.id, emoji);
+                                                                            setEmojiPickerForId(null);
+                                                                        }}
+                                                                    >
+                                                                        {emoji}
+                                                                    </button>
+                                                                ))}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                                <button
+                                                    className={styles.iconButton}
+                                                    onClick={(e) => handleEditClick(e, wl)}
+                                                    title="Rename"
+                                                >
+                                                    <Edit2 size={12} />
+                                                </button>
+                                                {watchlists.length > 1 && (
+                                                    <button
+                                                        className={classNames(styles.iconButton, styles.deleteButton)}
+                                                        onClick={(e) => handleDeleteClick(e, wl.id)}
+                                                        title="Delete"
+                                                    >
+                                                        <Trash2 size={12} />
+                                                    </button>
+                                                )}
+                                            </div>
                                         </>
                                     )}
                                 </div>
@@ -362,6 +476,15 @@ const WatchlistSelector = ({
                     </div>
                 </div>
             )}
+
+            {/* Hidden file input for import */}
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept=".csv,.txt"
+                onChange={handleFileChange}
+                style={{ display: 'none' }}
+            />
         </div>
     );
 };

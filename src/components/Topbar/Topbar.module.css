@@ -290,6 +290,25 @@
     background-color: rgba(41, 98, 255, 0.06);
 }
 
+.dropdownItem.settingsItem {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--tv-color-text-secondary);
+    font-size: 12px;
+    padding: 8px 16px;
+    border-top: 1px solid var(--tv-color-border);
+    margin-top: 4px;
+}
+
+.dropdownItem.settingsItem:hover {
+    color: var(--tv-color-brand);
+}
+
+.dropdownItem.settingsItem svg {
+    flex-shrink: 0;
+}
+
 .dropdownItem.withIcon {
     gap: 8px;
     justify-content: flex-start;

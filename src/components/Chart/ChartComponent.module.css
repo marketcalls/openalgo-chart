@@ -226,6 +226,60 @@
     color: #F23645;
 }
 
+/* Shift+Click Quick Measure Tool Styles */
+.measureOverlay {
+    position: absolute;
+    z-index: 100;
+    pointer-events: none;
+    transform: translateX(-50%);
+}
+
+.measureBox {
+    background: rgba(30, 30, 30, 0.95);
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 8px 12px;
+    color: white;
+    font-size: 12px;
+    white-space: nowrap;
+    text-align: center;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+.measureUp {
+    color: #26a69a;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.measureDown {
+    color: #ef5350;
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.measureDetails {
+    color: #aaa;
+    font-size: 11px;
+    margin-top: 4px;
+}
+
+.measureStartPoint {
+    position: absolute;
+    width: 8px;
+    height: 8px;
+    background: #2962ff;
+    border: 2px solid white;
+    border-radius: 50%;
+    pointer-events: none;
+    z-index: 100;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+.measureLine {
+    pointer-events: none;
+}
+
 /* Indicator Legend - Official TradingView Style */
 .indicatorLegend {
     position: absolute;
@@ -367,4 +421,34 @@
 /* Eye button when indicator is hidden - always visible */
 .eyeHidden {
     opacity: 1 !important;
+}
+
+/* Right-click Context Menu */
+.contextMenu {
+    position: fixed;
+    background-color: var(--tv-color-popup-background, var(--tv-color-platform-background, #ffffff));
+    border: 1px solid var(--tv-color-border, #e0e3eb);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    z-index: 1000;
+    min-width: 160px;
+    padding: 4px 0;
+}
+
+.contextMenuItem {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: var(--tv-color-text-primary, #131722);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.1s ease;
+}
+
+.contextMenuItem:hover {
+    background-color: var(--tv-color-toolbar-button-background-hover, var(--tv-color-platform-background-hover, #f0f3fa));
 }

@@ -45,8 +45,9 @@ const ChartGrid = ({
                         {...chartProps}
                         indicators={chart.indicators}
                         comparisonSymbols={chart.comparisonSymbols}
+                        strategyConfig={chart.strategyConfig}
                     // Override props that might be specific to the chart state if needed
-                    // symbol/interval/indicators are per-chart.
+                    // symbol/interval/indicators/strategyConfig are per-chart.
                     />
                 </div>
             ))}

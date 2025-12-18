@@ -43,6 +43,7 @@ const DrawingToolbar = ({ activeTool, onToolChange, isDrawingsLocked = false, is
                 { id: 'rectangle', icon: Icons.RectangleIcon, label: 'Rectangle' },
                 { id: 'circle', icon: Icons.CircleIcon, label: 'Circle' },
                 { id: 'triangle', icon: Icons.TriangleIcon, label: 'Triangle' },
+                { id: 'arc', icon: Icons.ArcIcon, label: 'Arc' },
                 { id: 'path', icon: Icons.PathIcon, label: 'Path' }
             ]
         },
