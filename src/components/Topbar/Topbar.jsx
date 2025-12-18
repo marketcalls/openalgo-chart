@@ -420,10 +420,10 @@ const Topbar = ({
                                                     >
                                                         <div className={styles.icon}>
                                                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                <path d="M3 17l6-6 4 4 8-8"/>
-                                                                <path d="M17 7h4v4"/>
-                                                                <path d="M3 7l6 6 4-4 8 8"/>
-                                                                <path d="M17 17h4v-4"/>
+                                                                <path d="M3 17l6-6 4 4 8-8" />
+                                                                <path d="M17 7h4v4" />
+                                                                <path d="M3 7l6 6 4-4 8 8" />
+                                                                <path d="M17 17h4v-4" />
                                                             </svg>
                                                         </div>
                                                     </button>
@@ -665,9 +665,6 @@ const Topbar = ({
                                                             <div className={styles.dropdownSection}>Trend</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.supertrend?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('supertrend'); }}>Supertrend ({indicators.supertrend?.period || 10}, {indicators.supertrend?.multiplier || 3})</div>
                                                             <div className={styles.dropdownDivider}></div>
-                                                            <div className={styles.dropdownSection}>Trend</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.supertrend?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('supertrend'); }}>Supertrend (10, 3)</div>
-                                                            <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Volume</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.volume?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('volume'); }}>Volume</div>
                                                             <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.vwap?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('vwap'); }}>VWAP</div>
@@ -681,8 +678,8 @@ const Topbar = ({
                                                                 onClick={(e) => { e.stopPropagation(); setShowIndicators(false); onIndicatorSettingsClick?.(); }}
                                                             >
                                                                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                    <circle cx="12" cy="12" r="3"/>
-                                                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+                                                                    <circle cx="12" cy="12" r="3" />
+                                                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
                                                                 </svg>
                                                                 Indicator Settings
                                                             </div>

@@ -426,10 +426,10 @@
 /* Right-click Context Menu */
 .contextMenu {
     position: fixed;
-    background-color: var(--tv-color-popup-background, #1e222d);
-    border: 1px solid var(--tv-color-border, #363a45);
+    background-color: var(--tv-color-popup-background, var(--tv-color-platform-background, #ffffff));
+    border: 1px solid var(--tv-color-border, #e0e3eb);
     border-radius: 4px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
     z-index: 1000;
     min-width: 160px;
     padding: 4px 0;
@@ -442,7 +442,7 @@
     padding: 8px 12px;
     background: transparent;
     border: none;
-    color: var(--tv-color-text-primary, #d1d4dc);
+    color: var(--tv-color-text-primary, #131722);
     font-size: 13px;
     cursor: pointer;
     text-align: left;
@@ -450,5 +450,5 @@
 }
 
 .contextMenuItem:hover {
-    background-color: var(--tv-color-toolbar-button-background-hover, #2a2e39);
+    background-color: var(--tv-color-toolbar-button-background-hover, var(--tv-color-platform-background-hover, #f0f3fa));
 }
