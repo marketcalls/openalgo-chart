@@ -1,13 +1,13 @@
 import React from 'react';
-import { List, Clock } from 'lucide-react';
+import { List, Clock, TrendingUp } from 'lucide-react';
 import styles from './RightToolbar.module.css';
 import classNames from 'classnames';
 
 const RightToolbar = ({ activePanel, onPanelChange, badges = {} }) => {
     const tools = [
         { id: 'watchlist', icon: List, label: 'Watchlist' },
+        { id: 'position_tracker', icon: TrendingUp, label: 'Position Flow' },
         { id: 'alerts', icon: Clock, label: 'Alerts' },
-
     ];
 
     const handleToolClick = (id) => {

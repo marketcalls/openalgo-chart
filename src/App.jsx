@@ -23,14 +23,13 @@ import CommandPalette from './components/CommandPalette/CommandPalette';
 import LayoutTemplateDialog from './components/LayoutTemplates/LayoutTemplateDialog';
 import ShortcutsDialog from './components/ShortcutsDialog/ShortcutsDialog';
 import { OptionChainPicker } from './components/OptionChainPicker';
-import QuickOptionPicker from './components/QuickOptionPicker/QuickOptionPicker';
 import OptionChainModal from './components/OptionChainModal';
 import { initTimeService } from './services/timeService';
 import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
 import IndicatorSettingsModal from './components/IndicatorSettings/IndicatorSettingsModal';
-
+import PositionTracker from './components/PositionTracker';
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
 
@@ -305,9 +304,6 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
   // Multi-leg strategy chart state
   const [isStraddlePickerOpen, setIsStraddlePickerOpen] = useState(false);
-  // Quick option chart picker
-  const [isQuickOptionOpen, setIsQuickOptionOpen] = useState(false);
-  const quickOptionBtnRef = useRef(null);
   // strategyConfig is now per-chart, stored in charts[].strategyConfig
   const [isOptionChainOpen, setIsOptionChainOpen] = useState(false);
   // const [indicators, setIndicators] = useState({ sma: false, ema: false }); // Moved to charts state
@@ -376,6 +372,21 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
   // Right Panel State
   const [activeRightPanel, setActiveRightPanel] = useState('watchlist');
+
+  // Position Tracker State
+  const [positionTrackerSettings, setPositionTrackerSettings] = useState(() => {
+    const saved = safeParseJSON(localStorage.getItem('tv_position_tracker_settings'), null);
+    return saved || { sourceMode: 'watchlist', customSymbols: [] };
+  });
+
+  // Persist position tracker settings
+  useEffect(() => {
+    try {
+      localStorage.setItem('tv_position_tracker_settings', JSON.stringify(positionTrackerSettings));
+    } catch (error) {
+      console.error('Failed to persist position tracker settings:', error);
+    }
+  }, [positionTrackerSettings]);
 
   // Theme State
   const [theme, setTheme] = useState(() => {
@@ -2068,7 +2079,6 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       chart.id === activeChartId ? { ...chart, symbol, exchange } : chart
     ));
     setIsOptionChainOpen(false);
-
   };
 
   const handleLoadTemplate = useCallback((template) => {
@@ -2365,10 +2375,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onTemplatesClick={handleTemplatesClick}
             onStraddleClick={() => setIsStraddlePickerOpen(true)}
             strategyConfig={activeChart?.strategyConfig}
-            onQuickOptionClick={() => setIsQuickOptionOpen(!isQuickOptionOpen)}
-            quickOptionBtnRef={quickOptionBtnRef}
             onIndicatorSettingsClick={() => setIsIndicatorSettingsOpen(true)}
-            onOptionChainClick={handleOptionChainClick}
+            onOptionsClick={() => setIsOptionChainOpen(true)}
           />
         }
         leftToolbar={
@@ -2481,6 +2489,23 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               onRemoveAlert={handleRemoveAlert}
               onRestartAlert={handleRestartAlert}
               onPauseAlert={handlePauseAlert}
+            />
+          ) : activeRightPanel === 'position_tracker' ? (
+            <PositionTracker
+              sourceMode={positionTrackerSettings.sourceMode}
+              customSymbols={positionTrackerSettings.customSymbols}
+              watchlistData={watchlistData}
+              isLoading={watchlistLoading}
+              onSourceModeChange={(mode) => setPositionTrackerSettings(prev => ({ ...prev, sourceMode: mode }))}
+              onCustomSymbolsChange={(symbols) => setPositionTrackerSettings(prev => ({ ...prev, customSymbols: symbols }))}
+              onSymbolSelect={(symData) => {
+                const symbol = typeof symData === 'string' ? symData : symData.symbol;
+                const exchange = typeof symData === 'string' ? 'NSE' : (symData.exchange || 'NSE');
+                setCharts(prev => prev.map(chart =>
+                  chart.id === activeChartId ? { ...chart, symbol: symbol, exchange: exchange, strategyConfig: null } : chart
+                ));
+              }}
+              isAuthenticated={isAuthenticated}
             />
           ) : null
         }
@@ -2615,22 +2640,6 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           setIsStraddlePickerOpen(false);
         }}
         spotPrice={activeChart?.ltp || null}
-      />
-      <QuickOptionPicker
-        isOpen={isQuickOptionOpen}
-        onClose={() => setIsQuickOptionOpen(false)}
-        onSelect={(symbol, exchange) => {
-          setCharts(prev => prev.map(chart =>
-            chart.id === activeChartId ? {
-              ...chart,
-              symbol: symbol,
-              exchange: exchange,
-              strategyConfig: null
-            } : chart
-          ));
-          setIsQuickOptionOpen(false);
-        }}
-        anchorRef={quickOptionBtnRef}
       />
       <OptionChainModal
         isOpen={isOptionChainOpen}
