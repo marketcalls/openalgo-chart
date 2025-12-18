@@ -652,6 +652,7 @@ export const subscribeToMultiTicker = (symbols, callback) => {
                         exchange: exchange, // Include exchange for proper matching
                         last: ltp,
                         open: parseFloat(data.open || prevClose),
+                        volume: parseFloat(data.volume || 0),
                         chg: change,
                         chgP: changePercent
                     });

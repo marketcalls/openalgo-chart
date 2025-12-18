@@ -113,9 +113,20 @@ const ChartComponent = forwardRef(({
     onIndicatorVisibilityToggle,
     chartAppearance = {},
     strategyConfig = null, // { strategyType, legs: [{ id, symbol, direction, quantity }], exchange, displayName }
+    onOpenOptionChain, // Callback to open option chain for current symbol
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
+    const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0 });
+
+    // Close context menu on click outside
+    useEffect(() => {
+        if (!contextMenu.show) return;
+        const handleClickAway = () => setContextMenu({ show: false, x: 0, y: 0 });
+        document.addEventListener('click', handleClickAway);
+        return () => document.removeEventListener('click', handleClickAway);
+    }, [contextMenu.show]);
+
     const isActuallyLoadingRef = useRef(true); // Track if we're actually loading data (not just updating indicators) - start as true on mount
     const chartRef = useRef(null);
     const mainSeriesRef = useRef(null);
@@ -130,8 +141,6 @@ const ChartComponent = forwardRef(({
     const macdSeriesRef = useRef({ macd: null, signal: null, histogram: null });
     const stochasticSeriesRef = useRef({ k: null, d: null });
     const atrSeriesRef = useRef(null);
-    const supertrendSeriesRef = useRef(null);
-    const tpoPrimitiveRef = useRef(null);
     // Pane refs for oscillator indicators (v5 multi-pane support)
     const rsiPaneRef = useRef(null);
     const macdPaneRef = useRef(null);
@@ -1660,12 +1669,15 @@ const ChartComponent = forwardRef(({
         // Use Logical Range change for better performance/accuracy mapping to data indices
         chart.timeScale().subscribeVisibleLogicalRangeChange(handleVisibleTimeRangeChange);
 
-        // Handle right-click to cancel tool
+        // Handle right-click - show context menu or cancel tool
         const handleContextMenu = (event) => {
             event.preventDefault(); // Prevent default right-click menu
             if (activeToolRef.current && activeToolRef.current !== 'cursor') {
                 if (onToolUsed) onToolUsed();
+                return;
             }
+            // Show custom context menu
+            setContextMenu({ show: true, x: event.clientX, y: event.clientY });
         };
         const container = chartContainerRef.current;
         container.addEventListener('contextmenu', handleContextMenu, true);
@@ -3838,6 +3850,24 @@ const ChartComponent = forwardRef(({
                 />
             )}
 
+            {/* Right-click Context Menu */}
+            {contextMenu.show && (
+                <div
+                    className={styles.contextMenu}
+                    style={{ left: contextMenu.x, top: contextMenu.y }}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    <button
+                        className={styles.contextMenuItem}
+                        onClick={() => {
+                            onOpenOptionChain?.(symbol, exchange);
+                            setContextMenu({ show: false, x: 0, y: 0 });
+                        }}
+                    >
+                        View Option Chain
+                    </button>
+                </div>
+            )}
 
         </div >
     );

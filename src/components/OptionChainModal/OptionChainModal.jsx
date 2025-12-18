@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, Loader2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { getOptionChain, getAvailableExpiries, UNDERLYINGS } from '../../services/optionChain';
+import { subscribeToMultiTicker } from '../../services/openalgo';
 import styles from './OptionChainModal.module.css';
 import classNames from 'classnames';
 
 /**
  * OptionChainModal - Option Chain UI with proper date alignment
  */
-const OptionChainModal = ({ isOpen, onClose, onSelectOption }) => {
+const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) => {
     const [underlying, setUnderlying] = useState(UNDERLYINGS[0]);
+    const [isCustomSymbol, setIsCustomSymbol] = useState(false);
     const [optionChain, setOptionChain] = useState(null);
     const [availableExpiries, setAvailableExpiries] = useState([]);
     const [selectedExpiry, setSelectedExpiry] = useState(null);
@@ -16,7 +18,36 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption }) => {
     const [isLoadingExpiries, setIsLoadingExpiries] = useState(false);
     const [error, setError] = useState(null);
     const [expiryScrollIndex, setExpiryScrollIndex] = useState(0);
+    const [liveLTP, setLiveLTP] = useState(new Map());
     const tableBodyRef = useRef(null);
+    const wsRef = useRef(null);
+
+    // Set underlying from initialSymbol when modal opens
+    useEffect(() => {
+        if (isOpen && initialSymbol) {
+            // Check if it's a known index
+            const known = UNDERLYINGS.find(u => u.symbol === initialSymbol.symbol);
+            if (known) {
+                setUnderlying(known);
+                setIsCustomSymbol(false);
+            } else {
+                // Dynamic stock - create underlying object
+                // Stock options use 'NSE' exchange (not NSE_INDEX like indices)
+                setUnderlying({
+                    symbol: initialSymbol.symbol,
+                    name: initialSymbol.symbol,
+                    exchange: 'NFO',
+                    indexExchange: 'NSE'
+                });
+                setIsCustomSymbol(true);
+            }
+            // Reset state for new symbol
+            setOptionChain(null);
+            setAvailableExpiries([]);
+            setSelectedExpiry(null);
+            setExpiryScrollIndex(0);
+        }
+    }, [isOpen, initialSymbol]);
 
     // Parse expiry date
     const parseExpiry = (expiryStr) => {
@@ -163,6 +194,52 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption }) => {
         }
     }, [optionChain]);
 
+    // WebSocket subscription for live LTP updates
+    useEffect(() => {
+        // Cleanup previous subscription
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
+
+        if (!isOpen || !optionChain?.chain?.length) return;
+
+        // Build symbol list from chain (include underlying for live spot price)
+        const symbols = [
+            { symbol: underlying.symbol, exchange: underlying.indexExchange }
+        ];
+        optionChain.chain.forEach(row => {
+            if (row.ce?.symbol) symbols.push({ symbol: row.ce.symbol, exchange: underlying.exchange });
+            if (row.pe?.symbol) symbols.push({ symbol: row.pe.symbol, exchange: underlying.exchange });
+        });
+
+        if (symbols.length === 0) return;
+
+        console.log('[OptionChain] Subscribing to', symbols.length, 'option symbols for live LTP');
+
+        // Subscribe to WebSocket
+        wsRef.current = subscribeToMultiTicker(symbols, (ticker) => {
+            setLiveLTP(prev => {
+                const newMap = new Map(prev);
+                newMap.set(ticker.symbol, {
+                    ltp: ticker.last,
+                    volume: ticker.volume,
+                    timestamp: Date.now()
+                });
+                return newMap;
+            });
+        });
+
+        return () => {
+            if (wsRef.current) {
+                console.log('[OptionChain] Unsubscribing from live LTP');
+                wsRef.current.close();
+                wsRef.current = null;
+            }
+            setLiveLTP(new Map());
+        };
+    }, [isOpen, optionChain?.chain, underlying.exchange]);
+
     // Chain data
     const chainData = useMemo(() => optionChain?.chain || [], [optionChain]);
     const atmStrike = optionChain?.atmStrike || 0;
@@ -202,11 +279,17 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption }) => {
     const getOIBarWidth = (oi) => oi ? Math.min((oi / maxOI) * 100, 100) : 0;
 
     const formatSpotChange = () => {
-        const change = optionChain?.change || 0;
-        const changePercent = optionChain?.changePercent || 0;
+        // Get live spot price or fall back to REST data
+        const liveSpot = liveLTP.get(underlying.symbol);
+        const spotLTP = liveSpot?.ltp ?? underlyingLTP;
+
+        const prevClose = optionChain?.underlyingPrevClose || 0;
+        const change = prevClose > 0 ? spotLTP - prevClose : (optionChain?.change || 0);
+        const changePercent = prevClose > 0 ? (change / prevClose) * 100 : (optionChain?.changePercent || 0);
         const isPositive = change >= 0;
+
         return {
-            price: underlyingLTP.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
+            price: spotLTP.toLocaleString('en-IN', { minimumFractionDigits: 2 }),
             change: (isPositive ? '+' : '') + change.toFixed(2),
             percent: (isPositive ? '+' : '') + changePercent.toFixed(2) + '%',
             isPositive
@@ -227,13 +310,25 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption }) => {
     };
 
     const renderRow = (row, isITM_CE, isITM_PE) => {
+        // Get live LTP from WebSocket or fall back to REST data
+        const ceLive = liveLTP.get(row.ce?.symbol);
+        const peLive = liveLTP.get(row.pe?.symbol);
+
+        const ceLTP = ceLive?.ltp ?? row.ce?.ltp;
+        const peLTP = peLive?.ltp ?? row.pe?.ltp;
+
         const ceOIWidth = getOIBarWidth(row.ce?.oi);
         const peOIWidth = getOIBarWidth(row.pe?.oi);
         const ceClickHandler = () => handleOptionClick(row.ce?.symbol);
         const peClickHandler = () => handleOptionClick(row.pe?.symbol);
 
-        const ceLtpChange = getLtpChange(row.ce);
-        const peLtpChange = getLtpChange(row.pe);
+        // Calculate LTP change using live LTP if available
+        const ceLtpChange = row.ce?.prevClose && ceLTP
+            ? ((ceLTP - row.ce.prevClose) / row.ce.prevClose) * 100
+            : getLtpChange(row.ce);
+        const peLtpChange = row.pe?.prevClose && peLTP
+            ? ((peLTP - row.pe.prevClose) / row.pe.prevClose) * 100
+            : getLtpChange(row.pe);
 
         return (
             <div key={row.strike} className={classNames(styles.row, {
@@ -251,7 +346,7 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption }) => {
                     </div>
                     {/* LTP with change */}
                     <div className={styles.ltpSection}>
-                        <span className={styles.ltpValue}>{formatLTP(row.ce?.ltp)}</span>
+                        <span className={styles.ltpValue}>{formatLTP(ceLTP)}</span>
                         {ceLtpChange !== null && (
                             <span className={classNames(styles.ltpChange, ceLtpChange >= 0 ? styles.changePositive : styles.changeNegative)}>
                                 {formatLtpChange(ceLtpChange)}
@@ -269,7 +364,7 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption }) => {
                 <div className={classNames(styles.cell, styles.combinedCell, styles.combinedCellRight, styles.clickable)} onClick={peClickHandler}>
                     {/* LTP with change */}
                     <div className={styles.ltpSection}>
-                        <span className={styles.ltpValue}>{formatLTP(row.pe?.ltp)}</span>
+                        <span className={styles.ltpValue}>{formatLTP(peLTP)}</span>
                         {peLtpChange !== null && (
                             <span className={classNames(styles.ltpChange, peLtpChange >= 0 ? styles.changePositive : styles.changeNegative)}>
                                 {formatLtpChange(peLtpChange)}
@@ -306,11 +401,17 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption }) => {
                                 const found = UNDERLYINGS.find(u => u.symbol === e.target.value);
                                 if (found) {
                                     setUnderlying(found);
+                                    setIsCustomSymbol(false);
                                     setSelectedExpiry(null);
                                     setOptionChain(null);
                                 }
                             }}
                         >
+                            {isCustomSymbol && (
+                                <option key={underlying.symbol} value={underlying.symbol}>
+                                    {underlying.symbol}
+                                </option>
+                            )}
                             {UNDERLYINGS.map(u => (
                                 <option key={u.symbol} value={u.symbol}>{u.symbol}</option>
                             ))}

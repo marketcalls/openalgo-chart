@@ -54,6 +54,12 @@
   flex-shrink: 0;
 }
 
+.colVolume {
+  width: 55px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
 .colAction {
   width: 28px;
   flex-shrink: 0;

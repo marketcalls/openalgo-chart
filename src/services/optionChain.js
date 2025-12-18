@@ -224,8 +224,10 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
 
     try {
         // Find the underlying config to get correct index exchange
+        // For known indices (NIFTY, BANKNIFTY), use their indexExchange (NSE_INDEX/BSE_INDEX)
+        // For stocks (not in UNDERLYINGS), use 'NSE' or 'BSE' directly
         const underlyingConfig = UNDERLYINGS.find(u => u.symbol === underlying);
-        const indexExchange = underlyingConfig?.indexExchange || (exchange === 'BFO' ? 'BSE_INDEX' : 'NSE_INDEX');
+        const indexExchange = underlyingConfig?.indexExchange || (exchange === 'BFO' ? 'BSE' : 'NSE');
 
         console.log('[OptionChain] Fetching fresh chain:', { underlying, indexExchange, expiryDate, strikeCount });
 

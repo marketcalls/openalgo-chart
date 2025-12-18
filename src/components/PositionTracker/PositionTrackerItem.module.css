@@ -130,6 +130,16 @@
   color: var(--tv-color-down);
 }
 
+/* Volume Column */
+.volume {
+  width: 55px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--tv-color-text-secondary);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+
 /* Remove Button */
 .removeBtn {
   width: 28px;

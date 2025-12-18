@@ -47,6 +47,8 @@ const PositionTracker = ({
   const [marketState, setMarketState] = useState(() => getMarketStatus());
   const searchInputRef = useRef(null);
   const previousRanksRef = useRef(new Map());
+  const openingRanksRef = useRef(new Map()); // Stores rank at market open (9:15 AM)
+  const hasSetOpeningRanks = useRef(false);  // Flag to capture only once per day
 
   // Update market status every minute
   useEffect(() => {
@@ -86,6 +88,7 @@ const PositionTracker = ({
         exchange: item.exchange || 'NSE',
         ltp: parseFloat(item.last) || 0,
         openPrice: parseFloat(item.open) || 0,
+        volume: parseFloat(item.volume) || 0,
         percentChange: calculateIntradayChange(item),
       }));
     } else {
@@ -100,6 +103,7 @@ const PositionTracker = ({
           exchange: item.exchange || 'NSE',
           ltp: parseFloat(item.last) || 0,
           openPrice: parseFloat(item.open) || 0,
+          volume: parseFloat(item.volume) || 0,
           percentChange: calculateIntradayChange(item),
         }));
     }
@@ -125,6 +129,47 @@ const PositionTracker = ({
       };
     });
   }, [watchlistData, sourceMode, customSymbols]);
+
+  // Capture opening ranks once when market opens (for daily movement tracking)
+  useEffect(() => {
+    // Only capture opening ranks once when market is open and data is available
+    if (marketState.isOpen && rankedData.length > 0 && !hasSetOpeningRanks.current) {
+      rankedData.forEach(item => {
+        const key = `${item.symbol}-${item.exchange}`;
+        openingRanksRef.current.set(key, item.currentRank);
+      });
+      hasSetOpeningRanks.current = true;
+    }
+
+    // Reset flag when market closes (for next day)
+    if (!marketState.isOpen) {
+      hasSetOpeningRanks.current = false;
+      openingRanksRef.current.clear();
+    }
+  }, [marketState.isOpen, rankedData]);
+
+  // Calculate rank change from opening and volume spike detection
+  const displayData = useMemo(() => {
+    // Calculate average volume for spike detection
+    const totalVolume = rankedData.reduce((sum, item) => sum + (item.volume || 0), 0);
+    const avgVolume = rankedData.length > 0 ? totalVolume / rankedData.length : 0;
+    const spikeThreshold = avgVolume * 2; // Volume spike = > 2x average
+
+    return rankedData.map(item => {
+      const key = `${item.symbol}-${item.exchange}`;
+      const openingRank = openingRanksRef.current.get(key);
+
+      return {
+        ...item,
+        // Show movement from opening rank (positive = moved up)
+        rankChange: openingRank !== undefined
+          ? openingRank - item.currentRank
+          : 0,
+        // Flag for volume spike indicator
+        isVolumeSpike: item.volume > spikeThreshold,
+      };
+    });
+  }, [rankedData]);
 
   const handleAddSymbol = useCallback((symbol, exchange = 'NSE') => {
     if (sourceMode !== 'custom') return;
@@ -156,10 +201,11 @@ const PositionTracker = ({
     <div className={styles.skeletonContainer}>
       {[1, 2, 3, 4, 5].map((i) => (
         <div key={i} className={styles.skeletonRow}>
+          <div className={styles.skeletonCell} style={{ width: '32px' }} />
           <div className={styles.skeletonCell} style={{ width: '40px' }} />
-          <div className={styles.skeletonCell} style={{ width: '35px' }} />
-          <div className={styles.skeletonCell} style={{ width: '80px' }} />
-          <div className={styles.skeletonCell} style={{ width: '65px' }} />
+          <div className={styles.skeletonCell} style={{ width: '70px' }} />
+          <div className={styles.skeletonCell} style={{ width: '70px' }} />
+          <div className={styles.skeletonCell} style={{ width: '60px' }} />
           <div className={styles.skeletonCell} style={{ width: '55px' }} />
         </div>
       ))}
@@ -199,6 +245,7 @@ const PositionTracker = ({
         <span className={styles.colSymbol}>Symbol</span>
         <span className={styles.colLtp}>LTP</span>
         <span className={styles.colChange}>% Chg</span>
+        <span className={styles.colVolume}>Vol</span>
         {sourceMode === 'custom' && <span className={styles.colAction} />}
       </div>
 
@@ -213,11 +260,11 @@ const PositionTracker = ({
           </div>
         ) : isLoading ? (
           renderSkeleton()
-        ) : rankedData.length === 0 ? (
+        ) : displayData.length === 0 ? (
           renderEmptyState()
         ) : (
           <div className={styles.itemList}>
-            {rankedData.map((item) => (
+            {displayData.map((item) => (
               <PositionTrackerItem
                 key={`${item.symbol}-${item.exchange}`}
                 item={item}

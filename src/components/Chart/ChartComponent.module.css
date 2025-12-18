@@ -422,3 +422,33 @@
 .eyeHidden {
     opacity: 1 !important;
 }
+
+/* Right-click Context Menu */
+.contextMenu {
+    position: fixed;
+    background-color: var(--tv-color-popup-background, #1e222d);
+    border: 1px solid var(--tv-color-border, #363a45);
+    border-radius: 4px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+    min-width: 160px;
+    padding: 4px 0;
+}
+
+.contextMenuItem {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    color: var(--tv-color-text-primary, #d1d4dc);
+    font-size: 13px;
+    cursor: pointer;
+    text-align: left;
+    transition: background-color 0.1s ease;
+}
+
+.contextMenuItem:hover {
+    background-color: var(--tv-color-toolbar-button-background-hover, #2a2e39);
+}

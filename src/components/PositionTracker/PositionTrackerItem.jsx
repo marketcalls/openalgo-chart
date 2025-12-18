@@ -8,9 +8,11 @@ const PositionTrackerItem = memo(({ item, onClick, onRemove, showRemove }) => {
     symbol,
     exchange,
     ltp,
+    volume,
     percentChange,
     currentRank,
     rankChange,
+    isVolumeSpike,
   } = item;
 
   const [animationClass, setAnimationClass] = useState('');
@@ -72,6 +74,23 @@ const PositionTrackerItem = memo(({ item, onClick, onRemove, showRemove }) => {
     return `${sign}${pct.toFixed(2)}%`;
   };
 
+  // Format volume with Indian number system (K, L, Cr)
+  const formatVolume = (vol) => {
+    if (vol === null || vol === undefined || vol === 0) return '--';
+    if (vol >= 10000000) return `${(vol / 10000000).toFixed(1)}Cr`;
+    if (vol >= 100000) return `${(vol / 100000).toFixed(1)}L`;
+    if (vol >= 1000) return `${(vol / 1000).toFixed(1)}K`;
+    return vol.toString();
+  };
+
+  // Display medal for top 3 ranks
+  const getRankDisplay = (rank) => {
+    if (rank === 1) return '🥇';
+    if (rank === 2) return '🥈';
+    if (rank === 3) return '🥉';
+    return rank;
+  };
+
   const isPositive = percentChange >= 0;
 
   return (
@@ -86,7 +105,7 @@ const PositionTrackerItem = memo(({ item, onClick, onRemove, showRemove }) => {
         }
       }}
     >
-      <span className={styles.rank}>{currentRank}</span>
+      <span className={styles.rank}>{getRankDisplay(currentRank)}</span>
 
       <span className={styles.moveCol}>
         {renderMovementIndicator()}
@@ -105,6 +124,10 @@ const PositionTrackerItem = memo(({ item, onClick, onRemove, showRemove }) => {
 
       <span className={classNames(styles.change, isPositive ? styles.up : styles.down)}>
         {formatPercentChange(percentChange)}
+      </span>
+
+      <span className={styles.volume}>
+        {isVolumeSpike && '🔥'}{formatVolume(volume)}
       </span>
 
       {showRemove && (

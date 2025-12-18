@@ -19,8 +19,7 @@ const Topbar = ({
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
     isReplayMode = false, onSettingsClick, onTemplatesClick,
     onStraddleClick, strategyConfig = null,
-    onQuickOptionClick, quickOptionBtnRef,
-    onIndicatorSettingsClick, onOptionChainClick
+    onIndicatorSettingsClick, onOptionsClick
 }) => {
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
@@ -707,34 +706,12 @@ const Topbar = ({
                                                     </div>
                                                     <div className={styles.text}>Replay</div>
                                                 </button>
-                                                {/* Quick Option Chart Button */}
-                                                <Tooltip content="Quick Option Chart" position="bottom">
-                                                    <div style={{ position: 'relative' }} ref={quickOptionBtnRef}>
-                                                        <button
-                                                            className={classNames(styles.button, styles.iconButton)}
-                                                            aria-label="Quick Option Chart"
-                                                            onClick={onQuickOptionClick}
-                                                        >
-                                                            <div className={styles.icon}>
-                                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-                                                                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-                                                                </svg>
-                                                            </div>
-                                                        </button>
+                                                <button className={styles.button} aria-label="Option Chain" onClick={onOptionsClick}>
+                                                    <div className={styles.icon}>
+                                                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28"><path fill="currentColor" d="M4 7h2v2H4V7zm4 0h16v2H8V7zM4 13h2v2H4v-2zm4 0h16v2H8v-2zM4 19h2v2H4v-2zm4 0h16v2H8v-2z"></path></svg>
                                                     </div>
-                                                </Tooltip>
-                                                {onOptionChainClick && (
-                                                    <button className={classNames(styles.button)} aria-label="Option Chain" onClick={onOptionChainClick}>
-                                                        <div className={styles.icon}>
-                                                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 28 28" width="28" height="28" fill="currentColor">
-                                                                <path d="M4 7h9v1H4V7zm0 5h9v1H4v-1zm0 5h9v1H4v-1zm11-10h9v1h-9V7zm0 5h9v1h-9v-1zm0 5h9v1h-9v-1z" />
-                                                                <circle cx="14" cy="14" r="2.5" fill="none" stroke="currentColor" strokeWidth="1" />
-                                                            </svg>
-                                                        </div>
-                                                        <div className={styles.text}>Options</div>
-                                                    </button>
-                                                )}
+                                                    <div className={styles.text}>Options</div>
+                                                </button>
                                             </div>
 
                                             {/* Undo / Redo */}

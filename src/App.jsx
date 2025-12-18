@@ -306,6 +306,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isStraddlePickerOpen, setIsStraddlePickerOpen] = useState(false);
   // strategyConfig is now per-chart, stored in charts[].strategyConfig
   const [isOptionChainOpen, setIsOptionChainOpen] = useState(false);
+  const [optionChainInitialSymbol, setOptionChainInitialSymbol] = useState(null);
   // const [indicators, setIndicators] = useState({ sma: false, ema: false }); // Moved to charts state
   const [toasts, setToasts] = useState([]);
   const toastIdCounter = React.useRef(0);
@@ -828,6 +829,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
                 newData[index] = {
                   ...newData[index],
                   last: ticker.last.toFixed(2),
+                  open: ticker.open,
+                  volume: ticker.volume,
                   chg: ticker.chg.toFixed(2),
                   chgP: ticker.chgP.toFixed(2) + '%',
                   up: ticker.chg >= 0
@@ -847,6 +850,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
                   symbol: ticker.symbol,
                   exchange: tickerExchange,
                   last: ticker.last.toFixed(2),
+                  open: ticker.open,
+                  volume: ticker.volume,
                   chg: ticker.chg.toFixed(2),
                   chgP: ticker.chgP.toFixed(2) + '%',
                   up: ticker.chg >= 0
@@ -2081,6 +2086,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setIsOptionChainOpen(false);
   };
 
+  // Open option chain for a specific symbol (from chart right-click)
+  const handleOpenOptionChainForSymbol = useCallback((symbol, exchange) => {
+    setOptionChainInitialSymbol({ symbol, exchange });
+    setIsOptionChainOpen(true);
+  }, []);
+
   const handleLoadTemplate = useCallback((template) => {
     if (!template) return;
 
@@ -2544,6 +2555,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onIndicatorRemove={handleIndicatorRemove}
             onIndicatorVisibilityToggle={handleIndicatorVisibilityToggle}
             chartAppearance={chartAppearance}
+            onOpenOptionChain={handleOpenOptionChainForSymbol}
           />
         }
       />
@@ -2643,8 +2655,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       />
       <OptionChainModal
         isOpen={isOptionChainOpen}
-        onClose={() => setIsOptionChainOpen(false)}
+        onClose={() => {
+          setIsOptionChainOpen(false);
+          setOptionChainInitialSymbol(null);
+        }}
         onSelectOption={handleOptionSelect}
+        initialSymbol={optionChainInitialSymbol}
       />
     </>
   );
