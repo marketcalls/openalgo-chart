@@ -25,3 +25,6 @@ export { calculateSupertrend } from './supertrend';
 export { calculateVolume } from './volume';
 export { calculateVWAP } from './vwap';
 
+// Market Profile
+export { calculateTPO, tpoToRenderData, getTPOStats } from './tpo';
+

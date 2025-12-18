@@ -234,7 +234,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       supertrend: { enabled: false, period: 10, multiplier: 3, upColor: '#089981', downColor: '#F23645' },
       // Volume
       volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
-      vwap: { enabled: false, color: '#FF9800' }
+      vwap: { enabled: false, color: '#FF9800' },
+      // Profile
+      tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
     };
     // Migration function: converts old boolean SMA/EMA to object format
     const migrateIndicators = (indicators) => {
@@ -1619,7 +1621,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
           atr: { enabled: false, period: 14, color: '#FF9800' },
           stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
-          vwap: { enabled: false, color: '#FF9800' }
+          vwap: { enabled: false, color: '#FF9800' },
+          supertrend: { enabled: false, period: 10, multiplier: 3 },
+          tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
         };
         for (let i = newCharts.length; i < count; i++) {
           newCharts.push({
@@ -2091,7 +2095,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
         atr: { enabled: false, period: 14, color: '#FF9800' },
         stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
-        vwap: { enabled: false, color: '#FF9800' }
+        vwap: { enabled: false, color: '#FF9800' },
+        supertrend: { enabled: false, period: 10, multiplier: 3 },
+        tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
       };
 
       const loadedCharts = template.charts.map((chart, index) => ({

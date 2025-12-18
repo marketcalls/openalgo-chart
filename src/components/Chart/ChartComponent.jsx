@@ -130,6 +130,8 @@ const ChartComponent = forwardRef(({
     const macdSeriesRef = useRef({ macd: null, signal: null, histogram: null });
     const stochasticSeriesRef = useRef({ k: null, d: null });
     const atrSeriesRef = useRef(null);
+    const supertrendSeriesRef = useRef(null);
+    const tpoPrimitiveRef = useRef(null);
     // Pane refs for oscillator indicators (v5 multi-pane support)
     const rsiPaneRef = useRef(null);
     const macdPaneRef = useRef(null);
@@ -592,6 +594,30 @@ const ChartComponent = forwardRef(({
             });
         }
 
+        if (indicators.supertrend?.enabled) {
+            active.push({
+                type: 'supertrend',
+                name: 'Supertrend',
+                params: `${indicators.supertrend.period || 10},${indicators.supertrend.multiplier || 3}`,
+                color: '#26a69a', // Default bullish color
+                value: indicatorValues.supertrend,
+                isHidden: !!indicators.supertrend.hidden,
+                pane: 'main' // Main chart indicator
+            });
+        }
+
+        if (indicators.tpo?.enabled) {
+            active.push({
+                type: 'tpo',
+                name: 'TPO',
+                params: indicators.tpo.blockSize || '30m',
+                color: '#FF9800', // POC color
+                value: indicatorValues.tpo,
+                isHidden: !!indicators.tpo.hidden,
+                pane: 'main' // Main chart indicator (overlay)
+            });
+        }
+
         return active;
     }, [indicators, indicatorValues]);
 
@@ -817,7 +843,6 @@ const ChartComponent = forwardRef(({
         }
     }, [isDrawingsHidden]);
 
-    // Sync timer visibility state from props to PriceScaleTimer
     // Sync timer visibility state from props to PriceScaleTimer
     useEffect(() => {
         if (!priceScaleTimerRef.current) return;
@@ -1140,7 +1165,6 @@ const ChartComponent = forwardRef(({
         }
     }, []);
 
-    // RAF Loop for smooth updates
     // RAF Loop for smooth updates - pauses when not visible to save CPU/battery
     useEffect(() => {
         let animationFrameId;
@@ -2317,7 +2341,8 @@ const ChartComponent = forwardRef(({
             }
         }
 
-        // Supertrend Indicator (overlay on main chart with color-coded line)
+        // ========== SUPERTREND INDICATOR (Overlay on main chart) ==========
+        const supertrendHidden = indicatorsConfig.supertrend?.hidden;
         if (indicatorsConfig.supertrend?.enabled) {
             if (!supertrendSeriesRef.current && canAddSeries) {
                 supertrendSeriesRef.current = chartRef.current.addSeries(LineSeries, {
@@ -2325,7 +2350,8 @@ const ChartComponent = forwardRef(({
                     lineWidth: 2,
                     title: 'Supertrend',
                     priceLineVisible: false,
-                    lastValueVisible: true,
+                    lastValueVisible: !supertrendHidden,
+                    visible: !supertrendHidden,
                     crosshairMarkerVisible: true
                 });
             }
@@ -2336,6 +2362,7 @@ const ChartComponent = forwardRef(({
                 if (supertrendData && supertrendData.length > 0) {
                     supertrendSeriesRef.current.setData(supertrendData);
                 }
+                supertrendSeriesRef.current.applyOptions({ visible: !supertrendHidden, lastValueVisible: !supertrendHidden });
             }
         } else {
             if (supertrendSeriesRef.current) {
@@ -2345,6 +2372,7 @@ const ChartComponent = forwardRef(({
         }
 
         // ========== TPO PROFILE INDICATOR ==========
+        const tpoHidden = indicatorsConfig.tpo?.hidden;
         if (indicatorsConfig.tpo?.enabled) {
             // Warn if timeframe is not suitable for TPO
             const currentInterval = intervalRef.current;
@@ -2371,6 +2399,7 @@ const ChartComponent = forwardRef(({
             // Create or update TPO primitive
             if (!tpoProfileRef.current && mainSeriesRef.current) {
                 tpoProfileRef.current = new TPOProfilePrimitive({
+                    visible: !tpoHidden,
                     // Display options
                     showLetters: tpoConfig.showLetters ?? true,
                     showPOC: tpoConfig.showPOC ?? true,
@@ -2402,6 +2431,7 @@ const ChartComponent = forwardRef(({
             if (tpoProfileRef.current) {
                 tpoProfileRef.current.setData(tpoProfiles);
                 tpoProfileRef.current.applyOptions({
+                    visible: !tpoHidden,
                     showLetters: tpoConfig.showLetters ?? true,
                     showPOC: tpoConfig.showPOC ?? true,
                     showValueArea: tpoConfig.showValueArea ?? true,
