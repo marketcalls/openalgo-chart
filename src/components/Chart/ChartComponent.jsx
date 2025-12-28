@@ -26,6 +26,7 @@ import {
     calculateSupertrend
 } from '../../utils/indicators';
 import { calculateTPO } from '../../utils/indicators/tpo';
+import { calculateFirstCandle } from '../../utils/indicators/firstCandle';
 import { TPOProfilePrimitive } from '../../plugins/tpo-profile/TPOProfilePrimitive';
 import { calculateHeikinAshi } from '../../utils/chartUtils';
 import { calculateRenko } from '../../utils/renkoUtils';
@@ -114,6 +115,8 @@ const ChartComponent = forwardRef(({
     chartAppearance = {},
     strategyConfig = null, // { strategyType, legs: [{ id, symbol, direction, quantity }], exchange, displayName }
     onOpenOptionChain, // Callback to open option chain for current symbol
+    oiLines = null, // { maxCallOI, maxPutOI, maxPain } - OI levels to display as price lines
+    showOILines = false, // Whether to show OI lines
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
@@ -150,6 +153,8 @@ const ChartComponent = forwardRef(({
     const lineToolManagerRef = useRef(null);
     const priceScaleTimerRef = useRef(null); // Ref for the candle countdown timer
     const tpoProfileRef = useRef(null); // Ref for TPO Profile primitive
+    const oiPriceLinesRef = useRef({ maxCallOI: null, maxPutOI: null, maxPain: null }); // Refs for OI price lines
+    const firstCandleSeriesRef = useRef([]); // Array of line series for all days' high/low
     const wsRef = useRef(null);
     const chartTypeRef = useRef(chartType);
     const dataRef = useRef([]);
@@ -2478,6 +2483,90 @@ const ChartComponent = forwardRef(({
             }
         }
 
+        // ========== FIRST CANDLE INDICATOR (5-min only - Lines + Markers for ALL days) ==========
+        const firstCandleConfig = indicatorsConfig.firstCandle;
+        const is5MinChart = intervalRef.current === '5' || intervalRef.current === '5m';
+
+        if (firstCandleConfig?.enabled && is5MinChart) {
+            const highLineColor = firstCandleConfig.highLineColor || '#ef5350';
+            const lowLineColor = firstCandleConfig.lowLineColor || '#26a69a';
+
+            const result = calculateFirstCandle(data, {
+                highlightColor: firstCandleConfig.highlightColor || '#FFD700',
+                signalColor: highLineColor,
+                highLineColor: highLineColor,
+                lowLineColor: lowLineColor
+            });
+
+            // Remove old line series if count changed
+            const existingCount = firstCandleSeriesRef.current.length;
+            const neededCount = result.allLevels.length * 2; // 2 lines per day (high + low)
+
+            if (existingCount !== neededCount) {
+                // Remove all existing series
+                for (const series of firstCandleSeriesRef.current) {
+                    try {
+                        chartRef.current.removeSeries(series);
+                    } catch (e) { /* ignore */ }
+                }
+                firstCandleSeriesRef.current = [];
+            }
+
+            // Create/update line series for each day's high and low
+            if (result.allLevels && result.allLevels.length > 0 && canAddSeries) {
+                let seriesIndex = 0;
+
+                for (const level of result.allLevels) {
+                    const { high, low, startTime, endTime } = level;
+
+                    // High line series for this day
+                    if (!firstCandleSeriesRef.current[seriesIndex]) {
+                        firstCandleSeriesRef.current[seriesIndex] = chartRef.current.addSeries(LineSeries, {
+                            color: highLineColor,
+                            lineWidth: 2,
+                            lineStyle: 2, // Dashed
+                            priceLineVisible: false,
+                            lastValueVisible: false,
+                            crosshairMarkerVisible: false,
+                        });
+                    }
+                    // Set data for high line (horizontal line from start to end of day)
+                    firstCandleSeriesRef.current[seriesIndex].setData([
+                        { time: startTime, value: high },
+                        { time: endTime, value: high }
+                    ]);
+                    seriesIndex++;
+
+                    // Low line series for this day
+                    if (!firstCandleSeriesRef.current[seriesIndex]) {
+                        firstCandleSeriesRef.current[seriesIndex] = chartRef.current.addSeries(LineSeries, {
+                            color: lowLineColor,
+                            lineWidth: 2,
+                            lineStyle: 2, // Dashed
+                            priceLineVisible: false,
+                            lastValueVisible: false,
+                            crosshairMarkerVisible: false,
+                        });
+                    }
+                    // Set data for low line (horizontal line from start to end of day)
+                    firstCandleSeriesRef.current[seriesIndex].setData([
+                        { time: startTime, value: low },
+                        { time: endTime, value: low }
+                    ]);
+                    seriesIndex++;
+                }
+            }
+
+        } else {
+            // Remove all first candle line series when disabled or not 5-min chart
+            for (const series of firstCandleSeriesRef.current) {
+                try {
+                    chartRef.current.removeSeries(series);
+                } catch (e) { /* ignore */ }
+            }
+            firstCandleSeriesRef.current = [];
+        }
+
         // ========== VOLUME INDICATOR (Overlay at bottom of chart) ==========
         const volumeHidden = indicatorsConfig.volume?.hidden;
         if (indicatorsConfig.volume?.enabled) {
@@ -2767,6 +2856,78 @@ const ChartComponent = forwardRef(({
         }
 
     }, []); // Empty dependency array - indicators passed as parameter
+
+    // ========== OI LINES EFFECT (Max Call OI, Max Put OI, Max Pain) ==========
+    useEffect(() => {
+        if (!mainSeriesRef.current || !chartRef.current) {
+            return;
+        }
+
+        // Helper to create or update a price line
+        const updatePriceLine = (key, price, options) => {
+            if (price && showOILines) {
+                if (oiPriceLinesRef.current[key]) {
+                    // Update existing line
+                    oiPriceLinesRef.current[key].applyOptions({ price, ...options });
+                } else {
+                    // Create new line
+                    oiPriceLinesRef.current[key] = mainSeriesRef.current.createPriceLine({
+                        price,
+                        ...options
+                    });
+                }
+            } else {
+                // Remove line if disabled or no price
+                if (oiPriceLinesRef.current[key]) {
+                    mainSeriesRef.current.removePriceLine(oiPriceLinesRef.current[key]);
+                    oiPriceLinesRef.current[key] = null;
+                }
+            }
+        };
+
+        // Max Call OI Line (Red/Orange - Resistance)
+        updatePriceLine('maxCallOI', oiLines?.maxCallOI, {
+            color: '#ef5350',
+            lineWidth: 2,
+            lineStyle: 2, // Dashed
+            axisLabelVisible: true,
+            title: 'Max Call OI',
+        });
+
+        // Max Put OI Line (Blue/Cyan - Support)
+        updatePriceLine('maxPutOI', oiLines?.maxPutOI, {
+            color: '#42A5F5',
+            lineWidth: 2,
+            lineStyle: 2, // Dashed
+            axisLabelVisible: true,
+            title: 'Max Put OI',
+        });
+
+        // Max Pain Line (Green)
+        updatePriceLine('maxPain', oiLines?.maxPain, {
+            color: '#66BB6A',
+            lineWidth: 2,
+            lineStyle: 2, // Dashed
+            axisLabelVisible: true,
+            title: 'Max Pain',
+        });
+
+        // Cleanup on unmount
+        return () => {
+            if (mainSeriesRef.current) {
+                Object.keys(oiPriceLinesRef.current).forEach(key => {
+                    if (oiPriceLinesRef.current[key]) {
+                        try {
+                            mainSeriesRef.current.removePriceLine(oiPriceLinesRef.current[key]);
+                        } catch (e) {
+                            // Ignore errors during cleanup
+                        }
+                        oiPriceLinesRef.current[key] = null;
+                    }
+                });
+            }
+        };
+    }, [oiLines, showOILines]);
 
     // Separate effect for indicators to prevent data reload
     useEffect(() => {

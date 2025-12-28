@@ -28,6 +28,7 @@ import { initTimeService } from './services/timeService';
 import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
+import { useOILines } from './hooks/useOILines';
 import IndicatorSettingsModal from './components/IndicatorSettings/IndicatorSettingsModal';
 import PositionTracker from './components/PositionTracker';
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
@@ -235,7 +236,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
       vwap: { enabled: false, color: '#FF9800' },
       // Profile
-      tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
+      tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' },
+      // First Candle Strategy
+      firstCandle: { enabled: false, highlightColor: '#FFD700', highLineColor: '#ef5350', lowLineColor: '#26a69a' }
     };
     // Migration function: converts old boolean SMA/EMA to object format
     const migrateIndicators = (indicators) => {
@@ -299,6 +302,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [chartType, setChartType] = useState('candlestick');
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [searchMode, setSearchMode] = useState('switch'); // 'switch' or 'add'
+  const [initialSearchValue, setInitialSearchValue] = useState('');
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
   const [isTemplateDialogOpen, setIsTemplateDialogOpen] = useState(false);
   const [isShortcutsDialogOpen, setIsShortcutsDialogOpen] = useState(false);
@@ -370,6 +374,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [currentTimeRange, setCurrentTimeRange] = useState('All');
   const [isLogScale, setIsLogScale] = useState(false);
   const [isAutoScale, setIsAutoScale] = useState(true);
+  const [showOILines, setShowOILines] = useState(() => {
+    return localStorage.getItem('tv_show_oi_lines') === 'true';
+  });
+
+  // OI Lines Hook - fetch Max Call OI, Max Put OI, Max Pain
+  const { oiLines, isLoading: oiLinesLoading } = useOILines(currentSymbol, currentExchange, showOILines);
 
   // Right Panel State
   const [activeRightPanel, setActiveRightPanel] = useState('watchlist');
@@ -388,6 +398,16 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       console.error('Failed to persist position tracker settings:', error);
     }
   }, [positionTrackerSettings]);
+
+  // Persist OI Lines toggle
+  useEffect(() => {
+    localStorage.setItem('tv_show_oi_lines', showOILines.toString());
+  }, [showOILines]);
+
+  // Toggle OI Lines handler
+  const handleToggleOILines = useCallback(() => {
+    setShowOILines(prev => !prev);
+  }, []);
 
   // Theme State
   const [theme, setTheme] = useState(() => {
@@ -1639,7 +1659,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
           vwap: { enabled: false, color: '#FF9800' },
           supertrend: { enabled: false, period: 10, multiplier: 3 },
-          tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
+          tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' },
+          firstCandle: { enabled: false, highlightColor: '#FFD700', highLineColor: '#ef5350', lowLineColor: '#26a69a' }
         };
         for (let i = newCharts.length; i < count; i++) {
           newCharts.push({
@@ -2118,7 +2139,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
         vwap: { enabled: false, color: '#FF9800' },
         supertrend: { enabled: false, period: 10, multiplier: 3 },
-        tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' }
+        tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' },
+        firstCandle: { enabled: false, highlightColor: '#FFD700', highLineColor: '#ef5350', lowLineColor: '#26a69a' }
       };
 
       const loadedCharts = template.charts.map((chart, index) => ({
@@ -2230,6 +2252,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     openCommandPalette: () => setIsCommandPaletteOpen(prev => !prev),
     openShortcutsHelp: () => setIsShortcutsDialogOpen(prev => !prev),
     openSymbolSearch: () => {
+      setSearchMode('switch');
+      setIsSearchOpen(true);
+    },
+    openSymbolSearchWithKey: (key) => {
+      setInitialSearchValue(key.toUpperCase());
       setSearchMode('switch');
       setIsSearchOpen(true);
     },
@@ -2429,6 +2456,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               }
             }}
             isToolbarVisible={showDrawingToolbar}
+            showOILines={showOILines}
+            onToggleOILines={handleToggleOILines}
           />
         }
         watchlist={
@@ -2556,6 +2585,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onIndicatorVisibilityToggle={handleIndicatorVisibilityToggle}
             chartAppearance={chartAppearance}
             onOpenOptionChain={handleOpenOptionChainForSymbol}
+            oiLines={oiLines}
+            showOILines={showOILines}
           />
         }
       />
@@ -2565,6 +2596,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         onSelect={handleSymbolChange}
         addedSymbols={searchMode === 'compare' ? (activeChart.comparisonSymbols || []) : []}
         isCompareMode={searchMode === 'compare'}
+        initialValue={initialSearchValue}
+        onInitialValueUsed={() => setInitialSearchValue('')}
       />
       <CommandPalette
         isOpen={isCommandPaletteOpen}

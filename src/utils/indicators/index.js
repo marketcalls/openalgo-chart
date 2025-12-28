@@ -28,3 +28,6 @@ export { calculateVWAP } from './vwap';
 // Market Profile
 export { calculateTPO, tpoToRenderData, getTPOStats } from './tpo';
 
+// First Candle Strategy
+export { calculateFirstCandle, getLatestFirstCandle } from './firstCandle';
+
