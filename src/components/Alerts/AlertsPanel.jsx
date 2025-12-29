@@ -94,8 +94,8 @@ const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert
                         {logs.length === 0 ? (
                             <div className={styles.emptyState}>No logs</div>
                         ) : (
-                            logs.map(log => (
-                                <div key={log.id} className={styles.logItem}>
+                            logs.map((log, index) => (
+                                <div key={`${log.id}-${index}`} className={styles.logItem}>
                                     <div className={styles.logHeader}>
                                         <span className={styles.symbol}>
                                             {log.symbol}{log.exchange ? `:${log.exchange}` : ''}
