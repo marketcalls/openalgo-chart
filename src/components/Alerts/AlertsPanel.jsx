@@ -3,7 +3,7 @@ import { X, Bell, Trash2, PlayCircle, PauseCircle, Clock } from 'lucide-react';
 import styles from './AlertsPanel.module.css';
 import classNames from 'classnames';
 
-const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert }) => {
+const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert, onNavigate }) => {
     const [activeTab, setActiveTab] = useState('alerts');
     const [focusedIndex, setFocusedIndex] = useState(-1);
     const listRef = useRef(null);
@@ -34,6 +34,16 @@ const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert
             else onRestartAlert(alert.id);
         }
     }, [activeTab, alerts, logs, focusedIndex, onRemoveAlert, onPauseAlert, onRestartAlert]);
+
+    // Handle click on alert row to navigate to that chart
+    const handleAlertClick = useCallback((alert, e) => {
+        // Don't navigate if clicking on action buttons
+        if (e.target.closest('svg') || e.target.closest('button')) return;
+
+        if (onNavigate && alert.symbol) {
+            onNavigate({ symbol: alert.symbol, exchange: alert.exchange || 'NSE' });
+        }
+    }, [onNavigate]);
 
     return (
         <div className={styles.panel}>
@@ -77,9 +87,15 @@ const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert
                                 const statusKey = status.toLowerCase();
 
                                 return (
-                                    <div key={alert.id} className={classNames(styles.item, styles[statusKey], {
-                                        [styles.focused]: index === focusedIndex
-                                    })}>
+                                    <div
+                                        key={alert.id}
+                                        className={classNames(styles.item, styles[statusKey], {
+                                            [styles.focused]: index === focusedIndex
+                                        })}
+                                        onClick={(e) => handleAlertClick(alert, e)}
+                                        style={{ cursor: 'pointer' }}
+                                        title="Click to view chart"
+                                    >
                                         <div className={styles.itemHeader}>
                                             <span className={styles.symbol}>
                                                 {alert.symbol}{alert.exchange ? `:${alert.exchange}` : ''}

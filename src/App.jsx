@@ -33,6 +33,7 @@ import { useOILines } from './hooks/useOILines';
 import IndicatorSettingsModal from './components/IndicatorSettings/IndicatorSettingsModal';
 import PositionTracker from './components/PositionTracker';
 import { SectorHeatmapModal } from './components/SectorHeatmap';
+import GlobalAlertPopup from './components/GlobalAlertPopup/GlobalAlertPopup';
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
 
@@ -347,6 +348,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     });
   });
   const [unreadAlertCount, setUnreadAlertCount] = useState(0);
+
+  // Global alert popup state (for background alert notifications)
+  const [globalAlertPopups, setGlobalAlertPopups] = useState([]);
 
   // === GlobalAlertMonitor: DISABLED ===
   // Background price monitoring is disabled because OpenAlgo only supports
@@ -685,10 +689,17 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   // Ref to store current watchlist symbols - fixes stale closure in WebSocket callback
   const watchlistSymbolsRef = useRef([]);
 
-  // Keep ref updated when watchlistSymbols changes
+  // Ref to track active chart symbol/exchange for background alert popup logic
+  const activeChartRef = useRef({ symbol: '', exchange: 'NSE' });
+
+  // Keep refs updated
   useEffect(() => {
     watchlistSymbolsRef.current = watchlistSymbols;
   }, [watchlistSymbols]);
+
+  useEffect(() => {
+    activeChartRef.current = { symbol: currentSymbol, exchange: currentExchange };
+  }, [currentSymbol, currentExchange]);
 
   // Initialize TimeService on app mount - syncs time with WorldTimeAPI
   useEffect(() => {
@@ -709,6 +720,69 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const lastActiveListIdRef = React.useRef(null);
   // Track fetch state to prevent race condition where second effect run aborts first run's requests
   const watchlistFetchingRef = React.useRef(false);
+
+  // Track previous prices for alert crossing detection (key: "SYMBOL:EXCHANGE", value: last price)
+  const alertPricesRef = React.useRef(new Map());
+
+  // Helper to play alert alarm sound
+  const playAlertSound = useCallback(() => {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+
+      const ctx = new AudioContext();
+      const oscillator = ctx.createOscillator();
+      const gainNode = ctx.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(ctx.destination);
+
+      oscillator.type = 'square';
+      oscillator.frequency.value = 2048; // ~2kHz sharp alarm pitch
+
+      const now = ctx.currentTime;
+
+      // 3 seconds: beep ON 150ms → OFF 150ms repeating = 10 pulses
+      for (let i = 0; i < 10; i++) {
+        const t = now + i * 0.30;
+        gainNode.gain.setValueAtTime(1.0, t);       // beep
+        gainNode.gain.setValueAtTime(0.0, t + 0.15); // off pause
+      }
+
+      oscillator.start(now);
+      oscillator.stop(now + 3.1);
+
+      oscillator.onended = () => ctx.close();
+    } catch (error) {
+      console.error('Alert sound failed:', error);
+    }
+  }, []);
+
+  // Helper to get all symbols with active alerts from localStorage
+  const getAlertSymbols = useCallback(() => {
+    try {
+      const chartAlertsStr = localStorage.getItem('tv_chart_alerts');
+      if (!chartAlertsStr) return [];
+
+      const chartAlertsData = JSON.parse(chartAlertsStr);
+      const alertSymbols = [];
+
+      for (const [key, alerts] of Object.entries(chartAlertsData)) {
+        // Key is in format "SYMBOL:EXCHANGE"
+        if (!Array.isArray(alerts)) continue;
+        const hasActiveAlert = alerts.some(a => a && a.price && !a.triggered);
+        if (hasActiveAlert) {
+          const [symbol, exchange] = key.split(':');
+          alertSymbols.push({ symbol, exchange: exchange || 'NSE' });
+        }
+      }
+
+      return alertSymbols;
+    } catch (err) {
+      console.warn('[Alerts] Failed to get alert symbols:', err);
+      return [];
+    }
+  }, []);
 
   // Fetch watchlist data - only when authenticated (with incremental updates)
   useEffect(() => {
@@ -859,11 +933,28 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.close();
           }
-          console.log('=== SETTING UP WEBSOCKET for', symbolObjs.length, 'symbols ===');
-          ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
+
+          // === MERGE alert symbols with watchlist symbols ===
+          // Get symbols with active alerts that aren't already in watchlist
+          const alertSymbols = getAlertSymbols();
+          const watchlistKeys = new Set(symbolObjs.map(s =>
+            typeof s === 'string' ? `${s}:NSE` : `${s.symbol}:${s.exchange || 'NSE'}`
+          ));
+
+          const additionalAlertSymbols = alertSymbols.filter(as =>
+            !watchlistKeys.has(`${as.symbol}:${as.exchange}`)
+          );
+
+          const allSymbolsToSubscribe = [...symbolObjs, ...additionalAlertSymbols];
+          console.log('=== SETTING UP WEBSOCKET ===');
+          console.log('Watchlist symbols:', symbolObjs.length);
+          console.log('Additional alert symbols:', additionalAlertSymbols.length);
+          console.log('Total subscribed:', allSymbolsToSubscribe.length);
+
+          ws = subscribeToMultiTicker(allSymbolsToSubscribe, (ticker) => {
             if (!mounted || !initialDataLoaded) return;
 
-            // === ALERT MONITORING: Check chart alerts (from tv_chart_alerts) ===
+            // === ALERT MONITORING: Check chart alerts with proper crossing detection ===
             try {
               const chartAlertsStr = localStorage.getItem('tv_chart_alerts');
               if (chartAlertsStr) {
@@ -871,27 +962,70 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
                 const alertKey = `${ticker.symbol}:${ticker.exchange || 'NSE'}`;
                 const symbolAlerts = chartAlertsData[alertKey] || [];
 
+                const currentPrice = parseFloat(ticker.last);
+                if (!Number.isFinite(currentPrice)) return;
+
+                // Get previous price for this symbol (for crossing detection)
+                const prevPrice = alertPricesRef.current.get(alertKey);
+                alertPricesRef.current.set(alertKey, currentPrice);
+
+                // Skip first tick (no previous price to compare)
+                if (prevPrice === undefined) return;
+
                 for (const alert of symbolAlerts) {
                   if (!alert.price || alert.triggered) continue;
 
-                  const currentPrice = parseFloat(ticker.last);
                   const alertPrice = parseFloat(alert.price);
-                  if (!Number.isFinite(currentPrice) || !Number.isFinite(alertPrice)) continue;
+                  if (!Number.isFinite(alertPrice)) continue;
 
-                  // Check crossing with 0.1% tolerance
-                  const threshold = alertPrice * 0.001;
-                  if (Math.abs(currentPrice - alertPrice) <= threshold) {
-                    // Trigger the alert
-                    console.log('[Alerts] Triggered:', ticker.symbol, 'at', currentPrice, 'target:', alertPrice);
+                  const condition = alert.condition || 'crossing';
+                  let triggered = false;
+                  let direction = '';
+
+                  // Proper crossing detection
+                  const crossedUp = prevPrice < alertPrice && currentPrice >= alertPrice;
+                  const crossedDown = prevPrice > alertPrice && currentPrice <= alertPrice;
+
+                  if (condition === 'crossing') {
+                    triggered = crossedUp || crossedDown;
+                    direction = crossedUp ? 'up' : 'down';
+                  } else if (condition === 'crossing_up') {
+                    triggered = crossedUp;
+                    direction = 'up';
+                  } else if (condition === 'crossing_down') {
+                    triggered = crossedDown;
+                    direction = 'down';
+                  }
+
+                  if (triggered) {
+                    console.log('[Alerts] TRIGGERED:', ticker.symbol, 'crossed', direction, 'at', currentPrice, 'target:', alertPrice);
 
                     // Mark as triggered in localStorage
                     alert.triggered = true;
                     chartAlertsData[alertKey] = symbolAlerts;
                     localStorage.setItem('tv_chart_alerts', JSON.stringify(chartAlertsData));
 
-                    // Show notification
-                    // Toast notification disabled
-                    // showToast(`Alert Triggered: ${ticker.symbol} crossed ${alertPrice.toFixed(2)}`, 'info');
+                    // Play alarm sound
+                    playAlertSound();
+
+                    // Only show GlobalAlertPopup if NOT on the same chart
+                    // (Chart's own AlertNotification handles same-chart alerts)
+                    const isOnCurrentChart =
+                      ticker.symbol === activeChartRef.current.symbol &&
+                      (ticker.exchange || 'NSE') === activeChartRef.current.exchange;
+
+                    if (!isOnCurrentChart) {
+                      // Add to global alert popup (for background alerts)
+                      setGlobalAlertPopups(prev => [{
+                        id: `popup-${Date.now()}-${alert.id}`,
+                        alertId: alert.id,
+                        symbol: ticker.symbol,
+                        exchange: ticker.exchange || 'NSE',
+                        price: alertPrice.toFixed(2),
+                        direction: direction,
+                        timestamp: Date.now()
+                      }, ...prev].slice(0, 5)); // Max 5 popups
+                    }
 
                     // Log entry
                     setAlertLogs(prev => [{
@@ -899,7 +1033,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
                       alertId: alert.id,
                       symbol: ticker.symbol,
                       exchange: ticker.exchange || 'NSE',
-                      message: `Alert: ${ticker.symbol} crossed ${alertPrice.toFixed(2)}`,
+                      message: `Alert: ${ticker.symbol} crossed ${direction} ${alertPrice.toFixed(2)}`,
                       time: new Date().toISOString()
                     }, ...prev]);
                     setUnreadAlertCount(prev => prev + 1);
@@ -2571,6 +2705,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               onRemoveAlert={handleRemoveAlert}
               onRestartAlert={handleRestartAlert}
               onPauseAlert={handlePauseAlert}
+              onNavigate={(symbolData) => {
+                // Switch active chart to the alert's symbol
+                setCharts(prev => prev.map(chart =>
+                  chart.id === activeChartId ? { ...chart, symbol: symbolData.symbol, exchange: symbolData.exchange, strategyConfig: null } : chart
+                ));
+              }}
             />
           ) : activeRightPanel === 'position_tracker' ? (
             <PositionTracker
@@ -2668,6 +2808,17 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           onClose={() => setSnapshotToast(null)}
         />
       )}
+      {/* Global Alert Popup for background alerts */}
+      <GlobalAlertPopup
+        alerts={globalAlertPopups}
+        onDismiss={(alertId) => setGlobalAlertPopups(prev => prev.filter(a => a.id !== alertId))}
+        onClick={(symbolData) => {
+          // Switch active chart to the alert's symbol
+          setCharts(prev => prev.map(chart =>
+            chart.id === activeChartId ? { ...chart, symbol: symbolData.symbol, exchange: symbolData.exchange, strategyConfig: null } : chart
+          ));
+        }}
+      />
       <AlertDialog
         isOpen={isAlertOpen}
         onClose={() => setIsAlertOpen(false)}

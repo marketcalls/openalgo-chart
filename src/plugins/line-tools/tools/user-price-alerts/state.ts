@@ -145,12 +145,16 @@ export class UserAlertsState {
 	/**
 	 * Import alerts from serialized JSON (from localStorage).
 	 * Fires alertsChanged but not individual alertAdded for each.
+	 * Skips alerts that have already been triggered.
 	 */
 	importAlerts(alerts: SerializableAlert[]): void {
 		if (!Array.isArray(alerts)) return;
 
 		for (const alertData of alerts) {
 			if (!alertData.id || typeof alertData.price !== 'number') continue;
+
+			// Skip alerts that have already been triggered
+			if ((alertData as any).triggered) continue;
 
 			const userAlert: UserAlertInfo = {
 				id: alertData.id,
