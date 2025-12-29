@@ -24,6 +24,12 @@
   outline-offset: -2px;
 }
 
+.item.focused {
+  background-color: var(--tv-color-toolbar-button-background-hover);
+  outline: 1px solid var(--tv-color-brand);
+  outline-offset: -1px;
+}
+
 /* Rank Column */
 .rank {
   width: 32px;

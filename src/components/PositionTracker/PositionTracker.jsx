@@ -4,10 +4,14 @@ import { Plus, X, Search } from 'lucide-react';
 import styles from './PositionTracker.module.css';
 import PositionTrackerItem from './PositionTrackerItem';
 import PositionTrackerHeader from './PositionTrackerHeader';
+import { SECTORS, getSector } from './sectorMapping';
 
 // Market timing constants (IST)
 const MARKET_OPEN = { hour: 9, minute: 15 };
 const MARKET_CLOSE = { hour: 15, minute: 30 };
+
+// Top N options for gainers/losers filter
+const TOP_N_OPTIONS = [5, 10, 15, 20];
 
 const getMarketStatus = () => {
   const now = new Date();
@@ -45,7 +49,12 @@ const PositionTracker = ({
   const [showAddSymbol, setShowAddSymbol] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [marketState, setMarketState] = useState(() => getMarketStatus());
+  const [filterMode, setFilterMode] = useState('all'); // 'all' | 'gainers' | 'losers'
+  const [sectorFilter, setSectorFilter] = useState('All');
+  const [topNCount, setTopNCount] = useState(10);
+  const [focusedIndex, setFocusedIndex] = useState(-1); // Keyboard navigation
   const searchInputRef = useRef(null);
+  const listRef = useRef(null);
   const previousRanksRef = useRef(new Map());
   const openingRanksRef = useRef(new Map()); // Stores rank at market open (9:15 AM)
   const hasSetOpeningRanks = useRef(false);  // Flag to capture only once per day
@@ -90,6 +99,7 @@ const PositionTracker = ({
         openPrice: parseFloat(item.open) || 0,
         volume: parseFloat(item.volume) || 0,
         percentChange: calculateIntradayChange(item),
+        sector: getSector(item.symbol),
       }));
     } else {
       // Custom mode - filter watchlistData to only show custom symbols
@@ -105,6 +115,7 @@ const PositionTracker = ({
           openPrice: parseFloat(item.open) || 0,
           volume: parseFloat(item.volume) || 0,
           percentChange: calculateIntradayChange(item),
+          sector: getSector(item.symbol),
         }));
     }
 
@@ -171,6 +182,36 @@ const PositionTracker = ({
     });
   }, [rankedData]);
 
+  // Filter data based on sector and filter mode
+  const filteredData = useMemo(() => {
+    // Apply sector filter first
+    let data = displayData;
+    if (sectorFilter !== 'All') {
+      data = data.filter(item => item.sector === sectorFilter);
+    }
+
+    // Then apply gainers/losers filter
+    if (filterMode === 'all') return data;
+
+    if (filterMode === 'gainers') {
+      // Filter positive % change, sort descending, take top N
+      return data
+        .filter(item => item.percentChange > 0)
+        .sort((a, b) => b.percentChange - a.percentChange)
+        .slice(0, topNCount);
+    }
+
+    if (filterMode === 'losers') {
+      // Filter negative % change, sort by most negative first, take top N
+      return data
+        .filter(item => item.percentChange < 0)
+        .sort((a, b) => a.percentChange - b.percentChange)
+        .slice(0, topNCount);
+    }
+
+    return data;
+  }, [displayData, filterMode, sectorFilter, topNCount]);
+
   const handleAddSymbol = useCallback((symbol, exchange = 'NSE') => {
     if (sourceMode !== 'custom') return;
 
@@ -193,6 +234,29 @@ const PositionTracker = ({
   }, [sourceMode, customSymbols, onCustomSymbolsChange]);
 
   const handleRowClick = useCallback((item) => {
+    onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
+  }, [onSymbolSelect]);
+
+  // Keyboard navigation handler
+  const handleKeyDown = useCallback((e) => {
+    if (filteredData.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedIndex(prev => prev < 0 ? 0 : Math.min(prev + 1, filteredData.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedIndex(prev => prev < 0 ? 0 : Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && focusedIndex >= 0 && focusedIndex < filteredData.length) {
+      e.preventDefault();
+      const item = filteredData[focusedIndex];
+      if (item) onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
+    }
+  }, [filteredData, focusedIndex, onSymbolSelect]);
+
+  // Click handler that also updates focusedIndex
+  const handleItemClick = useCallback((item, index) => {
+    setFocusedIndex(index);
     onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
   }, [onSymbolSelect]);
 
@@ -238,6 +302,50 @@ const PositionTracker = ({
         symbolCount={rankedData.length}
       />
 
+      {/* Filter Tabs */}
+      <div className={styles.filterTabs}>
+        <button
+          className={`${styles.filterTab} ${filterMode === 'all' ? styles.filterTabActive : ''}`}
+          onClick={() => setFilterMode('all')}
+        >
+          All
+        </button>
+        <button
+          className={`${styles.filterTab} ${styles.filterTabGainers} ${filterMode === 'gainers' ? styles.filterTabActive : ''}`}
+          onClick={() => setFilterMode('gainers')}
+        >
+          Top {topNCount} Gainers
+        </button>
+        <button
+          className={`${styles.filterTab} ${styles.filterTabLosers} ${filterMode === 'losers' ? styles.filterTabActive : ''}`}
+          onClick={() => setFilterMode('losers')}
+        >
+          Top {topNCount} Losers
+        </button>
+        <select
+          className={styles.topNSelect}
+          value={topNCount}
+          onChange={(e) => setTopNCount(Number(e.target.value))}
+        >
+          {TOP_N_OPTIONS.map(n => (
+            <option key={n} value={n}>Top {n}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Sector Filter */}
+      <div className={styles.sectorFilter}>
+        <select
+          className={styles.sectorSelect}
+          value={sectorFilter}
+          onChange={(e) => setSectorFilter(e.target.value)}
+        >
+          {SECTORS.map(sector => (
+            <option key={sector} value={sector}>{sector}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Column Headers */}
       <div className={styles.columnHeaders}>
         <span className={styles.colRank}>#</span>
@@ -260,15 +368,21 @@ const PositionTracker = ({
           </div>
         ) : isLoading ? (
           renderSkeleton()
-        ) : displayData.length === 0 ? (
+        ) : filteredData.length === 0 ? (
           renderEmptyState()
         ) : (
-          <div className={styles.itemList}>
-            {displayData.map((item) => (
+          <div
+            className={styles.itemList}
+            ref={listRef}
+            tabIndex={0}
+            onKeyDown={handleKeyDown}
+          >
+            {filteredData.map((item, index) => (
               <PositionTrackerItem
                 key={`${item.symbol}-${item.exchange}`}
                 item={item}
-                onClick={() => handleRowClick(item)}
+                isFocused={index === focusedIndex}
+                onClick={() => handleItemClick(item, index)}
                 onRemove={sourceMode === 'custom' ? () => handleRemoveSymbol(item.symbol, item.exchange) : null}
                 showRemove={sourceMode === 'custom'}
               />

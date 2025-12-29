@@ -3,7 +3,7 @@ import classNames from 'classnames';
 import { ArrowUp, ArrowDown, Minus, X } from 'lucide-react';
 import styles from './PositionTrackerItem.module.css';
 
-const PositionTrackerItem = memo(({ item, onClick, onRemove, showRemove }) => {
+const PositionTrackerItem = memo(({ item, isFocused, onClick, onRemove, showRemove }) => {
   const {
     symbol,
     exchange,
@@ -95,15 +95,11 @@ const PositionTrackerItem = memo(({ item, onClick, onRemove, showRemove }) => {
 
   return (
     <div
-      className={classNames(styles.item, animationClass)}
+      className={classNames(styles.item, animationClass, {
+        [styles.focused]: isFocused,
+      })}
       onClick={onClick}
       role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          onClick();
-        }
-      }}
     >
       <span className={styles.rank}>{getRankDisplay(currentRank)}</span>
 

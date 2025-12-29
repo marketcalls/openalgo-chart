@@ -19,6 +19,8 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     const [error, setError] = useState(null);
     const [expiryScrollIndex, setExpiryScrollIndex] = useState(0);
     const [liveLTP, setLiveLTP] = useState(new Map());
+    const [focusedRow, setFocusedRow] = useState(-1); // Keyboard navigation
+    const [focusedCol, setFocusedCol] = useState('ce'); // 'ce' or 'pe'
     const tableBodyRef = useRef(null);
     const wsRef = useRef(null);
 
@@ -268,6 +270,36 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         onClose();
     }, [underlying.exchange, onSelectOption, onClose]);
 
+    // Keyboard navigation handler
+    const handleKeyDown = useCallback((e) => {
+        if (chainData.length === 0) return;
+
+        if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setFocusedRow(prev => prev < 0 ? 0 : Math.min(prev + 1, chainData.length - 1));
+        } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setFocusedRow(prev => prev < 0 ? 0 : Math.max(prev - 1, 0));
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+            e.preventDefault();
+            setFocusedCol(prev => prev === 'ce' ? 'pe' : 'ce');
+        } else if (e.key === 'Enter' && focusedRow >= 0 && focusedRow < chainData.length) {
+            e.preventDefault();
+            const row = chainData[focusedRow];
+            const symbol = focusedCol === 'ce' ? row.ce?.symbol : row.pe?.symbol;
+            if (symbol) handleOptionClick(symbol);
+        } else if (e.key === 'Escape') {
+            onClose();
+        }
+    }, [chainData, focusedRow, focusedCol, handleOptionClick, onClose]);
+
+    // Click handler that also updates focus
+    const handleCellClick = useCallback((rowIndex, col, symbol) => {
+        setFocusedRow(rowIndex);
+        setFocusedCol(col);
+        handleOptionClick(symbol);
+    }, [handleOptionClick]);
+
     const formatOI = (oi) => {
         if (!oi && oi !== 0) return '-';
         if (oi >= 100000) return (oi / 100000).toFixed(2) + 'L';
@@ -309,7 +341,7 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         return sign + change.toFixed(2) + '%';
     };
 
-    const renderRow = (row, isITM_CE, isITM_PE) => {
+    const renderRow = (row, isITM_CE, isITM_PE, rowIndex) => {
         // Get live LTP from WebSocket or fall back to REST data
         const ceLive = liveLTP.get(row.ce?.symbol);
         const peLive = liveLTP.get(row.pe?.symbol);
@@ -319,8 +351,9 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
 
         const ceOIWidth = getOIBarWidth(row.ce?.oi);
         const peOIWidth = getOIBarWidth(row.pe?.oi);
-        const ceClickHandler = () => handleOptionClick(row.ce?.symbol);
-        const peClickHandler = () => handleOptionClick(row.pe?.symbol);
+        const isRowFocused = rowIndex === focusedRow;
+        const ceClickHandler = () => handleCellClick(rowIndex, 'ce', row.ce?.symbol);
+        const peClickHandler = () => handleCellClick(rowIndex, 'pe', row.pe?.symbol);
 
         // Calculate LTP change using live LTP if available
         const ceLtpChange = row.ce?.prevClose && ceLTP
@@ -333,10 +366,13 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         return (
             <div key={row.strike} className={classNames(styles.row, {
                 [styles.itmCE]: isITM_CE,
-                [styles.itmPE]: isITM_PE
+                [styles.itmPE]: isITM_PE,
+                [styles.focused]: isRowFocused
             })}>
                 {/* CALLS - Combined OI + LTP */}
-                <div className={classNames(styles.cell, styles.combinedCell, styles.combinedCellLeft, styles.clickable)} onClick={ceClickHandler}>
+                <div className={classNames(styles.cell, styles.combinedCell, styles.combinedCellLeft, styles.clickable, {
+                    [styles.focusedCell]: isRowFocused && focusedCol === 'ce'
+                })} onClick={ceClickHandler}>
                     {/* OI with bar */}
                     <div className={styles.oiSection}>
                         <div className={styles.oiBarWrapperLeft}>
@@ -361,7 +397,9 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                 </div>
 
                 {/* PUTS - Combined LTP + OI */}
-                <div className={classNames(styles.cell, styles.combinedCell, styles.combinedCellRight, styles.clickable)} onClick={peClickHandler}>
+                <div className={classNames(styles.cell, styles.combinedCell, styles.combinedCellRight, styles.clickable, {
+                    [styles.focusedCell]: isRowFocused && focusedCol === 'pe'
+                })} onClick={peClickHandler}>
                     {/* LTP with change */}
                     <div className={styles.ltpSection}>
                         <span className={styles.ltpValue}>{formatLTP(peLTP)}</span>
@@ -495,8 +533,13 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                             <span>Select an expiry to load option chain</span>
                         </div>
                     ) : (
-                        <div className={styles.tableBody} ref={tableBodyRef}>
-                            {aboveATM.map(row => renderRow(row, row.strike < atmStrike, false))}
+                        <div
+                            className={styles.tableBody}
+                            ref={tableBodyRef}
+                            tabIndex={0}
+                            onKeyDown={handleKeyDown}
+                        >
+                            {aboveATM.map((row, idx) => renderRow(row, row.strike < atmStrike, false, idx))}
 
                             {optionChain && (
                                 <div className={styles.spotBar} data-spot-bar="true">
@@ -512,7 +555,7 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                                 </div>
                             )}
 
-                            {belowATM.map(row => renderRow(row, false, row.strike > atmStrike))}
+                            {belowATM.map((row, idx) => renderRow(row, false, row.strike > atmStrike, aboveATM.length + idx))}
                         </div>
                     )}
                 </div>
