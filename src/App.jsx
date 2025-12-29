@@ -31,6 +31,7 @@ import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
 import { useOILines } from './hooks/useOILines';
 import IndicatorSettingsModal from './components/IndicatorSettings/IndicatorSettingsModal';
 import PositionTracker from './components/PositionTracker';
+import { SectorHeatmapModal } from './components/SectorHeatmap';
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
 
@@ -391,6 +392,9 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     const saved = safeParseJSON(localStorage.getItem('tv_position_tracker_settings'), null);
     return saved || { sourceMode: 'watchlist', customSymbols: [] };
   });
+
+  // Sector Heatmap Modal State
+  const [isSectorHeatmapOpen, setIsSectorHeatmapOpen] = useState(false);
 
   // Persist position tracker settings
   useEffect(() => {
@@ -769,8 +773,10 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         return {
           symbol, exchange,
           last: parseFloat(data.lastPrice).toFixed(2),
+          open: data.open || 0,
           chg: parseFloat(data.priceChange).toFixed(2),
           chgP: parseFloat(data.priceChangePercent).toFixed(2) + '%',
+          volume: data.volume || 0,
           up: parseFloat(data.priceChange) >= 0
         };
       }
@@ -2419,6 +2425,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             strategyConfig={activeChart?.strategyConfig}
             onIndicatorSettingsClick={() => setIsIndicatorSettingsOpen(true)}
             onOptionsClick={() => setIsOptionChainOpen(true)}
+            onHeatmapClick={() => setIsSectorHeatmapOpen(true)}
           />
         }
         leftToolbar={
@@ -2698,6 +2705,23 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         }}
         onSelectOption={handleOptionSelect}
         initialSymbol={optionChainInitialSymbol}
+      />
+      <SectorHeatmapModal
+        isOpen={isSectorHeatmapOpen}
+        onClose={() => setIsSectorHeatmapOpen(false)}
+        watchlistData={watchlistData}
+        onSectorSelect={(sector) => {
+          setPositionTrackerSettings(prev => ({ ...prev, sectorFilter: sector }));
+          setIsSectorHeatmapOpen(false);
+        }}
+        onSymbolSelect={(symData) => {
+          const symbol = typeof symData === 'string' ? symData : symData.symbol;
+          const exchange = typeof symData === 'string' ? 'NSE' : (symData.exchange || 'NSE');
+          setCharts(prev => prev.map(chart =>
+            chart.id === activeChartId ? { ...chart, symbol: symbol, exchange: exchange, strategyConfig: null } : chart
+          ));
+          setIsSectorHeatmapOpen(false);
+        }}
       />
     </>
   );

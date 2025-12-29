@@ -437,7 +437,7 @@ export const getKlines = async (symbol, exchange = 'NSE', interval = '1d', limit
         const IST_OFFSET_SECONDS = 19800; // 5 hours 30 minutes in seconds
 
         if (data && data.data && Array.isArray(data.data)) {
-            return data.data.map(d => {
+            const candles = data.data.map(d => {
                 // If timestamp is a number, use directly (already in seconds)
                 // Otherwise parse date string
                 let time;
@@ -461,6 +461,18 @@ export const getKlines = async (symbol, exchange = 'NSE', interval = '1d', limit
             }).filter(candle =>
                 candle.time > 0 && [candle.open, candle.high, candle.low, candle.close].every(value => Number.isFinite(value))
             );
+
+            // Sort by time ascending and remove duplicates (keep the last occurrence for each timestamp)
+            candles.sort((a, b) => a.time - b.time);
+            const deduped = [];
+            const seenTimes = new Set();
+            for (let i = candles.length - 1; i >= 0; i--) {
+                if (!seenTimes.has(candles[i].time)) {
+                    seenTimes.add(candles[i].time);
+                    deduped.unshift(candles[i]);
+                }
+            }
+            return deduped;
         }
 
         return [];
@@ -532,7 +544,9 @@ export const getTickerPrice = async (symbol, exchange = 'NSE', signal) => {
                 lastPrice: ltp.toString(),
                 priceChange: change.toFixed(2),
                 priceChangePercent: changePercent.toFixed(2),
-                symbol: symbol
+                symbol: symbol,
+                volume: parseFloat(quoteData.volume || 0),
+                open: parseFloat(quoteData.open || 0)
             };
         }
 
@@ -793,7 +807,7 @@ export const getHistoricalKlines = async (symbol, exchange = 'NSE', interval = '
         const IST_OFFSET_SECONDS = 19800; // 5 hours 30 minutes in seconds
 
         if (data && data.data && Array.isArray(data.data)) {
-            return data.data.map(d => {
+            const candles = data.data.map(d => {
                 let time;
                 if (typeof d.timestamp === 'number') {
                     time = d.timestamp + IST_OFFSET_SECONDS;
@@ -814,6 +828,18 @@ export const getHistoricalKlines = async (symbol, exchange = 'NSE', interval = '
             }).filter(candle =>
                 candle.time > 0 && [candle.open, candle.high, candle.low, candle.close].every(value => Number.isFinite(value))
             );
+
+            // Sort by time ascending and remove duplicates (keep the last occurrence for each timestamp)
+            candles.sort((a, b) => a.time - b.time);
+            const deduped = [];
+            const seenTimes = new Set();
+            for (let i = candles.length - 1; i >= 0; i--) {
+                if (!seenTimes.has(candles[i].time)) {
+                    seenTimes.add(candles[i].time);
+                    deduped.unshift(candles[i]);
+                }
+            }
+            return deduped;
         }
 
         return [];

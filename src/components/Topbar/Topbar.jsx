@@ -6,7 +6,7 @@ import { getIntervals } from '../../services/openalgo';
 import { logger } from '../../utils/logger.js';
 import Tooltip from '../Tooltip/Tooltip';
 import {
-    Plus, Star, Trash2, X, AlertCircle, Loader2, Layout as LayoutIcon
+    Plus, Star, Trash2, X, AlertCircle, Loader2, Layout as LayoutIcon, BarChart3
 } from 'lucide-react';
 
 const Topbar = ({
@@ -19,7 +19,7 @@ const Topbar = ({
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
     isReplayMode = false, onSettingsClick, onTemplatesClick,
     onStraddleClick, strategyConfig = null,
-    onIndicatorSettingsClick, onOptionsClick
+    onIndicatorSettingsClick, onOptionsClick, onHeatmapClick
 }) => {
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
@@ -709,6 +709,14 @@ const Topbar = ({
                                                     </div>
                                                     <div className={styles.text}>Options</div>
                                                 </button>
+                                                <Tooltip content="Sector Heatmap" position="bottom">
+                                                    <button className={styles.button} aria-label="Sector Heatmap" onClick={onHeatmapClick}>
+                                                        <div className={styles.icon}>
+                                                            <BarChart3 size={20} strokeWidth={1.5} />
+                                                        </div>
+                                                        <div className={styles.text}>Heatmap</div>
+                                                    </button>
+                                                </Tooltip>
                                             </div>
 
                                             {/* Undo / Redo */}
