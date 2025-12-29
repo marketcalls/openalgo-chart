@@ -249,3 +249,105 @@
     animation: none;
   }
 }
+
+/* Filter Tabs */
+.filterTabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--tv-color-border);
+  background-color: var(--tv-color-toolbar-background);
+}
+
+.filterTab {
+  padding: 6px 12px;
+  background: transparent;
+  border: 1px solid var(--tv-color-border);
+  border-radius: 4px;
+  color: var(--tv-color-text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.filterTab:hover {
+  background-color: var(--tv-color-toolbar-button-background-hover);
+  color: var(--tv-color-text-primary);
+}
+
+.filterTabActive {
+  background-color: var(--tv-color-toolbar-button-background-active);
+  color: var(--tv-color-text-primary);
+  border-color: var(--tv-color-toolbar-button-background-active);
+}
+
+.filterTabGainers.filterTabActive {
+  background-color: rgba(8, 153, 129, 0.2);
+  border-color: #089981;
+  color: #089981;
+}
+
+.filterTabLosers.filterTabActive {
+  background-color: rgba(242, 54, 69, 0.2);
+  border-color: #f23645;
+  color: #f23645;
+}
+
+/* Sector Filter */
+.sectorFilter {
+  padding: 0 12px 8px;
+  background-color: var(--tv-color-toolbar-background);
+  border-bottom: 1px solid var(--tv-color-border);
+}
+
+.sectorSelect {
+  width: 100%;
+  padding: 6px 10px;
+  background-color: var(--tv-color-pane-background);
+  color: var(--tv-color-text-primary);
+  border: 1px solid var(--tv-color-border);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  outline: none;
+}
+
+.sectorSelect:focus {
+  border-color: var(--tv-color-toolbar-button-background-active);
+}
+
+.sectorSelect:hover {
+  border-color: var(--tv-color-text-secondary);
+}
+
+.sectorSelect option {
+  background-color: var(--tv-color-pane-background);
+  color: var(--tv-color-text-primary);
+}
+
+/* Top N Selector */
+.topNSelect {
+  padding: 6px 8px;
+  background-color: var(--tv-color-pane-background);
+  color: var(--tv-color-text-primary);
+  border: 1px solid var(--tv-color-border);
+  border-radius: 4px;
+  font-size: 11px;
+  cursor: pointer;
+  outline: none;
+  margin-left: auto;
+}
+
+.topNSelect:hover {
+  border-color: var(--tv-color-text-secondary);
+}
+
+.topNSelect:focus {
+  border-color: var(--tv-color-toolbar-button-background-active);
+}
+
+.topNSelect option {
+  background-color: var(--tv-color-pane-background);
+  color: var(--tv-color-text-primary);
+}
