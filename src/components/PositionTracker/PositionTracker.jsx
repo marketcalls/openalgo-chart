@@ -52,7 +52,9 @@ const PositionTracker = ({
   const [filterMode, setFilterMode] = useState('all'); // 'all' | 'gainers' | 'losers'
   const [sectorFilter, setSectorFilter] = useState('All');
   const [topNCount, setTopNCount] = useState(10);
+  const [focusedIndex, setFocusedIndex] = useState(-1); // Keyboard navigation
   const searchInputRef = useRef(null);
+  const listRef = useRef(null);
   const previousRanksRef = useRef(new Map());
   const openingRanksRef = useRef(new Map()); // Stores rank at market open (9:15 AM)
   const hasSetOpeningRanks = useRef(false);  // Flag to capture only once per day
@@ -235,6 +237,29 @@ const PositionTracker = ({
     onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
   }, [onSymbolSelect]);
 
+  // Keyboard navigation handler
+  const handleKeyDown = useCallback((e) => {
+    if (filteredData.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedIndex(prev => prev < 0 ? 0 : Math.min(prev + 1, filteredData.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedIndex(prev => prev < 0 ? 0 : Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && focusedIndex >= 0 && focusedIndex < filteredData.length) {
+      e.preventDefault();
+      const item = filteredData[focusedIndex];
+      if (item) onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
+    }
+  }, [filteredData, focusedIndex, onSymbolSelect]);
+
+  // Click handler that also updates focusedIndex
+  const handleItemClick = useCallback((item, index) => {
+    setFocusedIndex(index);
+    onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
+  }, [onSymbolSelect]);
+
   // Render loading skeleton
   const renderSkeleton = () => (
     <div className={styles.skeletonContainer}>
@@ -346,12 +371,18 @@ const PositionTracker = ({
         ) : filteredData.length === 0 ? (
           renderEmptyState()
         ) : (
-          <div className={styles.itemList}>
-            {filteredData.map((item) => (
+          <div
+            className={styles.itemList}
+            ref={listRef}
+            tabIndex={0}
+            onKeyDown={handleKeyDown}
+          >
+            {filteredData.map((item, index) => (
               <PositionTrackerItem
                 key={`${item.symbol}-${item.exchange}`}
                 item={item}
-                onClick={() => handleRowClick(item)}
+                isFocused={index === focusedIndex}
+                onClick={() => handleItemClick(item, index)}
                 onRemove={sourceMode === 'custom' ? () => handleRemoveSymbol(item.symbol, item.exchange) : null}
                 showRemove={sourceMode === 'custom'}
               />
