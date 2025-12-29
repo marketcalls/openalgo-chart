@@ -152,6 +152,11 @@ export const useCloudWorkspaceSync = (isAuthenticated) => {
                             logger.error(`[CloudSync] Error applying key ${key}:`, e);
                         }
                     });
+
+                    // Populate global cache for loadDrawings to use (avoids duplicate API calls)
+                    if (!window._chartPrefsCache) window._chartPrefsCache = {};
+                    Object.assign(window._chartPrefsCache, prefs);
+
                     logger.info(`[CloudSync] Applied ${appliedCount} preferences from cloud.`);
                     // Increment syncKey to force AppContent remount with new localStorage data
                     setSyncKey(prev => prev + 1);

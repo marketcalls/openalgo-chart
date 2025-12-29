@@ -10,6 +10,7 @@ import Toast from './components/Toast/Toast';
 import SnapshotToast from './components/Toast/SnapshotToast';
 import html2canvas from 'html2canvas';
 import { getTickerPrice, subscribeToMultiTicker, checkAuth, closeAllWebSockets, forceCloseAllWebSockets, saveUserPreferences } from './services/openalgo';
+import { globalAlertMonitor } from './services/globalAlertMonitor';
 
 import BottomBar from './components/BottomBar/BottomBar';
 import ChartGrid from './components/Chart/ChartGrid';
@@ -346,6 +347,21 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     });
   });
   const [unreadAlertCount, setUnreadAlertCount] = useState(0);
+
+  // === GlobalAlertMonitor: DISABLED ===
+  // Background price monitoring is disabled because OpenAlgo only supports
+  // one WebSocket connection per API key. The GlobalAlertMonitor was creating
+  // a second connection that conflicted with the watchlist WebSocket.
+  // 
+  // Alert PERSISTENCE still works - alerts are saved/restored per symbol.
+  // Background MONITORING would require reusing the existing watchlist WebSocket.
+  // 
+  // useEffect(() => {
+  //   if (!isAuthenticated) return;
+  //   const handleBackgroundAlertTrigger = (evt) => { ... };
+  //   globalAlertMonitor.start(handleBackgroundAlertTrigger);
+  //   return () => { globalAlertMonitor.stop(); };
+  // }, [isAuthenticated]);
 
   // Mobile State
   const isMobile = useIsMobile();
@@ -846,6 +862,55 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           console.log('=== SETTING UP WEBSOCKET for', symbolObjs.length, 'symbols ===');
           ws = subscribeToMultiTicker(symbolObjs, (ticker) => {
             if (!mounted || !initialDataLoaded) return;
+
+            // === ALERT MONITORING: Check chart alerts (from tv_chart_alerts) ===
+            try {
+              const chartAlertsStr = localStorage.getItem('tv_chart_alerts');
+              if (chartAlertsStr) {
+                const chartAlertsData = JSON.parse(chartAlertsStr);
+                const alertKey = `${ticker.symbol}:${ticker.exchange || 'NSE'}`;
+                const symbolAlerts = chartAlertsData[alertKey] || [];
+
+                for (const alert of symbolAlerts) {
+                  if (!alert.price || alert.triggered) continue;
+
+                  const currentPrice = parseFloat(ticker.last);
+                  const alertPrice = parseFloat(alert.price);
+                  if (!Number.isFinite(currentPrice) || !Number.isFinite(alertPrice)) continue;
+
+                  // Check crossing with 0.1% tolerance
+                  const threshold = alertPrice * 0.001;
+                  if (Math.abs(currentPrice - alertPrice) <= threshold) {
+                    // Trigger the alert
+                    console.log('[Alerts] Triggered:', ticker.symbol, 'at', currentPrice, 'target:', alertPrice);
+
+                    // Mark as triggered in localStorage
+                    alert.triggered = true;
+                    chartAlertsData[alertKey] = symbolAlerts;
+                    localStorage.setItem('tv_chart_alerts', JSON.stringify(chartAlertsData));
+
+                    // Show notification
+                    // Toast notification disabled
+                    // showToast(`Alert Triggered: ${ticker.symbol} crossed ${alertPrice.toFixed(2)}`, 'info');
+
+                    // Log entry
+                    setAlertLogs(prev => [{
+                      id: Date.now(),
+                      alertId: alert.id,
+                      symbol: ticker.symbol,
+                      exchange: ticker.exchange || 'NSE',
+                      message: `Alert: ${ticker.symbol} crossed ${alertPrice.toFixed(2)}`,
+                      time: new Date().toISOString()
+                    }, ...prev]);
+                    setUnreadAlertCount(prev => prev + 1);
+                  }
+                }
+              }
+            } catch (err) {
+              // Silent fail for alert check
+            }
+
+            // === Original watchlist update logic ===
             setWatchlistData(prev => {
               // Match by both symbol AND exchange for correct updates
               const tickerExchange = ticker.exchange || 'NSE';
@@ -1026,70 +1091,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   }, [alerts]);
 
   // Separate effect for WebSocket - only reconnects when symbols actually change
-  const [alertWsSymbols, setAlertWsSymbols] = useState([]);
-
-  useEffect(() => {
-    const interval = setInterval(() => {
-      const currentSymbols = alertSymbolsRef.current;
-      if (JSON.stringify(currentSymbols) !== JSON.stringify(alertWsSymbols)) {
-        setAlertWsSymbols([...currentSymbols]);
-      }
-    }, 1000); // Check every second instead of on every alert change
-
-    return () => clearInterval(interval);
-  }, [alertWsSymbols]);
-
-  useEffect(() => {
-    if (alertWsSymbols.length === 0) return;
-
-    const ws = subscribeToMultiTicker(alertWsSymbols, (ticker) => {
-      setAlerts(prevAlerts => {
-        let hasChanges = false;
-        const newAlerts = prevAlerts.map(alert => {
-          if (alert._source === 'lineTools') return alert; // never auto-trigger plugin alerts
-          // Match by both symbol AND exchange (fallback to NSE if not specified)
-          const alertExchange = alert.exchange || 'NSE';
-          const tickerExchange = ticker.exchange || 'NSE';
-          if (alert.status !== 'Active' || alert.symbol !== ticker.symbol || alertExchange !== tickerExchange) return alert;
-
-          const currentPrice = parseFloat(ticker.last);
-          const targetPrice = parseFloat(alert.price);
-          if (!Number.isFinite(currentPrice) || !Number.isFinite(targetPrice) || targetPrice === 0) return alert;
-
-          // Simple crossing logic (triggered if price is within 0.1% range)
-          const threshold = targetPrice * 0.001; // 0.1% tolerance
-
-          if (Math.abs(currentPrice - targetPrice) <= threshold) {
-            hasChanges = true;
-
-            const displayPrice = formatPrice(targetPrice);
-
-            // Log the alert with exchange
-            const logEntry = {
-              id: Date.now(),
-              alertId: alert.id,
-              symbol: alert.symbol,
-              exchange: alertExchange,
-              message: `Alert triggered: ${alert.symbol}:${alertExchange} crossed ${displayPrice}`,
-              time: new Date().toISOString()
-            };
-            setAlertLogs(prev => [logEntry, ...prev]);
-            setUnreadAlertCount(prev => prev + 1);
-            showToast(`Alert Triggered: ${alert.symbol}:${alertExchange} at ${displayPrice}`, 'info');
-
-            return { ...alert, status: 'Triggered' };
-          }
-          return alert;
-        });
-
-        return hasChanges ? newAlerts : prevAlerts;
-      });
-    });
-
-    return () => {
-      if (ws) ws.close();
-    };
-  }, [alertWsSymbols]);
+  // === ALERT WEBSOCKET DISABLED ===
+  // Alert monitoring is now handled by the watchlist WebSocket (above)
+  // to avoid creating a second connection which conflicts with OpenAlgo.
+  // The watchlist callback checks tv_chart_alerts localStorage on each price update.
+  //
+  // const [alertWsSymbols, setAlertWsSymbols] = useState([]);
+  // useEffect(() => { ... interval for alertWsSymbols ... });
+  // useEffect(() => { subscribeToMultiTicker(alertWsSymbols, ...) });
 
   const handleWatchlistReorder = (newItems) => {
     // newItems can contain both symbol objects and ###section strings
@@ -1859,8 +1868,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     // Add alert to state so it appears in the Alerts panel
     setAlerts(prev => [...prev, newAlert]);
 
-    // Show toast with formatted price
-    showToast(`Alert created for ${currentSymbol}:${currentExchange} at ${priceDisplay}`, 'success');
+    // Toast notification disabled
+    // showToast(`Alert created for ${currentSymbol}:${currentExchange} at ${priceDisplay}`, 'success');
 
     // Set flag to skip the next sync notification (prevent duplicate toast)
     skipNextSyncRef.current = { type: 'add', alertId: newAlert.id, chartId: activeChartId };
@@ -1985,7 +1994,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     }
 
     setAlerts(prev => {
-      // Create a set of chart alert externalIds
+      // Create a map of chart alerts by their id for quick lookup
+      const chartAlertMap = new Map((chartAlerts || []).map(a => [a.id, a]));
       const chartAlertIds = new Set((chartAlerts || []).map(a => a.id));
 
       // Track existing alerts for this chart
@@ -1996,10 +2006,29 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       // - Are NOT lineTools for this chart
       // - Are Triggered or Paused
       // - Are Active and still exist in chart
+      // Also UPDATE price for existing alerts that were moved
       const remaining = prev.filter(a => {
         if (a._source !== 'lineTools' || a.chartId !== chartId) return true;
         if (a.status === 'Triggered' || a.status === 'Paused') return true;
         return chartAlertIds.has(a.externalId);
+      }).map(a => {
+        // If this is a lineTools alert for this chart and still exists, update its price
+        if (a._source === 'lineTools' && a.chartId === chartId && a.status === 'Active') {
+          const chartAlert = chartAlertMap.get(a.externalId);
+          if (chartAlert) {
+            const priceDisplay = formatPrice(chartAlert.price);
+            let conditionDisplay = `Crossing ${priceDisplay}`;
+            if (chartAlert.condition === 'crossing_up') {
+              conditionDisplay = `Crossing Up ${priceDisplay}`;
+            } else if (chartAlert.condition === 'crossing_down') {
+              conditionDisplay = `Crossing Down ${priceDisplay}`;
+            } else if (chartAlert.condition && chartAlert.condition !== 'crossing') {
+              conditionDisplay = chartAlert.condition;
+            }
+            return { ...a, price: priceDisplay, condition: conditionDisplay };
+          }
+        }
+        return a;
       });
 
       // Find NEW chart alerts (not in existing externalIds)
@@ -2019,7 +2048,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           conditionDisplay = a.condition;
         }
 
-        showToast(`Alert created for ${symbol}:${exchange} at ${priceDisplay}`, 'success');
+        // Toast notification disabled
+        // showToast(`Alert created for ${symbol}:${exchange} at ${priceDisplay}`, 'success');
 
         return {
           id: `lt-${chartId}-${a.id}`,
@@ -2054,7 +2084,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     };
     setAlertLogs(prev => [logEntry, ...prev]);
     setUnreadAlertCount(prev => prev + 1);
-    showToast(`Alert Triggered: ${symbol}:${exchange} at ${displayPrice}`, 'info');
+    // Toast notification disabled
+    // showToast(`Alert Triggered: ${symbol}:${exchange} at ${displayPrice}`, 'info');
 
     // Mark corresponding alert as Triggered in the Alerts tab, or add a new history row
     setAlerts(prev => {

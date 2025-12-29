@@ -136,7 +136,7 @@ const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert
                             <div className={styles.emptyState}>No logs</div>
                         ) : (
                             logs.map((log, index) => (
-                                <div key={log.id} className={classNames(styles.logItem, {
+                                <div key={`${log.id}-${index}`} className={classNames(styles.logItem, {
                                     [styles.focused]: index === focusedIndex
                                 })}>
                                     <div className={styles.logHeader}>

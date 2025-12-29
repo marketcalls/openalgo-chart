@@ -10,7 +10,7 @@ import {
 } from 'lightweight-charts';
 import styles from './ChartComponent.module.css';
 import IndicatorLegend from './IndicatorLegend';
-import { getKlines, getHistoricalKlines, subscribeToTicker } from '../../services/openalgo';
+import { getKlines, getHistoricalKlines, subscribeToTicker, saveDrawings, loadDrawings } from '../../services/openalgo';
 import { combinePremiumOHLC, combineMultiLegOHLC } from '../../services/optionChain';
 import { getAccurateISTTimestamp, syncTimeWithAPI, shouldResync } from '../../services/timeService';
 import {
@@ -34,10 +34,12 @@ import { calculateRenko } from '../../utils/renkoUtils';
 import { intervalToSeconds } from '../../utils/timeframes';
 import { logger } from '../../utils/logger.js';
 
-import { LineToolManager, PriceScaleTimer } from '../../plugins/line-tools/line-tools.js';
-import '../../plugins/line-tools/line-tools.css';
+import { LineToolManager } from '../../plugins/line-tools/line-tool-manager';
+import { PriceScaleTimer } from '../../plugins/line-tools/tools/price-scale-timer';
+import '../../plugins/line-tools/floating-toolbar.css';
 import ReplayControls from '../Replay/ReplayControls';
 import ReplaySlider from '../Replay/ReplaySlider';
+import PriceScaleMenu from './PriceScaleMenu';
 
 const TOOL_MAP = {
     'cursor': 'None',
@@ -122,6 +124,7 @@ const ChartComponent = forwardRef(({
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
     const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0 });
+    const [priceScaleMenu, setPriceScaleMenu] = useState({ visible: false, x: 0, y: 0, price: null });
 
     // Close context menu on click outside
     useEffect(() => {
@@ -212,6 +215,56 @@ const ChartComponent = forwardRef(({
     useEffect(() => { exchangeRef.current = exchange; }, [exchange]);
     useEffect(() => { intervalRef.current = interval; }, [interval]);
     useEffect(() => { indicatorsRef.current = indicators; }, [indicators]);
+
+    // Track previous symbol for alert persistence
+    const prevSymbolRef = useRef({ symbol: null, exchange: null });
+
+    // === Alert Persistence Helpers ===
+    // Use separate key from App.jsx which uses 'tv_alerts' with different format
+    const CHART_ALERTS_STORAGE_KEY = 'tv_chart_alerts';
+
+    /**
+     * Save alerts for a symbol to localStorage
+     */
+    const saveAlertsForSymbol = useCallback((sym, exch, alerts) => {
+        if (!sym || !alerts) return;
+        try {
+            const key = `${sym}:${exch || 'NSE'}`;
+            const stored = JSON.parse(localStorage.getItem(CHART_ALERTS_STORAGE_KEY) || '{}');
+            stored[key] = alerts;
+            localStorage.setItem(CHART_ALERTS_STORAGE_KEY, JSON.stringify(stored));
+            console.log('[Alerts] Saved', alerts.length, 'alerts for', key, alerts);
+        } catch (err) {
+            console.warn('[Alerts] Failed to save alerts:', err);
+        }
+    }, []);
+
+    /**
+     * Load alerts for a symbol from localStorage
+     */
+    const loadAlertsForSymbol = useCallback((sym, exch) => {
+        if (!sym) return [];
+        try {
+            const key = `${sym}:${exch || 'NSE'}`;
+            const stored = JSON.parse(localStorage.getItem(CHART_ALERTS_STORAGE_KEY) || '{}');
+            const alerts = stored[key] || [];
+            console.log('[Alerts] Loaded', alerts.length, 'alerts for', key, alerts);
+            return alerts;
+        } catch (err) {
+            console.warn('[Alerts] Failed to load alerts:', err);
+            return [];
+        }
+    }, []);
+
+    // Sync interval changes with LineToolManager for drawing visibility filtering
+    useEffect(() => {
+        if (lineToolManagerRef.current && interval) {
+            const seconds = intervalToSeconds(interval);
+            if (typeof lineToolManagerRef.current.setCurrentInterval === 'function') {
+                lineToolManagerRef.current.setCurrentInterval(seconds);
+            }
+        }
+    }, [interval]);
 
     // ============================================
     // CONFIGURABLE CHART CONSTANTS
@@ -1358,15 +1411,12 @@ const ChartComponent = forwardRef(({
             // Ensure alerts primitive (if present) knows the current symbol
             try {
                 // Set symbol on the manager itself for alert notifications
-                if (typeof manager.setSymbol === 'function') {
-                    manager.setSymbol(symbol);
+                // This will also propagate to UserPriceAlerts internally
+                if (typeof manager.setSymbolName === 'function') {
+                    manager.setSymbolName(symbol);
                 }
 
                 const userAlerts = manager._userPriceAlerts;
-                if (userAlerts && typeof userAlerts.setSymbolName === 'function') {
-                    userAlerts.setSymbolName(symbol);
-                }
-
                 // Bridge internal alert list out to React so the Alerts tab
                 // can show alerts created from the chart-side UI.
                 if (userAlerts && typeof userAlerts.alertsChanged === 'function' && typeof userAlerts.alerts === 'function' && typeof onAlertsSync === 'function') {
@@ -1380,6 +1430,14 @@ const ChartComponent = forwardRef(({
                                 type: a.type || 'price',
                             }));
                             onAlertsSync(mapped);
+
+                            // === Alert Auto-Save: Persist to localStorage for cloud sync ===
+                            if (typeof userAlerts.exportAlerts === 'function') {
+                                const alertsToSave = userAlerts.exportAlerts();
+                                saveAlertsForSymbol(symbolRef.current, exchangeRef.current, alertsToSave);
+
+                                // GlobalAlertMonitor refresh disabled - conflicts with watchlist WebSocket
+                            }
                         } catch (err) {
                             console.warn('Failed to sync chart alerts to app', err);
                         }
@@ -1403,6 +1461,22 @@ const ChartComponent = forwardRef(({
                         }
                     }, manager);
                 }
+
+                // Subscribe to price scale + button clicks to show context menu
+                if (userAlerts && typeof userAlerts.priceScaleClicked === 'function') {
+                    userAlerts.priceScaleClicked().subscribe((evt) => {
+                        try {
+                            setPriceScaleMenu({
+                                visible: true,
+                                x: evt.x,
+                                y: evt.y,
+                                price: evt.price
+                            });
+                        } catch (err) {
+                            console.warn('Failed to show price scale menu', err);
+                        }
+                    }, manager);
+                }
             } catch (err) {
                 console.warn('Failed to initialize alert symbol name', err);
             }
@@ -1410,6 +1484,73 @@ const ChartComponent = forwardRef(({
             window.lineToolManager = manager;
             window.chartInstance = chartRef.current;
             window.seriesInstance = series;
+
+            // Load saved drawings from backend
+            const loadSavedDrawings = async () => {
+                console.log('[ChartComponent] loadSavedDrawings called for:', symbol, exchange, interval);
+                try {
+                    const drawings = await loadDrawings(symbol, exchange, interval);
+                    console.log('[ChartComponent] loadDrawings result:', drawings);
+                    if (drawings && drawings.length > 0 && manager.importDrawings) {
+                        console.log('[ChartComponent] Importing', drawings.length, 'drawings...');
+                        manager.importDrawings(drawings, true);
+                        console.log('[ChartComponent] Import complete!');
+                    } else {
+                        console.log('[ChartComponent] No drawings to import or importDrawings not available');
+                    }
+                } catch (error) {
+                    console.warn('[ChartComponent] Failed to load saved drawings:', error);
+                }
+            };
+            loadSavedDrawings();
+
+            // === Alert Persistence: Restore alerts for new symbol ===
+            try {
+                const userAlerts = manager._userPriceAlerts;
+                console.log('[Alerts] Checking restore for', symbol, '- userAlerts exists:', !!userAlerts);
+                if (userAlerts && typeof userAlerts.importAlerts === 'function') {
+                    const savedAlerts = loadAlertsForSymbol(symbol, exchange);
+                    console.log('[Alerts] Found saved alerts:', savedAlerts);
+                    if (savedAlerts && savedAlerts.length > 0) {
+                        userAlerts.importAlerts(savedAlerts);
+                        console.log('[Alerts] Restored', savedAlerts.length, 'alerts for', symbol);
+                    } else {
+                        console.log('[Alerts] No saved alerts for', symbol);
+                    }
+                } else {
+                    console.log('[Alerts] importAlerts not available on userAlerts');
+                }
+            } catch (err) {
+                console.warn('[Alerts] Failed to restore alerts:', err);
+            }
+
+            // Set up debounced auto-save for drawings
+            let saveTimeout = null;
+            const autoSaveDrawings = () => {
+                if (saveTimeout) clearTimeout(saveTimeout);
+                saveTimeout = setTimeout(async () => {
+                    try {
+                        if (manager.exportDrawings) {
+                            const drawings = manager.exportDrawings();
+                            await saveDrawings(symbol, exchange, interval, drawings);
+                            console.log('[ChartComponent] Auto-saved', drawings.length, 'drawings');
+                        }
+                    } catch (error) {
+                        console.warn('[ChartComponent] Failed to auto-save drawings:', error);
+                    }
+                }, 1000); // Debounce 1 second
+            };
+
+            // Connect auto-save to LineToolManager's onDrawingsChanged callback
+            if (manager.setOnDrawingsChanged) {
+                manager.setOnDrawingsChanged(() => {
+                    console.log('[ChartComponent] Drawing changed, triggering auto-save...');
+                    autoSaveDrawings();
+                });
+            }
+
+            // Store autoSave function for external access
+            manager._autoSaveDrawings = autoSaveDrawings;
         }
     };
 
@@ -1482,12 +1623,16 @@ const ChartComponent = forwardRef(({
                 borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
             },
             handleScroll: {
-                mouseWheel: true,
+                mouseWheel: false,
                 pressedMouseMove: true,
             },
             handleScale: {
                 mouseWheel: true,
                 pinch: true,
+            },
+            kineticScroll: {
+                mouse: false,
+                touch: false,
             },
         });
 
@@ -1794,8 +1939,29 @@ const ChartComponent = forwardRef(({
             }
         }
 
+        // Capture current symbol for cleanup to use (refs will have new values when cleanup runs)
+        const capturedSymbol = symbol;
+        const capturedExchange = exchange;
+
         return () => {
             if (lineToolManagerRef.current) {
+                // === Alert Persistence: Save alerts BEFORE destruction ===
+                try {
+                    const userAlerts = lineToolManagerRef.current._userPriceAlerts;
+                    if (userAlerts && typeof userAlerts.exportAlerts === 'function') {
+                        // Use captured symbol (what it was when effect started), not symbolRef (which is now new)
+                        if (capturedSymbol) {
+                            const alertsToSave = userAlerts.exportAlerts();
+                            console.log('[Alerts] Exporting alerts for', capturedSymbol, ':', alertsToSave);
+                            if (alertsToSave.length > 0) {
+                                saveAlertsForSymbol(capturedSymbol, capturedExchange, alertsToSave);
+                                console.log('[Alerts] Saved', alertsToSave.length, 'alerts for', capturedSymbol, 'before cleanup');
+                            }
+                        }
+                    }
+                } catch (err) {
+                    console.warn('[Alerts] Failed to save alerts in cleanup:', err);
+                }
 
                 try {
                     lineToolManagerRef.current.clearTools();
@@ -1847,6 +2013,9 @@ const ChartComponent = forwardRef(({
             if (ws?.close) ws.close();
         });
         strategyWsRefs.current = {};
+
+        // Update previous symbol ref for next change (Alert save is now in chartType cleanup)
+        prevSymbolRef.current = { symbol, exchange };
 
         // Reset scroll-back loading refs when symbol/interval changes
         isLoadingOlderDataRef.current = false;
@@ -2148,15 +2317,20 @@ const ChartComponent = forwardRef(({
         const lastIndex = data.length - 1;
         const lastDataPoint = data[lastIndex];
 
+        // Get current indicator configuration from ref for accurate period values
+        const currentIndicators = indicatorsRef.current || indicators;
+
         // SMA Indicator
-        if (indicators.sma && smaSeriesRef.current) {
-            if (data.length < 20) {
-                const smaData = calculateSMA(data, 20);
+        const smaConfig = currentIndicators.sma;
+        const smaPeriod = (typeof smaConfig === 'object' && smaConfig?.period) || 20;
+        if (smaConfig && smaSeriesRef.current) {
+            if (data.length < smaPeriod) {
+                const smaData = calculateSMA(data, smaPeriod);
                 if (smaData && smaData.length > 0) {
                     smaSeriesRef.current.setData(smaData);
                 }
             } else {
-                const subset = data.slice(-20);
+                const subset = data.slice(-smaPeriod);
                 const sum = subset.reduce((acc, d) => acc + d.close, 0);
                 const average = sum / subset.length;
                 smaSeriesRef.current.update({ time: lastDataPoint.time, value: average });
@@ -2164,18 +2338,124 @@ const ChartComponent = forwardRef(({
         }
 
         // EMA Indicator
-        if (indicators.ema && emaSeriesRef.current) {
-            if (data.length < 20 || emaLastValueRef.current === null) {
-                const emaData = calculateEMA(data, 20);
+        const emaConfig = currentIndicators.ema;
+        const emaPeriod = (typeof emaConfig === 'object' && emaConfig?.period) || 20;
+        if (emaConfig && emaSeriesRef.current) {
+            if (data.length < emaPeriod || emaLastValueRef.current === null) {
+                const emaData = calculateEMA(data, emaPeriod);
                 if (emaData && emaData.length > 0) {
                     emaLastValueRef.current = emaData[emaData.length - 1].value;
                     emaSeriesRef.current.setData(emaData);
                 }
             } else {
-                const smoothing = 2 / (20 + 1);
+                const smoothing = 2 / (emaPeriod + 1);
                 const emaValue = (lastDataPoint.close - emaLastValueRef.current) * smoothing + emaLastValueRef.current;
                 emaLastValueRef.current = emaValue;
                 emaSeriesRef.current.update({ time: lastDataPoint.time, value: emaValue });
+            }
+        }
+
+        // RSI Indicator
+        const rsiConfig = currentIndicators.rsi;
+        if (rsiConfig?.enabled && rsiSeriesRef.current) {
+            const rsiPeriod = rsiConfig.period || 14;
+            const rsiData = calculateRSI(data, rsiPeriod);
+            if (rsiData && rsiData.length > 0) {
+                rsiSeriesRef.current.setData(rsiData);
+            }
+        }
+
+        // MACD Indicator
+        const macdConfig = currentIndicators.macd;
+        if (macdConfig?.enabled && macdSeriesRef.current.macd) {
+            const fast = macdConfig.fast || 12;
+            const slow = macdConfig.slow || 26;
+            const signal = macdConfig.signal || 9;
+            const macdData = calculateMACD(data, fast, slow, signal);
+            if (macdData) {
+                if (macdData.macd && macdSeriesRef.current.macd) {
+                    macdSeriesRef.current.macd.setData(macdData.macd);
+                }
+                if (macdData.signal && macdSeriesRef.current.signal) {
+                    macdSeriesRef.current.signal.setData(macdData.signal);
+                }
+                if (macdData.histogram && macdSeriesRef.current.histogram) {
+                    macdSeriesRef.current.histogram.setData(macdData.histogram);
+                }
+            }
+        }
+
+        // Stochastic Indicator
+        const stochConfig = currentIndicators.stochastic;
+        if (stochConfig?.enabled && stochasticSeriesRef.current.k) {
+            const kPeriod = stochConfig.kPeriod || 14;
+            const dPeriod = stochConfig.dPeriod || 3;
+            const stochData = calculateStochastic(data, kPeriod, dPeriod);
+            if (stochData) {
+                if (stochData.k && stochasticSeriesRef.current.k) {
+                    stochasticSeriesRef.current.k.setData(stochData.k);
+                }
+                if (stochData.d && stochasticSeriesRef.current.d) {
+                    stochasticSeriesRef.current.d.setData(stochData.d);
+                }
+            }
+        }
+
+        // ATR Indicator
+        const atrConfig = currentIndicators.atr;
+        if (atrConfig?.enabled && atrSeriesRef.current) {
+            const atrPeriod = atrConfig.period || 14;
+            const atrData = calculateATR(data, atrPeriod);
+            if (atrData && atrData.length > 0) {
+                atrSeriesRef.current.setData(atrData);
+            }
+        }
+
+        // Bollinger Bands Indicator
+        const bbConfig = currentIndicators.bollingerBands;
+        if (bbConfig?.enabled && bollingerSeriesRef.current.upper) {
+            const bbPeriod = bbConfig.period || 20;
+            const bbStdDev = bbConfig.stdDev || 2;
+            const bbData = calculateBollingerBands(data, bbPeriod, bbStdDev);
+            if (bbData) {
+                if (bbData.upper && bollingerSeriesRef.current.upper) {
+                    bollingerSeriesRef.current.upper.setData(bbData.upper);
+                }
+                if (bbData.middle && bollingerSeriesRef.current.middle) {
+                    bollingerSeriesRef.current.middle.setData(bbData.middle);
+                }
+                if (bbData.lower && bollingerSeriesRef.current.lower) {
+                    bollingerSeriesRef.current.lower.setData(bbData.lower);
+                }
+            }
+        }
+
+        // Supertrend Indicator
+        const stConfig = currentIndicators.supertrend;
+        if (stConfig?.enabled && supertrendSeriesRef.current) {
+            const stPeriod = stConfig.period || 10;
+            const stMultiplier = stConfig.multiplier || 3;
+            const stData = calculateSupertrend(data, stPeriod, stMultiplier);
+            if (stData && stData.length > 0) {
+                supertrendSeriesRef.current.setData(stData);
+            }
+        }
+
+        // Volume Indicator
+        const volumeConfig = currentIndicators.volume;
+        if (volumeConfig?.enabled && volumeSeriesRef.current) {
+            const volumeData = calculateVolume(data);
+            if (volumeData && volumeData.length > 0) {
+                volumeSeriesRef.current.setData(volumeData);
+            }
+        }
+
+        // VWAP Indicator
+        const vwapConfig = currentIndicators.vwap;
+        if (vwapConfig?.enabled && vwapSeriesRef.current) {
+            const vwapData = calculateVWAP(data);
+            if (vwapData && vwapData.length > 0) {
+                vwapSeriesRef.current.setData(vwapData);
             }
         }
     }, [indicators]);
@@ -4076,6 +4356,36 @@ const ChartComponent = forwardRef(({
                 />
             )}
 
+
+            {/* Price Scale Context Menu */}
+            <PriceScaleMenu
+                visible={priceScaleMenu.visible}
+                x={priceScaleMenu.x}
+                y={priceScaleMenu.y}
+                price={priceScaleMenu.price}
+                symbol={symbol}
+                onAddAlert={() => {
+                    const manager = lineToolManagerRef.current;
+                    const userAlerts = manager && manager._userPriceAlerts;
+                    if (userAlerts && priceScaleMenu.price != null) {
+                        userAlerts.openEditDialog('new', {
+                            price: priceScaleMenu.price,
+                            condition: 'crossing'
+                        });
+                    }
+                }}
+                onDrawHorizontalLine={() => {
+                    const manager = lineToolManagerRef.current;
+                    if (manager && priceScaleMenu.price != null) {
+                        // Create horizontal line directly at the clicked price
+                        manager.createHorizontalLineAtPrice(priceScaleMenu.price);
+                        // Notify parent that a tool is being used
+                        if (onToolUsed) onToolUsed();
+                    }
+                }}
+                onClose={() => setPriceScaleMenu({ visible: false, x: 0, y: 0, price: null })}
+            />
+
             {/* Right-click Context Menu */}
             {contextMenu.show && (
                 <div
@@ -4096,6 +4406,7 @@ const ChartComponent = forwardRef(({
             )}
 
         </div >
+
     );
 });
 
