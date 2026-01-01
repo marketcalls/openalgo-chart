@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { X, Loader2, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, Loader2, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { getOptionChain, getAvailableExpiries, UNDERLYINGS } from '../../services/optionChain';
 import { subscribeToMultiTicker } from '../../services/openalgo';
 import styles from './OptionChainModal.module.css';
@@ -21,8 +21,14 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     const [liveLTP, setLiveLTP] = useState(new Map());
     const [focusedRow, setFocusedRow] = useState(-1); // Keyboard navigation
     const [focusedCol, setFocusedCol] = useState('ce'); // 'ce' or 'pe'
+    const [strikeCount, setStrikeCount] = useState(15); // Dynamic strike count
+    const [isLoadingMore, setIsLoadingMore] = useState(false); // Loading state for load more
     const tableBodyRef = useRef(null);
     const wsRef = useRef(null);
+
+    // Max strikes available (API supports up to 100)
+    const MAX_STRIKE_COUNT = 100;
+    const STRIKE_INCREMENT = 20; // Load 20 more strikes per click
 
     // Set underlying from initialSymbol when modal opens
     useEffect(() => {
@@ -48,6 +54,7 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
             setAvailableExpiries([]);
             setSelectedExpiry(null);
             setExpiryScrollIndex(0);
+            setStrikeCount(15); // Reset to default
         }
     }, [isOpen, initialSymbol]);
 
@@ -166,12 +173,12 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     }, [underlying]);
 
     // Fetch chain
-    const fetchChain = useCallback(async () => {
+    const fetchChain = useCallback(async (requestedStrikeCount = strikeCount) => {
         if (!selectedExpiry) return;
         setIsLoading(true);
         setError(null);
         try {
-            const chain = await getOptionChain(underlying.symbol, underlying.exchange, selectedExpiry, 15);
+            const chain = await getOptionChain(underlying.symbol, underlying.exchange, selectedExpiry, requestedStrikeCount);
             setOptionChain(chain);
         } catch (err) {
             setError('Failed to fetch option chain');
@@ -179,7 +186,25 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         } finally {
             setIsLoading(false);
         }
-    }, [underlying, selectedExpiry]);
+    }, [underlying, selectedExpiry, strikeCount]);
+
+    // Load more strikes handler
+    const loadMoreStrikes = useCallback(async () => {
+        if (strikeCount >= MAX_STRIKE_COUNT) return;
+
+        const newStrikeCount = Math.min(strikeCount + STRIKE_INCREMENT, MAX_STRIKE_COUNT);
+        setIsLoadingMore(true);
+
+        try {
+            const chain = await getOptionChain(underlying.symbol, underlying.exchange, selectedExpiry, newStrikeCount, true); // force refresh
+            setOptionChain(chain);
+            setStrikeCount(newStrikeCount);
+        } catch (err) {
+            console.error('Failed to load more strikes:', err);
+        } finally {
+            setIsLoadingMore(false);
+        }
+    }, [underlying, selectedExpiry, strikeCount, MAX_STRIKE_COUNT, STRIKE_INCREMENT]);
 
     useEffect(() => {
         if (isOpen) fetchExpiries();
@@ -539,6 +564,22 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                             tabIndex={0}
                             onKeyDown={handleKeyDown}
                         >
+                            {/* Load more strikes button - TOP */}
+                            {strikeCount < MAX_STRIKE_COUNT && (
+                                <button
+                                    className={styles.loadMoreBtn}
+                                    onClick={loadMoreStrikes}
+                                    disabled={isLoadingMore}
+                                >
+                                    {isLoadingMore ? (
+                                        <Loader2 size={14} className={styles.spin} />
+                                    ) : (
+                                        <ChevronUp size={14} />
+                                    )}
+                                    <span>Load more strikes</span>
+                                </button>
+                            )}
+
                             {aboveATM.map((row, idx) => renderRow(row, row.strike < atmStrike, false, idx))}
 
                             {optionChain && (
@@ -556,6 +597,22 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                             )}
 
                             {belowATM.map((row, idx) => renderRow(row, false, row.strike > atmStrike, aboveATM.length + idx))}
+
+                            {/* Load more strikes button - BOTTOM */}
+                            {strikeCount < MAX_STRIKE_COUNT && (
+                                <button
+                                    className={styles.loadMoreBtn}
+                                    onClick={loadMoreStrikes}
+                                    disabled={isLoadingMore}
+                                >
+                                    {isLoadingMore ? (
+                                        <Loader2 size={14} className={styles.spin} />
+                                    ) : (
+                                        <ChevronDown size={14} />
+                                    )}
+                                    <span>Load more strikes</span>
+                                </button>
+                            )}
                         </div>
                     )}
                 </div>
