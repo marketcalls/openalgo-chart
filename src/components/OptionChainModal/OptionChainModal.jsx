@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, Loader2, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { getOptionChain, getAvailableExpiries, UNDERLYINGS } from '../../services/optionChain';
-import { subscribeToMultiTicker } from '../../services/openalgo';
+import { subscribeToMultiTicker, getOptionGreeks } from '../../services/openalgo';
 import styles from './OptionChainModal.module.css';
 import classNames from 'classnames';
 
@@ -25,6 +25,11 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     const [isLoadingMore, setIsLoadingMore] = useState(false); // Loading state for load more
     const tableBodyRef = useRef(null);
     const wsRef = useRef(null);
+
+    // Greeks mode state
+    const [viewMode, setViewMode] = useState('ltp-oi'); // 'ltp-oi' or 'greeks'
+    const [greeksData, setGreeksData] = useState(new Map()); // symbol -> greeks object
+    const [greeksLoading, setGreeksLoading] = useState(false);
 
     // Max strikes available (API supports up to 100)
     const MAX_STRIKE_COUNT = 100;
@@ -267,6 +272,69 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         };
     }, [isOpen, optionChain?.chain, underlying.exchange]);
 
+    // Batch fetch Greeks when view mode changes to 'greeks'
+    // Uses parallel requests with concurrency limit for faster loading
+    const fetchGreeks = useCallback(async () => {
+        if (!optionChain?.chain?.length) return;
+
+        // Collect all option symbols that need Greeks
+        const symbolsToFetch = [];
+        optionChain.chain.forEach(row => {
+            if (row.ce?.symbol && !greeksData.has(row.ce.symbol)) {
+                symbolsToFetch.push(row.ce.symbol);
+            }
+            if (row.pe?.symbol && !greeksData.has(row.pe.symbol)) {
+                symbolsToFetch.push(row.pe.symbol);
+            }
+        });
+
+        if (symbolsToFetch.length === 0) return;
+
+        console.log('[OptionChain] Fetching Greeks for', symbolsToFetch.length, 'options (parallel)');
+        setGreeksLoading(true);
+
+        const newGreeksData = new Map(greeksData);
+        const CONCURRENCY_LIMIT = 10; // Fetch 10 at a time
+
+        // Process in parallel batches
+        for (let i = 0; i < symbolsToFetch.length; i += CONCURRENCY_LIMIT) {
+            const batch = symbolsToFetch.slice(i, i + CONCURRENCY_LIMIT);
+
+            // Fetch batch in parallel
+            const results = await Promise.allSettled(
+                batch.map(symbol => getOptionGreeks(symbol, underlying.exchange))
+            );
+
+            // Process results
+            results.forEach((result, index) => {
+                if (result.status === 'fulfilled' && result.value) {
+                    newGreeksData.set(batch[index], result.value);
+                }
+            });
+
+            // Update state progressively so user sees data appearing
+            setGreeksData(new Map(newGreeksData));
+        }
+
+        setGreeksLoading(false);
+        console.log('[OptionChain] Greeks loaded for', newGreeksData.size, 'options');
+    }, [optionChain?.chain, underlying.exchange, greeksData]);
+
+
+    // Trigger Greeks fetch when switching to greeks view
+    useEffect(() => {
+        if (viewMode === 'greeks' && optionChain?.chain?.length > 0) {
+            fetchGreeks();
+        }
+    }, [viewMode, optionChain?.chain]);
+
+    // Clear Greeks cache when expiry changes
+    useEffect(() => {
+        setGreeksData(new Map());
+    }, [selectedExpiry]);
+
+
+
     // Chain data
     const chainData = useMemo(() => optionChain?.chain || [], [optionChain]);
     const atmStrike = optionChain?.atmStrike || 0;
@@ -446,13 +514,114 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         );
     };
 
+    // Format Greek values for display
+    const formatGreek = (value, decimals = 4) => {
+        if (value === null || value === undefined) return '-';
+        return value.toFixed(decimals);
+    };
+
+    const formatDelta = (value) => {
+        if (value === null || value === undefined) return '-';
+        return value.toFixed(2);
+    };
+
+    const formatIv = (value) => {
+        if (value === null || value === undefined) return '-';
+        return value.toFixed(1) + '%';
+    };
+
+    const formatTheta = (value) => {
+        if (value === null || value === undefined) return '-';
+        return value.toFixed(0);
+    };
+
+    const formatVega = (value) => {
+        if (value === null || value === undefined) return '-';
+        return value.toFixed(0);
+    };
+
+    const formatGamma = (value) => {
+        if (value === null || value === undefined) return '-';
+        return value.toFixed(4);
+    };
+
+    // Render Greeks row
+    const renderGreeksRow = (row, isITM_CE, isITM_PE, rowIndex) => {
+        const ceLive = liveLTP.get(row.ce?.symbol);
+        const peLive = liveLTP.get(row.pe?.symbol);
+        const ceLTP = ceLive?.ltp ?? row.ce?.ltp;
+        const peLTP = peLive?.ltp ?? row.pe?.ltp;
+
+        const ceGreeks = greeksData.get(row.ce?.symbol);
+        const peGreeks = greeksData.get(row.pe?.symbol);
+
+        const isRowFocused = rowIndex === focusedRow;
+        const ceClickHandler = () => handleCellClick(rowIndex, 'ce', row.ce?.symbol);
+        const peClickHandler = () => handleCellClick(rowIndex, 'pe', row.pe?.symbol);
+
+        return (
+            <div key={row.strike} className={classNames(styles.rowGreeks, {
+                [styles.itmCE]: isITM_CE,
+                [styles.itmPE]: isITM_PE,
+                [styles.focused]: isRowFocused
+            })}>
+                {/* CALLS - Gamma, Vega, Theta, Delta, LTP */}
+                <div className={classNames(styles.greeksCell, {
+                    [styles.focusedCell]: isRowFocused && focusedCol === 'ce'
+                })} onClick={ceClickHandler}>
+                    <span className={classNames(styles.greekValue, styles.muted)}>
+                        {formatGamma(ceGreeks?.greeks?.gamma)}
+                    </span>
+                    <span className={styles.greekValue}>
+                        {formatVega(ceGreeks?.greeks?.vega)}
+                    </span>
+                    <span className={classNames(styles.greekValue, styles.greekTheta)}>
+                        {formatTheta(ceGreeks?.greeks?.theta)}
+                    </span>
+                    <span className={classNames(styles.greekValue, styles.greekDeltaPositive)}>
+                        {formatDelta(ceGreeks?.greeks?.delta)}
+                    </span>
+                    <span className={styles.greekLtp}>{formatLTP(ceLTP)}</span>
+                </div>
+
+                {/* STRIKE with IV */}
+                <div className={styles.strikeCellGreeks}>
+                    <span>{row.strike.toLocaleString('en-IN')}</span>
+                    <span className={styles.strikeIv}>
+                        {ceGreeks?.iv ? formatIv(ceGreeks.iv) : ''}
+                    </span>
+                </div>
+
+                {/* PUTS - LTP, Delta, Theta, Vega, Gamma */}
+                <div className={classNames(styles.greeksCell, {
+                    [styles.focusedCell]: isRowFocused && focusedCol === 'pe'
+                })} onClick={peClickHandler}>
+                    <span className={styles.greekLtp}>{formatLTP(peLTP)}</span>
+                    <span className={classNames(styles.greekValue, styles.greekDeltaNegative)}>
+                        {formatDelta(peGreeks?.greeks?.delta)}
+                    </span>
+                    <span className={classNames(styles.greekValue, styles.greekTheta)}>
+                        {formatTheta(peGreeks?.greeks?.theta)}
+                    </span>
+                    <span className={styles.greekValue}>
+                        {formatVega(peGreeks?.greeks?.vega)}
+                    </span>
+                    <span className={classNames(styles.greekValue, styles.muted)}>
+                        {formatGamma(peGreeks?.greeks?.gamma)}
+                    </span>
+                </div>
+            </div>
+        );
+    };
+
     if (!isOpen) return null;
+
 
     const spotInfo = formatSpotChange();
 
     return (
         <div className={styles.overlay} onClick={onClose}>
-            <div className={styles.modal} onClick={e => e.stopPropagation()}>
+            <div className={classNames(styles.modal, { [styles.modalWide]: viewMode === 'greeks' })} onClick={e => e.stopPropagation()}>
                 {/* Header */}
                 <div className={styles.header}>
                     <div className={styles.headerLeft}>
@@ -485,6 +654,27 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                         </button>
                     </div>
                     <div className={styles.headerRight}>
+                        {/* View Mode Toggle */}
+                        <div className={styles.viewToggle}>
+                            <button
+                                className={classNames(styles.viewToggleBtn, { [styles.viewToggleBtnActive]: viewMode === 'ltp-oi' })}
+                                onClick={() => setViewMode('ltp-oi')}
+                            >
+                                LTP & OI
+                            </button>
+                            <button
+                                className={classNames(styles.viewToggleBtn, { [styles.viewToggleBtnActive]: viewMode === 'greeks' })}
+                                onClick={() => setViewMode('greeks')}
+                            >
+                                Greeks
+                            </button>
+                        </div>
+                        {greeksLoading && (
+                            <div className={styles.greeksLoading}>
+                                <Loader2 size={14} className={styles.spin} />
+                                <span>Loading Greeks...</span>
+                            </div>
+                        )}
                         <button className={styles.closeBtn} onClick={onClose}>
                             <X size={20} />
                         </button>
@@ -527,18 +717,38 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                     )}
                 </div>
 
-                {/* Column Headers - 3 columns */}
-                <div className={styles.colHeaders}>
-                    <div className={styles.colHeaderCalls}>
-                        <span className={styles.colHeaderLabel}>CALLS</span>
-                        <span className={styles.colHeaderSub}>OI · LTP</span>
+                {/* Column Headers - conditional based on view mode */}
+                {viewMode === 'ltp-oi' ? (
+                    <div className={styles.colHeaders}>
+                        <div className={styles.colHeaderCalls}>
+                            <span className={styles.colHeaderLabel}>CALLS</span>
+                            <span className={styles.colHeaderSub}>OI · LTP</span>
+                        </div>
+                        <span className={styles.colHeaderStrike}>STRIKE</span>
+                        <div className={styles.colHeaderPuts}>
+                            <span className={styles.colHeaderLabel}>PUTS</span>
+                            <span className={styles.colHeaderSub}>LTP · OI</span>
+                        </div>
                     </div>
-                    <span className={styles.colHeaderStrike}>STRIKE</span>
-                    <div className={styles.colHeaderPuts}>
-                        <span className={styles.colHeaderLabel}>PUTS</span>
-                        <span className={styles.colHeaderSub}>LTP · OI</span>
+                ) : (
+                    <div className={styles.colHeadersGreeks}>
+                        <div className={styles.greeksHeaderGroup}>
+                            <span className={styles.greeksHeaderLabel}>Gamma</span>
+                            <span className={styles.greeksHeaderLabel}>Vega</span>
+                            <span className={styles.greeksHeaderLabel}>Theta</span>
+                            <span className={styles.greeksHeaderLabel}>Delta</span>
+                            <span className={styles.greeksHeaderLabel}>LTP</span>
+                        </div>
+                        <span className={styles.colHeaderStrike}>STRIKE<br /><small>IV</small></span>
+                        <div className={styles.greeksHeaderGroup}>
+                            <span className={styles.greeksHeaderLabel}>LTP</span>
+                            <span className={styles.greeksHeaderLabel}>Delta</span>
+                            <span className={styles.greeksHeaderLabel}>Theta</span>
+                            <span className={styles.greeksHeaderLabel}>Vega</span>
+                            <span className={styles.greeksHeaderLabel}>Gamma</span>
+                        </div>
                     </div>
-                </div>
+                )}
 
                 {/* Table */}
                 <div className={styles.tableContainer}>
@@ -580,7 +790,11 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                                 </button>
                             )}
 
-                            {aboveATM.map((row, idx) => renderRow(row, row.strike < atmStrike, false, idx))}
+                            {aboveATM.map((row, idx) =>
+                                viewMode === 'greeks'
+                                    ? renderGreeksRow(row, row.strike < atmStrike, false, idx)
+                                    : renderRow(row, row.strike < atmStrike, false, idx)
+                            )}
 
                             {optionChain && (
                                 <div className={styles.spotBar} data-spot-bar="true">
@@ -596,7 +810,12 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                                 </div>
                             )}
 
-                            {belowATM.map((row, idx) => renderRow(row, false, row.strike > atmStrike, aboveATM.length + idx))}
+                            {belowATM.map((row, idx) =>
+                                viewMode === 'greeks'
+                                    ? renderGreeksRow(row, false, row.strike > atmStrike, aboveATM.length + idx)
+                                    : renderRow(row, false, row.strike > atmStrike, aboveATM.length + idx)
+                            )}
+
 
                             {/* Load more strikes button - BOTTOM */}
                             {strikeCount < MAX_STRIKE_COUNT && (
