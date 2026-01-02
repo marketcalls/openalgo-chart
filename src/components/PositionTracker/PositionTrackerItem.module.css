@@ -10,6 +10,12 @@
   user-select: none;
 }
 
+/* Spacer to match header resize handle width */
+.spacer {
+  width: 8px;
+  flex-shrink: 0;
+}
+
 .item:hover {
   background-color: var(--tv-color-toolbar-button-background-hover);
 }
@@ -74,12 +80,12 @@
 
 /* Symbol Column */
 .symbolCol {
-  flex: 1;
   min-width: 70px;
   display: flex;
   align-items: center;
   gap: 4px;
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .symbolName {
@@ -177,6 +183,7 @@
   0% {
     background-color: rgba(8, 153, 129, 0.25);
   }
+
   100% {
     background-color: transparent;
   }
@@ -186,6 +193,7 @@
   0% {
     background-color: rgba(242, 54, 69, 0.25);
   }
+
   100% {
     background-color: transparent;
   }

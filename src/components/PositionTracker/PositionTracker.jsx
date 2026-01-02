@@ -13,6 +13,18 @@ const MARKET_CLOSE = { hour: 15, minute: 30 };
 // Top N options for gainers/losers filter
 const TOP_N_OPTIONS = [5, 10, 15, 20];
 
+// Default column widths
+const DEFAULT_COLUMN_WIDTHS = {
+  rank: 32,
+  move: 40,
+  symbol: 80,
+  ltp: 70,
+  change: 60,
+  volume: 55,
+};
+
+const MIN_COLUMN_WIDTH = 35;
+
 const getMarketStatus = () => {
   const now = new Date();
   const hours = now.getHours();
@@ -53,11 +65,15 @@ const PositionTracker = ({
   const [sectorFilter, setSectorFilter] = useState('All');
   const [topNCount, setTopNCount] = useState(10);
   const [focusedIndex, setFocusedIndex] = useState(-1); // Keyboard navigation
+  const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
+  const [resizing, setResizing] = useState(null);
   const searchInputRef = useRef(null);
   const listRef = useRef(null);
   const previousRanksRef = useRef(new Map());
   const openingRanksRef = useRef(new Map()); // Stores rank at market open (9:15 AM)
   const hasSetOpeningRanks = useRef(false);  // Flag to capture only once per day
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
 
   // Update market status every minute
   useEffect(() => {
@@ -72,6 +88,40 @@ const PositionTracker = ({
       searchInputRef.current.focus();
     }
   }, [showAddSymbol]);
+
+  // Column resize handlers
+  const handleResizeStart = useCallback((e, column) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizing(column);
+    startXRef.current = e.clientX;
+    startWidthRef.current = columnWidths[column];
+  }, [columnWidths]);
+
+  useEffect(() => {
+    if (!resizing) return;
+
+    const handleMouseMove = (e) => {
+      const diff = e.clientX - startXRef.current;
+      const newWidth = Math.max(MIN_COLUMN_WIDTH, startWidthRef.current + diff);
+      setColumnWidths(prev => ({
+        ...prev,
+        [resizing]: newWidth
+      }));
+    };
+
+    const handleMouseUp = () => {
+      setResizing(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resizing]);
 
   // Calculate % change from opening price (intraday) instead of prev_close
   const calculateIntradayChange = (item) => {
@@ -347,13 +397,18 @@ const PositionTracker = ({
       </div>
 
       {/* Column Headers */}
-      <div className={styles.columnHeaders}>
-        <span className={styles.colRank}>#</span>
-        <span className={styles.colMove}>Move</span>
-        <span className={styles.colSymbol}>Symbol</span>
-        <span className={styles.colLtp}>LTP</span>
-        <span className={styles.colChange}>% Chg</span>
-        <span className={styles.colVolume}>Vol</span>
+      <div className={classNames(styles.columnHeaders, { [styles.isResizing]: resizing })}>
+        <span className={styles.colRank} style={{ width: columnWidths.rank, minWidth: MIN_COLUMN_WIDTH }}>#</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'rank')} />
+        <span className={styles.colMove} style={{ width: columnWidths.move, minWidth: MIN_COLUMN_WIDTH }}>Move</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'move')} />
+        <span className={styles.colSymbol} style={{ width: columnWidths.symbol, minWidth: MIN_COLUMN_WIDTH }}>Symbol</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'symbol')} />
+        <span className={styles.colLtp} style={{ width: columnWidths.ltp, minWidth: MIN_COLUMN_WIDTH }}>LTP</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'ltp')} />
+        <span className={styles.colChange} style={{ width: columnWidths.change, minWidth: MIN_COLUMN_WIDTH }}>% Chg</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'change')} />
+        <span className={styles.colVolume} style={{ width: columnWidths.volume, minWidth: MIN_COLUMN_WIDTH }}>Vol</span>
         {sourceMode === 'custom' && <span className={styles.colAction} />}
       </div>
 
@@ -385,6 +440,7 @@ const PositionTracker = ({
                 onClick={() => handleItemClick(item, index)}
                 onRemove={sourceMode === 'custom' ? () => handleRemoveSymbol(item.symbol, item.exchange) : null}
                 showRemove={sourceMode === 'custom'}
+                columnWidths={columnWidths}
               />
             ))}
           </div>

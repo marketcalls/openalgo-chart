@@ -3,7 +3,7 @@
  * Handles option chain fetching using OpenAlgo Option Chain API
  */
 
-import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, getKlines, searchSymbols } from './openalgo';
+import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, getKlines, searchSymbols, getExpiry } from './openalgo';
 
 // ==================== OPTION CHAIN CACHE ====================
 // Cache to reduce API calls and avoid Upstox rate limits (30 req/min)
@@ -420,12 +420,43 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
 };
 
 /**
- * Get available expiries for an underlying by searching symbols
- * (Fallback when Option Chain API doesn't provide expiry list)
+ * Get available expiries for an underlying using OpenAlgo Expiry API
+ * Uses new /api/v1/expiry endpoint with fallback to symbol parsing
+ * @param {string} underlying - Underlying symbol
+ * @param {string} exchange - Exchange (NFO, BFO, MCX, CDS)
+ * @param {string} instrumentType - 'options' or 'futures'
+ * @returns {Promise<Array>} Array of expiry dates in DDMMMYY format
+ */
+export const getAvailableExpiries = async (underlying, exchange = 'NFO', instrumentType = 'options') => {
+    try {
+        // Try the new dedicated Expiry API first
+        const expiryDates = await getExpiry(underlying, exchange, instrumentType);
+
+        if (expiryDates && expiryDates.length > 0) {
+            // Convert from DD-MMM-YY to DDMMMYY format
+            const converted = expiryDates.map(date => {
+                // API returns: "02-JAN-25" -> convert to "02JAN25"
+                return date.replace(/-/g, '');
+            });
+            console.log('[OptionChain] Expiries from API for', underlying, ':', converted);
+            return converted;
+        }
+
+        // Fallback: Parse symbols to extract unique expiries
+        console.log('[OptionChain] Expiry API returned empty, falling back to symbol parsing for', underlying);
+        return await getExpiriesFromSymbolSearch(underlying);
+    } catch (error) {
+        console.error('[OptionChain] Expiry API error, falling back to symbol parsing:', error);
+        return await getExpiriesFromSymbolSearch(underlying);
+    }
+};
+
+/**
+ * Fallback: Get expiries by parsing option symbols
  * @param {string} underlying - Underlying symbol
  * @returns {Promise<Array>} Array of expiry dates in DDMMMYY format
  */
-export const getAvailableExpiries = async (underlying) => {
+const getExpiriesFromSymbolSearch = async (underlying) => {
     try {
         const allOptions = await searchSymbols(underlying);
 
@@ -453,10 +484,10 @@ export const getAvailableExpiries = async (underlying) => {
             return dateA - dateB;
         });
 
-        console.log('[OptionChain] Available expiries for', underlying, ':', expiries);
+        console.log('[OptionChain] Expiries from symbol search for', underlying, ':', expiries);
         return expiries;
     } catch (error) {
-        console.error('[OptionChain] Error getting expiries:', error);
+        console.error('[OptionChain] Error getting expiries from symbols:', error);
         return [];
     }
 };

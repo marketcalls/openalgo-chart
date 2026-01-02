@@ -34,6 +34,7 @@ import IndicatorSettingsModal from './components/IndicatorSettings/IndicatorSett
 import PositionTracker from './components/PositionTracker';
 import { SectorHeatmapModal } from './components/SectorHeatmap';
 import GlobalAlertPopup from './components/GlobalAlertPopup/GlobalAlertPopup';
+import DepthOfMarket from './components/DepthOfMarket';
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
 
@@ -218,6 +219,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     const saved = safeParseJSON(localStorage.getItem('tv_saved_layout'), null);
     return saved && saved.layout ? saved.layout : '1';
   });
+  const [isMaximized, setIsMaximized] = useState(false);
+  const prevLayoutRef = useRef(null);
   const [activeChartId, setActiveChartId] = useState(1);
   const [charts, setCharts] = useState(() => {
     const saved = safeParseJSON(localStorage.getItem('tv_saved_layout'), null);
@@ -1835,6 +1838,24 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     }
   };
 
+  // Handle Alt+click maximize/restore for split charts
+  const handleMaximizeChart = (chartId) => {
+    if (!isMaximized) {
+      // Maximize: save current layout and switch to single chart
+      prevLayoutRef.current = layout;
+      setIsMaximized(true);
+      setLayout('1');
+      setActiveChartId(chartId);
+    } else {
+      // Restore: go back to previous layout
+      setIsMaximized(false);
+      if (prevLayoutRef.current && prevLayoutRef.current !== '1') {
+        setLayout(prevLayoutRef.current);
+      }
+      prevLayoutRef.current = null;
+    }
+  };
+
   const handleSaveLayout = async () => {
     const layoutData = {
       layout,
@@ -2729,6 +2750,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               }}
               isAuthenticated={isAuthenticated}
             />
+          ) : activeRightPanel === 'dom' ? (
+            <DepthOfMarket
+              symbol={currentSymbol}
+              exchange={currentExchange}
+              isOpen={true}
+              onClose={() => setActiveRightPanel('watchlist')}
+            />
           ) : null
         }
         rightToolbar={
@@ -2744,6 +2772,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             layout={layout}
             activeChartId={activeChartId}
             onActiveChartChange={setActiveChartId}
+            onMaximizeChart={handleMaximizeChart}
             chartRefs={chartRefs}
             onAlertsSync={handleChartAlertsSync}
             onAlertTriggered={handleChartAlertTriggered}

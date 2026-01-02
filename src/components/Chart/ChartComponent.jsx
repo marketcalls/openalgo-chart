@@ -4220,10 +4220,15 @@ const ChartComponent = forwardRef(({
             />
             {isLoading && isActuallyLoadingRef.current && <div className={styles.loadingOverlay}><div className={styles.spinner}></div><div>Loading...</div></div>}
 
+            {/* Persistent Chart Label - Always visible for multi-chart identification */}
+            <div className={styles.chartLabel} style={{ left: isToolbarVisible ? '55px' : '10px' }}>
+                <span className={styles.chartLabelSymbol}>{strategyConfig?.displayName || `${symbol}:${exchange}`}</span>
+                <span className={styles.chartLabelInterval}>· {interval.toUpperCase()}</span>
+            </div>
+
             {/* OHLC Header Bar */}
             {ohlcData && (
-                <div className={styles.ohlcHeader} style={{ left: isToolbarVisible ? '55px' : '10px' }}>
-                    <span className={styles.ohlcSymbol}>{strategyConfig?.displayName || `${symbol}:${exchange}`} · {interval.toUpperCase()}</span>
+                <div className={styles.ohlcHeader} style={{ left: isToolbarVisible ? '55px' : '10px', top: '22px' }}>
                     <span className={`${styles.ohlcDot} ${ohlcData.isUp ? '' : styles.down}`}></span>
                     <div className={styles.ohlcValues}>
                         <span className={styles.ohlcItem}>

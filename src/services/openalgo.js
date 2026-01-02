@@ -771,6 +771,79 @@ export const getTickerPrice = async (symbol, exchange = 'NSE', signal) => {
     }
 };
 
+/**
+ * Get Market Depth (DOM) data
+ * Returns 5 best bid/ask levels with prices and quantities
+ * @param {string} symbol - Trading symbol (e.g., 'NIFTY31JUL25FUT')
+ * @param {string} exchange - Exchange code (e.g., 'NFO', 'NSE')
+ * @param {AbortSignal} signal - Optional abort signal
+ * @returns {Object} Depth data with bids, asks, totals, and market info
+ */
+export const getDepth = async (symbol, exchange = 'NSE', signal) => {
+    try {
+        const response = await fetch(`${getApiBase()}/depth`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            signal,
+            body: JSON.stringify({
+                apikey: getApiKey(),
+                symbol,
+                exchange
+            })
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                window.location.href = getLoginUrl();
+                return null;
+            }
+            throw new Error(`OpenAlgo depth error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        logger.debug('[OpenAlgo] Depth request:', { symbol, exchange });
+        logger.debug('[OpenAlgo] Depth response:', data);
+
+        if (data && data.data) {
+            const depthData = data.data;
+            return {
+                // 5 best ask levels (sorted by price ascending - best ask first)
+                asks: (depthData.asks || []).map(a => ({
+                    price: parseFloat(a.price || 0),
+                    quantity: parseInt(a.quantity || 0, 10)
+                })),
+                // 5 best bid levels (sorted by price descending - best bid first)
+                bids: (depthData.bids || []).map(b => ({
+                    price: parseFloat(b.price || 0),
+                    quantity: parseInt(b.quantity || 0, 10)
+                })),
+                // Market info
+                ltp: parseFloat(depthData.ltp || 0),
+                ltq: parseInt(depthData.ltq || 0, 10),
+                high: parseFloat(depthData.high || 0),
+                low: parseFloat(depthData.low || 0),
+                open: parseFloat(depthData.open || 0),
+                prevClose: parseFloat(depthData.prev_close || 0),
+                volume: parseInt(depthData.volume || 0, 10),
+                oi: parseInt(depthData.oi || 0, 10),
+                // Total quantities
+                totalBuyQty: parseInt(depthData.totalbuyqty || 0, 10),
+                totalSellQty: parseInt(depthData.totalsellqty || 0, 10)
+            };
+        }
+
+        return null;
+    } catch (error) {
+        if (error.name !== 'AbortError') {
+            console.error('Error fetching depth:', error);
+        }
+        return null;
+    }
+};
+
 // IST offset for consistent time display (matches getKlines)
 const IST_OFFSET_SECONDS = 19800; // 5 hours 30 minutes
 
@@ -1141,6 +1214,61 @@ export const saveUserPreferences = async (preferences) => {
     } catch (error) {
         logger.error('[OpenAlgo] Error saving user preferences:', error);
         return false;
+    }
+};
+
+/**
+ * Get Expiry Dates for Futures or Options
+ * @param {string} symbol - Underlying symbol (e.g., NIFTY, BANKNIFTY, RELIANCE)
+ * @param {string} exchange - Exchange code (NFO, BFO, MCX, CDS)
+ * @param {string} instrumentType - Type of instrument: 'futures' or 'options'
+ * @returns {Promise<string[]|null>} Array of expiry dates in DD-MMM-YY format, or null on error
+ */
+export const getExpiry = async (symbol, exchange = 'NFO', instrumentType = 'options') => {
+    try {
+        const requestBody = {
+            apikey: getApiKey(),
+            symbol,
+            exchange,
+            instrumenttype: instrumentType
+        };
+
+        logger.debug('[OpenAlgo] Expiry request:', requestBody);
+
+        const response = await fetch(`${getApiBase()}/expiry`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                window.location.href = getLoginUrl();
+                return null;
+            }
+            if (response.status === 400) {
+                const errorData = await response.json().catch(() => ({}));
+                logger.warn('[OpenAlgo] Expiry error:', errorData.message || response.statusText);
+                return null;
+            }
+            throw new Error(`OpenAlgo expiry error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        logger.debug('[OpenAlgo] Expiry response:', data);
+
+        // Response format: { status, message, data: ["02-JAN-25", "09-JAN-25", ...] }
+        if (data && data.status === 'success' && Array.isArray(data.data)) {
+            return data.data;
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Error fetching expiry dates:', error);
+        return null;
     }
 };
 
