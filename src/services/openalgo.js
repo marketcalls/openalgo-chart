@@ -276,7 +276,7 @@ export const getHostUrl = () => {
  * Check if we should use the Vite proxy (when using default localhost settings)
  * This avoids CORS issues during development
  */
-const shouldUseProxy = () => {
+export const shouldUseProxy = () => {
     const hostUrl = getHostUrl();
     // Use proxy when host is default localhost and we're running on localhost
     const isDefaultHost = hostUrl === DEFAULT_HOST || hostUrl === 'http://localhost:5000' || hostUrl === 'http://127.0.0.1:5000';
@@ -290,7 +290,7 @@ const shouldUseProxy = () => {
  * Returns relative path for proxy when in dev mode with default host
  * Returns full URL when using custom host
  */
-const getApiBase = () => {
+export const getApiBase = () => {
     if (shouldUseProxy()) {
         return '/api/v1';  // Use Vite proxy
     }
@@ -337,7 +337,7 @@ export const checkAuth = async () => {
 /**
  * Get API key from localStorage (set by OpenAlgo after login)
  */
-const getApiKey = () => {
+export const getApiKey = () => {
     return localStorage.getItem('oa_apikey') || '';
 };
 
