@@ -1275,6 +1275,63 @@ export const getOptionGreeks = async (symbol, exchange = 'NFO', options = {}) =>
 };
 
 /**
+ * Fetch expiry dates for F&O instruments using the dedicated Expiry API
+ * @param {string} symbol - Underlying symbol (e.g., NIFTY, BANKNIFTY, RELIANCE, GOLD)
+ * @param {string} exchange - Exchange code (NFO, BFO, MCX, CDS)
+ * @param {string} instrumenttype - Type of instrument: 'futures' or 'options'
+ * @returns {Promise<Array<string>|null>} Array of expiry dates in DD-MMM-YY format or null on error
+ */
+export const fetchExpiryDates = async (symbol, exchange = 'NFO', instrumenttype = 'options') => {
+    try {
+        const requestBody = {
+            apikey: getApiKey(),
+            symbol,
+            exchange,
+            instrumenttype
+        };
+
+        logger.debug('[OpenAlgo] Expiry API request:', requestBody);
+
+        const response = await fetch(`${getApiBase()}/expiry`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                window.location.href = getLoginUrl();
+                return null;
+            }
+            // 400 typically means invalid parameters or no expiry found
+            if (response.status === 400) {
+                const error = new Error(`No expiry dates found for ${symbol} in ${exchange}`);
+                error.code = 'NO_EXPIRY_FOUND';
+                error.status = 400;
+                throw error;
+            }
+            throw new Error(`OpenAlgo expiry error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        logger.debug('[OpenAlgo] Expiry API response:', data);
+
+        // Response format: { status: 'success', data: ['10-JUL-25', '17-JUL-25', ...], message: '...' }
+        if (data && data.status === 'success' && Array.isArray(data.data)) {
+            return data.data; // Sorted chronologically from earliest to latest
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Error fetching expiry dates:', error);
+        return null;
+    }
+};
+
+/**
  * Save chart drawings to backend
  * Uses the existing /api/v1/chart preferences endpoint
  * @param {string} symbol - Trading symbol
@@ -1413,6 +1470,7 @@ export default {
     saveUserPreferences,
     getOptionChain,
     getOptionGreeks,
+    fetchExpiryDates,
     saveDrawings,
     loadDrawings
 };

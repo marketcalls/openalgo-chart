@@ -3,7 +3,7 @@
  * Handles option chain fetching using OpenAlgo Option Chain API
  */
 
-import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, getKlines, searchSymbols } from './openalgo';
+import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, getKlines, fetchExpiryDates } from './openalgo';
 
 // ==================== OPTION CHAIN CACHE ====================
 // Cache to reduce API calls and avoid Upstox rate limits (30 req/min)
@@ -419,41 +419,109 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
     }
 };
 
+// ==================== EXPIRY CACHE ====================
+// Cache expiry dates to reduce API calls (similar to option chain cache)
+const expiryCache = new Map();
+const EXPIRY_CACHE_TTL_MS = 300000; // 5 minutes cache
+const EXPIRY_STORAGE_KEY = 'expiryCache';
+
+// Generate expiry cache key
+const getExpiryCacheKey = (underlying, exchange, instrumenttype) =>
+    `${underlying}_${exchange}_${instrumenttype}`;
+
+// Check if expiry cache entry is still valid
+const isExpiryCacheValid = (cacheEntry) => {
+    if (!cacheEntry) return false;
+    return Date.now() - cacheEntry.timestamp < EXPIRY_CACHE_TTL_MS;
+};
+
+// Load expiry cache from localStorage on init
+const loadExpiryCacheFromStorage = () => {
+    try {
+        const stored = localStorage.getItem(EXPIRY_STORAGE_KEY);
+        if (stored) {
+            const parsed = JSON.parse(stored);
+            Object.entries(parsed).forEach(([key, value]) => {
+                expiryCache.set(key, value);
+            });
+            console.log('[OptionChain] Loaded', expiryCache.size, 'expiry cache entries from storage');
+        }
+    } catch (e) {
+        console.warn('[OptionChain] Failed to load expiry cache from storage:', e.message);
+    }
+};
+
+// Save expiry cache to localStorage
+const saveExpiryCacheToStorage = () => {
+    try {
+        const obj = Object.fromEntries(expiryCache);
+        localStorage.setItem(EXPIRY_STORAGE_KEY, JSON.stringify(obj));
+    } catch (e) {
+        console.warn('[OptionChain] Failed to save expiry cache to storage:', e.message);
+    }
+};
+
+// Load expiry cache on module init
+loadExpiryCacheFromStorage();
+
 /**
- * Get available expiries for an underlying by searching symbols
- * (Fallback when Option Chain API doesn't provide expiry list)
- * @param {string} underlying - Underlying symbol
+ * Get available expiries for an underlying using the dedicated Expiry API
+ * Uses caching to reduce API calls
+ * @param {string} underlying - Underlying symbol (e.g., NIFTY, BANKNIFTY, RELIANCE, GOLD)
+ * @param {string} exchange - Exchange for the options (NFO, BFO, MCX) - defaults based on underlying
+ * @param {string} instrumenttype - Type: 'futures' or 'options' (default: 'options')
  * @returns {Promise<Array>} Array of expiry dates in DDMMMYY format
  */
-export const getAvailableExpiries = async (underlying) => {
+export const getAvailableExpiries = async (underlying, exchange = null, instrumenttype = 'options') => {
     try {
-        const allOptions = await searchSymbols(underlying);
-
-        // Parse symbols to extract unique expiries
-        const expirySet = new Set();
-
-        for (const opt of allOptions) {
-            if (!opt.symbol?.endsWith('CE') && !opt.symbol?.endsWith('PE')) continue;
-
-            // Parse symbol: UNDERLYING + DD + MMM + YY + STRIKE + TYPE
-            const withoutType = opt.symbol.slice(0, -2);
-            const match = withoutType.match(/^([A-Z]+)(\d{2})([A-Z]{3})(\d{2})(\d+)$/);
-
-            if (match && match[1] === underlying) {
-                const [, , dayStr, monthStr, yearStr] = match;
-                const expiryStr = `${dayStr}${monthStr}${yearStr}`;
-                expirySet.add(expiryStr);
+        // Determine the correct exchange for F&O based on the underlying
+        // NSE underlyings (NIFTY, BANKNIFTY, FINNIFTY, MIDCPNIFTY, stocks) -> NFO
+        // BSE underlyings (SENSEX, BANKEX) -> BFO  
+        // MCX underlyings (GOLD, SILVER, CRUDE) -> MCX
+        let foExchange = exchange;
+        if (!foExchange) {
+            const underlyingConfig = UNDERLYINGS.find(u => u.symbol === underlying);
+            if (underlyingConfig) {
+                foExchange = underlyingConfig.exchange; // NFO or BFO
+            } else {
+                // Default to NFO for unknown/stock underlyings
+                foExchange = 'NFO';
             }
         }
 
-        // Sort expiries chronologically
-        const expiries = Array.from(expirySet).sort((a, b) => {
-            const dateA = parseExpiryDate(a);
-            const dateB = parseExpiryDate(b);
-            return dateA - dateB;
+        // Check cache first
+        const cacheKey = getExpiryCacheKey(underlying, foExchange, instrumenttype);
+        const cached = expiryCache.get(cacheKey);
+
+        if (isExpiryCacheValid(cached)) {
+            console.log('[OptionChain] Using cached expiries for:', cacheKey, '(age:', Math.round((Date.now() - cached.timestamp) / 1000), 's)');
+            return cached.data;
+        }
+
+        console.log('[OptionChain] Fetching expiries for', underlying, 'on', foExchange);
+
+        // Call the dedicated expiry API
+        const expiryDates = await fetchExpiryDates(underlying, foExchange, instrumenttype);
+
+        if (!expiryDates || expiryDates.length === 0) {
+            console.log('[OptionChain] No expiries found for', underlying);
+            return [];
+        }
+
+        // Convert from API format (DD-MMM-YY like "10-JUL-25") to our internal format (DDMMMYY like "10JUL25")
+        const expiries = expiryDates.map(dateStr => {
+            // Remove hyphens: "10-JUL-25" -> "10JUL25"
+            return dateStr.replace(/-/g, '');
         });
 
-        console.log('[OptionChain] Available expiries for', underlying, ':', expiries);
+        // Cache the result
+        expiryCache.set(cacheKey, {
+            data: expiries,
+            timestamp: Date.now()
+        });
+        saveExpiryCacheToStorage();
+        console.log('[OptionChain] Cached expiries for:', cacheKey);
+
         return expiries;
     } catch (error) {
         console.error('[OptionChain] Error getting expiries:', error);
