@@ -34,6 +34,7 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     // Request tracking refs to prevent stale responses and race conditions
     const expiryRequestIdRef = useRef(0);
     const chainRequestIdRef = useRef(0);
+    const greeksRequestIdRef = useRef(0);
     // Track if we're waiting for initialSymbol to be processed before fetching
     const pendingInitialSymbolRef = useRef(false);
 
@@ -386,6 +387,9 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     const fetchGreeks = useCallback(async () => {
         if (!optionChain?.chain?.length) return;
 
+        // Increment request ID and capture current value to detect stale responses
+        const requestId = ++greeksRequestIdRef.current;
+
         // Collect all option symbols that need Greeks
         const symbolsToFetch = [];
         optionChain.chain.forEach(row => {
@@ -399,7 +403,7 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
 
         if (symbolsToFetch.length === 0) return;
 
-        console.log('[OptionChain] Fetching Greeks for', symbolsToFetch.length, 'options (parallel)');
+        console.log('[OptionChain] Fetching Greeks for', symbolsToFetch.length, 'options (parallel), requestId:', requestId);
         setGreeksLoading(true);
 
         const newGreeksData = new Map(greeksData);
@@ -407,12 +411,24 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
 
         // Process in parallel batches
         for (let i = 0; i < symbolsToFetch.length; i += CONCURRENCY_LIMIT) {
+            // Check if request is still current before each batch
+            if (requestId !== greeksRequestIdRef.current) {
+                console.log('[OptionChain] Discarding stale Greeks response, requestId:', requestId, 'current:', greeksRequestIdRef.current);
+                return;
+            }
+
             const batch = symbolsToFetch.slice(i, i + CONCURRENCY_LIMIT);
 
             // Fetch batch in parallel
             const results = await Promise.allSettled(
                 batch.map(symbol => getOptionGreeks(symbol, underlying.exchange))
             );
+
+            // Check again after async operation
+            if (requestId !== greeksRequestIdRef.current) {
+                console.log('[OptionChain] Discarding stale Greeks response after fetch, requestId:', requestId);
+                return;
+            }
 
             // Process results
             results.forEach((result, index) => {
@@ -424,6 +440,9 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
             // Update state progressively so user sees data appearing
             setGreeksData(new Map(newGreeksData));
         }
+
+        // Final check before completing
+        if (requestId !== greeksRequestIdRef.current) return;
 
         setGreeksLoading(false);
         console.log('[OptionChain] Greeks loaded for', newGreeksData.size, 'options');
@@ -437,8 +456,9 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         }
     }, [viewMode, optionChain?.chain]);
 
-    // Clear Greeks cache when expiry changes
+    // Clear Greeks cache and invalidate pending requests when expiry changes
     useEffect(() => {
+        greeksRequestIdRef.current++; // Invalidate any pending Greeks requests
         setGreeksData(new Map());
     }, [selectedExpiry]);
 

@@ -69,6 +69,7 @@ export function useOILines(symbol, exchange, enabled = true) {
 
     const intervalRef = useRef(null);
     const isMountedRef = useRef(true);
+    const isFetchingRef = useRef(false); // Prevent overlapping async operations
 
     // Fetch and analyze option chain
     const fetchOIData = useCallback(async () => {
@@ -175,11 +176,22 @@ export function useOILines(symbol, exchange, enabled = true) {
             }
 
             intervalRef.current = setInterval(async () => {
+                // Skip if already fetching (prevents overlapping async operations)
+                if (isFetchingRef.current) {
+                    console.log('[useOILines] Skipping refresh - previous fetch still in progress');
+                    return;
+                }
+
                 // Only refresh during market hours
                 const marketOpen = await isMarketOpen('NSE');
                 if (marketOpen && isMountedRef.current) {
                     console.log('[useOILines] Auto-refreshing OI data');
-                    fetchOIData();
+                    isFetchingRef.current = true;
+                    try {
+                        await fetchOIData();
+                    } finally {
+                        isFetchingRef.current = false;
+                    }
                 }
             }, REFRESH_INTERVAL_MS);
         };
@@ -189,6 +201,7 @@ export function useOILines(symbol, exchange, enabled = true) {
         // Cleanup
         return () => {
             isMountedRef.current = false;
+            isFetchingRef.current = false;
             if (intervalRef.current) {
                 clearInterval(intervalRef.current);
                 intervalRef.current = null;

@@ -25,7 +25,7 @@ import LayoutTemplateDialog from './components/LayoutTemplates/LayoutTemplateDia
 import ShortcutsDialog from './components/ShortcutsDialog/ShortcutsDialog';
 import { OptionChainPicker } from './components/OptionChainPicker';
 import OptionChainModal from './components/OptionChainModal';
-import { initTimeService } from './services/timeService';
+import { initTimeService, destroyTimeService } from './services/timeService';
 import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
@@ -705,8 +705,10 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   }, [currentSymbol, currentExchange]);
 
   // Initialize TimeService on app mount - syncs time with WorldTimeAPI
+  // Cleanup on unmount to prevent memory leak from orphaned interval
   useEffect(() => {
     initTimeService();
+    return () => destroyTimeService();
   }, []);
 
   // Persist multiple watchlists

@@ -9,6 +9,7 @@ import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, getKlines, sear
 // Cache to reduce API calls and avoid Upstox rate limits (30 req/min)
 const optionChainCache = new Map();
 const CACHE_TTL_MS = 300000; // 5 minutes cache (increased from 60s to avoid rate limits)
+const MAX_OPTION_CHAIN_CACHE_SIZE = 50; // Max entries to prevent memory leaks
 const STORAGE_KEY = 'optionChainCache';
 
 // Negative cache for symbols that don't support F&O (prevents repeated failed API calls)
@@ -107,6 +108,24 @@ const saveCacheToStorage = () => {
 
 // Load cache from storage on module init
 loadCacheFromStorage();
+
+/**
+ * Evict oldest entries from cache to prevent unbounded growth
+ * Uses LRU-like eviction based on timestamp
+ * @param {Map} cache - The cache Map to evict from
+ * @param {number} maxSize - Maximum allowed entries
+ */
+const evictOldestEntries = (cache, maxSize) => {
+    if (cache.size <= maxSize) return;
+
+    // Sort by timestamp and remove oldest entries
+    const entries = Array.from(cache.entries())
+        .sort((a, b) => a[1].timestamp - b[1].timestamp);
+
+    const toRemove = entries.slice(0, cache.size - maxSize);
+    toRemove.forEach(([key]) => cache.delete(key));
+    console.log('[OptionChain] Evicted', toRemove.length, 'old cache entries');
+};
 
 /**
  * Clear option chain cache
@@ -382,6 +401,8 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
 
         // Store in cache only if we have valid data
         if (chain.length > 0) {
+            // Evict oldest entries if cache is at capacity
+            evictOldestEntries(optionChainCache, MAX_OPTION_CHAIN_CACHE_SIZE - 1);
             optionChainCache.set(cacheKey, {
                 data: processedData,
                 timestamp: Date.now()
@@ -423,6 +444,7 @@ export const getOptionChain = async (underlying, exchange = 'NFO', expiryDate = 
 // Cache expiry dates to reduce API calls (similar to option chain cache)
 const expiryCache = new Map();
 const EXPIRY_CACHE_TTL_MS = 300000; // 5 minutes cache
+const MAX_EXPIRY_CACHE_SIZE = 30; // Max entries to prevent memory leaks
 const EXPIRY_STORAGE_KEY = 'expiryCache';
 
 // Generate expiry cache key
@@ -521,7 +543,8 @@ export const getAvailableExpiries = async (underlying, exchange = null, instrume
             return dateStr.replace(/-/g, '');
         });
 
-        // Cache the result
+        // Cache the result with LRU eviction
+        evictOldestEntries(expiryCache, MAX_EXPIRY_CACHE_SIZE - 1);
         expiryCache.set(cacheKey, {
             data: expiries,
             timestamp: Date.now()

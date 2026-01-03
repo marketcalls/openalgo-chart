@@ -16,6 +16,14 @@ const DEFAULT_WS_HOST = '127.0.0.1:8765';
 const activeWebSockets = new Set();
 
 /**
+ * Module-scoped cache for previous close prices
+ * Used by WebSocket updates which don't include prev_close (mode 2)
+ * Replaces window._prevCloseCache to avoid global pollution
+ */
+const prevCloseCache = new Map();
+const MAX_PREV_CLOSE_CACHE_SIZE = 200; // Limit cache size to prevent memory leaks
+
+/**
  * SHARED WEBSOCKET MANAGER - Singleton pattern
  * Maintains a SINGLE WebSocket connection for the entire application.
  * OpenAlgo only supports one WebSocket per API key, so we must share.
@@ -92,6 +100,11 @@ class SharedWebSocketManager {
 
         // Close connection if no subscribers left
         if (this._subscribers.size === 0 && this._ws) {
+            // Clear any pending reconnect timer to prevent unnecessary reconnection
+            if (this._reconnectTimer) {
+                clearTimeout(this._reconnectTimer);
+                this._reconnectTimer = null;
+            }
             this._ws.close();
             this._ws = null;
         }
@@ -749,8 +762,12 @@ export const getTickerPrice = async (symbol, exchange = 'NSE', signal) => {
             const changePercent = prevClose > 0 ? (change / prevClose) * 100 : 0;
 
             // Cache prev_close for WebSocket updates (WebSocket mode 2 doesn't include prev_close)
-            if (!window._prevCloseCache) window._prevCloseCache = {};
-            window._prevCloseCache[`${symbol}:${exchange}`] = prevClose;
+            // Evict oldest entry if cache is at capacity
+            if (prevCloseCache.size >= MAX_PREV_CLOSE_CACHE_SIZE) {
+                const firstKey = prevCloseCache.keys().next().value;
+                prevCloseCache.delete(firstKey);
+            }
+            prevCloseCache.set(`${symbol}:${exchange}`, prevClose);
 
             return {
                 lastPrice: ltp.toString(),
@@ -929,7 +946,7 @@ export const subscribeToMultiTicker = (symbols, callback) => {
         if (ltp > 0) {
             // WebSocket mode 2 doesn't include prev_close, use cached value from initial quotes fetch
             const cacheKey = `${message.symbol}:${exchange}`;
-            const cachedPrevClose = window._prevCloseCache?.[cacheKey];
+            const cachedPrevClose = prevCloseCache.get(cacheKey);
 
             // Use cached prev_close, fallback to open (if available), then ltp
             const prevClose = cachedPrevClose || parseFloat(data.open || ltp);
