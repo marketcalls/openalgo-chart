@@ -1420,6 +1420,100 @@ export const getOptionGreeks = async (symbol, exchange = 'NFO', options = {}) =>
 };
 
 /**
+ * Get Option Greeks for multiple symbols in a single batch request
+ * Much faster than individual calls - processes up to 50 symbols at once
+ * @param {Array<{symbol: string, exchange: string}>} symbols - Array of option symbols
+ * @param {Object} options - Optional parameters (interest_rate, expiry_time)
+ * @returns {Promise<Object>} Response with data array and summary
+ */
+export const getMultiOptionGreeks = async (symbols, options = {}) => {
+    // Early return if no symbols provided
+    if (!symbols || symbols.length === 0) {
+        logger.debug('[OpenAlgo] Multi Option Greeks: No symbols to fetch');
+        return { status: 'success', data: [], summary: { total: 0, success: 0, failed: 0 } };
+    }
+
+    const MAX_BATCH_SIZE = 50;  // API limit
+
+    // If within limit, make single request
+    if (symbols.length <= MAX_BATCH_SIZE) {
+        return await fetchMultiGreeksBatch(symbols, options);
+    }
+
+    // Otherwise, batch into multiple requests
+    logger.debug('[OpenAlgo] Multi Option Greeks: Batching', symbols.length, 'symbols into chunks of', MAX_BATCH_SIZE);
+
+    const allData = [];
+    let totalSuccess = 0;
+    let totalFailed = 0;
+
+    for (let i = 0; i < symbols.length; i += MAX_BATCH_SIZE) {
+        const batch = symbols.slice(i, i + MAX_BATCH_SIZE);
+        const result = await fetchMultiGreeksBatch(batch, options);
+
+        if (result && result.data) {
+            allData.push(...result.data);
+            totalSuccess += result.summary?.success || 0;
+            totalFailed += result.summary?.failed || 0;
+        }
+    }
+
+    return {
+        status: totalFailed === 0 ? 'success' : totalSuccess > 0 ? 'partial' : 'error',
+        data: allData,
+        summary: { total: symbols.length, success: totalSuccess, failed: totalFailed }
+    };
+};
+
+// Internal helper for single batch request
+const fetchMultiGreeksBatch = async (symbols, options = {}) => {
+    try {
+        const requestBody = {
+            apikey: getApiKey(),
+            symbols: symbols.map(s => ({
+                symbol: s.symbol,
+                exchange: s.exchange || 'NFO'
+            })),
+            ...options
+        };
+
+        logger.debug('[OpenAlgo] Multi Option Greeks batch request:', { count: symbols.length });
+
+        const response = await fetch(`${getApiBase()}/multioptiongreeks`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            if (response.status === 401) {
+                window.location.href = getLoginUrl();
+                return null;
+            }
+            throw new Error(`OpenAlgo multioptiongreeks error: ${response.status} ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        logger.debug('[OpenAlgo] Multi Option Greeks batch response:', data.summary);
+
+        if (data && (data.status === 'success' || data.status === 'partial')) {
+            return {
+                status: data.status,
+                data: data.data || [],
+                summary: data.summary || { total: symbols.length, success: 0, failed: symbols.length }
+            };
+        }
+
+        return null;
+    } catch (error) {
+        console.error('Error fetching multi option greeks batch:', error);
+        return null;
+    }
+};
+/**
  * Fetch expiry dates for F&O instruments using the dedicated Expiry API
  * @param {string} symbol - Underlying symbol (e.g., NIFTY, BANKNIFTY, RELIANCE, GOLD)
  * @param {string} exchange - Exchange code (NFO, BFO, MCX, CDS)
@@ -1615,6 +1709,7 @@ export default {
     saveUserPreferences,
     getOptionChain,
     getOptionGreeks,
+    getMultiOptionGreeks,
     fetchExpiryDates,
     saveDrawings,
     loadDrawings

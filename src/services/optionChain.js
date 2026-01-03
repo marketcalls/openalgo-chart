@@ -3,7 +3,7 @@
  * Handles option chain fetching using OpenAlgo Option Chain API
  */
 
-import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, getKlines, searchSymbols, getExpiry, fetchExpiryDates } from './openalgo';
+import { getOptionChain as fetchOptionChainAPI, getOptionGreeks, getMultiOptionGreeks, getKlines, searchSymbols, getExpiry, fetchExpiryDates } from './openalgo';
 
 // ==================== OPTION CHAIN CACHE ====================
 // Cache to reduce API calls and avoid Upstox rate limits (30 req/min)
@@ -611,6 +611,17 @@ const getExpiriesFromSymbolSearch = async (underlying) => {
  */
 export const fetchOptionGreeks = async (symbol, exchange = 'NFO') => {
     return await getOptionGreeks(symbol, exchange);
+};
+
+/**
+ * Get option greeks for multiple symbols in a single batch request
+ * Much faster than individual calls - processes up to 50 symbols at once
+ * @param {Array<{symbol: string, exchange: string}>} symbols - Array of option symbols
+ * @param {Object} options - Optional parameters (interest_rate, expiry_time)
+ * @returns {Promise<Object>} Response with data array and summary
+ */
+export const fetchMultiOptionGreeks = async (symbols, options = {}) => {
+    return await getMultiOptionGreeks(symbols, options);
 };
 
 /**

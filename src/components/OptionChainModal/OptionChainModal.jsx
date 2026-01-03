@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, Loader2, RefreshCw, ChevronLeft, ChevronRight, ChevronUp, ChevronDown } from 'lucide-react';
 import { getOptionChain, getAvailableExpiries, UNDERLYINGS } from '../../services/optionChain';
-import { subscribeToMultiTicker, getOptionGreeks } from '../../services/openalgo';
+import { subscribeToMultiTicker, getMultiOptionGreeks } from '../../services/openalgo';
 import styles from './OptionChainModal.module.css';
 import classNames from 'classnames';
 
@@ -383,7 +383,7 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     }, [isOpen, optionChain?.chain, underlying.exchange]);
 
     // Batch fetch Greeks when view mode changes to 'greeks'
-    // Uses parallel requests with concurrency limit for faster loading
+    // Uses single batch API call for much faster loading
     const fetchGreeks = useCallback(async () => {
         if (!optionChain?.chain?.length) return;
 
@@ -394,58 +394,105 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         const symbolsToFetch = [];
         optionChain.chain.forEach(row => {
             if (row.ce?.symbol && !greeksData.has(row.ce.symbol)) {
-                symbolsToFetch.push(row.ce.symbol);
+                symbolsToFetch.push({ symbol: row.ce.symbol, exchange: underlying.exchange });
             }
             if (row.pe?.symbol && !greeksData.has(row.pe.symbol)) {
-                symbolsToFetch.push(row.pe.symbol);
+                symbolsToFetch.push({ symbol: row.pe.symbol, exchange: underlying.exchange });
             }
         });
 
         if (symbolsToFetch.length === 0) return;
 
-        console.log('[OptionChain] Fetching Greeks for', symbolsToFetch.length, 'options (parallel), requestId:', requestId);
+        console.log('[OptionChain] Fetching Greeks for', symbolsToFetch.length, 'options using batch API, requestId:', requestId);
         setGreeksLoading(true);
 
-        const newGreeksData = new Map(greeksData);
-        const CONCURRENCY_LIMIT = 10; // Fetch 10 at a time
+        try {
+            // Single batch API call instead of many individual calls
+            const response = await getMultiOptionGreeks(symbolsToFetch);
 
-        // Process in parallel batches
-        for (let i = 0; i < symbolsToFetch.length; i += CONCURRENCY_LIMIT) {
-            // Check if request is still current before each batch
+            // Check if request is still current
             if (requestId !== greeksRequestIdRef.current) {
                 console.log('[OptionChain] Discarding stale Greeks response, requestId:', requestId, 'current:', greeksRequestIdRef.current);
                 return;
             }
 
-            const batch = symbolsToFetch.slice(i, i + CONCURRENCY_LIMIT);
+            if (response && response.data) {
+                const newGreeksData = new Map(greeksData);
 
-            // Fetch batch in parallel
-            const results = await Promise.allSettled(
-                batch.map(symbol => getOptionGreeks(symbol, underlying.exchange))
-            );
+                // Map response data to greeksData
+                response.data.forEach(item => {
+                    if (item.status === 'success' && item.symbol) {
+                        newGreeksData.set(item.symbol, {
+                            iv: item.implied_volatility,
+                            greeks: item.greeks
+                        });
+                    }
+                });
 
-            // Check again after async operation
-            if (requestId !== greeksRequestIdRef.current) {
-                console.log('[OptionChain] Discarding stale Greeks response after fetch, requestId:', requestId);
-                return;
+                setGreeksData(newGreeksData);
+                console.log('[OptionChain] Greeks batch loaded:', response.summary, '- Total:', newGreeksData.size, 'options');
             }
+        } catch (error) {
+            console.error('[OptionChain] Greeks batch API error:', error);
+        } finally {
+            if (requestId === greeksRequestIdRef.current) {
+                setGreeksLoading(false);
+            }
+        }
+    }, [optionChain?.chain, underlying.exchange, greeksData]);
 
-            // Process results
-            results.forEach((result, index) => {
-                if (result.status === 'fulfilled' && result.value) {
-                    newGreeksData.set(batch[index], result.value);
-                }
-            });
+    // Retry mechanism for failed Greeks - auto-retries missing symbols after delay
+    const retryFailedGreeks = useCallback(async () => {
+        if (!optionChain?.chain?.length) return;
 
-            // Update state progressively so user sees data appearing
-            setGreeksData(new Map(newGreeksData));
+        // Find symbols still missing Greeks data
+        const missingSymbols = [];
+        optionChain.chain.forEach(row => {
+            if (row.ce?.symbol && !greeksData.has(row.ce.symbol)) {
+                missingSymbols.push({ symbol: row.ce.symbol, exchange: underlying.exchange });
+            }
+            if (row.pe?.symbol && !greeksData.has(row.pe.symbol)) {
+                missingSymbols.push({ symbol: row.pe.symbol, exchange: underlying.exchange });
+            }
+        });
+
+        if (missingSymbols.length === 0) {
+            console.log('[OptionChain] No missing Greeks to retry');
+            return;
         }
 
-        // Final check before completing
-        if (requestId !== greeksRequestIdRef.current) return;
+        console.log('[OptionChain] Retrying', missingSymbols.length, 'missing Greeks after delay...');
+        setGreeksLoading(true);
 
-        setGreeksLoading(false);
-        console.log('[OptionChain] Greeks loaded for', newGreeksData.size, 'options');
+        // Wait 2 seconds to avoid rate limits
+        await new Promise(r => setTimeout(r, 2000));
+
+        const requestId = greeksRequestIdRef.current;
+        try {
+            const response = await getMultiOptionGreeks(missingSymbols);
+
+            if (requestId !== greeksRequestIdRef.current) return;
+
+            if (response && response.data) {
+                const newGreeksData = new Map(greeksData);
+                response.data.forEach(item => {
+                    if (item.status === 'success' && item.symbol) {
+                        newGreeksData.set(item.symbol, {
+                            iv: item.implied_volatility,
+                            greeks: item.greeks
+                        });
+                    }
+                });
+                setGreeksData(newGreeksData);
+                console.log('[OptionChain] Retry loaded:', response.summary);
+            }
+        } catch (error) {
+            console.error('[OptionChain] Retry failed:', error);
+        } finally {
+            if (requestId === greeksRequestIdRef.current) {
+                setGreeksLoading(false);
+            }
+        }
     }, [optionChain?.chain, underlying.exchange, greeksData]);
 
 
@@ -455,6 +502,25 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
             fetchGreeks();
         }
     }, [viewMode, optionChain?.chain]);
+
+    // Auto-retry missing Greeks after initial fetch completes
+    useEffect(() => {
+        if (viewMode !== 'greeks' || greeksLoading || greeksData.size === 0) return;
+
+        // Check if there are still missing Greeks
+        const hasMissing = optionChain?.chain?.some(row =>
+            (row.ce?.symbol && !greeksData.has(row.ce.symbol)) ||
+            (row.pe?.symbol && !greeksData.has(row.pe.symbol))
+        );
+
+        if (hasMissing) {
+            console.log('[OptionChain] Some Greeks missing, scheduling retry...');
+            const timeoutId = setTimeout(() => {
+                retryFailedGreeks();
+            }, 500);
+            return () => clearTimeout(timeoutId);
+        }
+    }, [viewMode, greeksLoading, greeksData.size, optionChain?.chain, retryFailedGreeks]);
 
     // Clear Greeks cache and invalidate pending requests when expiry changes
     useEffect(() => {

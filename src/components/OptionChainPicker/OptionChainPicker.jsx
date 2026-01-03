@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { X, TrendingUp, Loader2, RefreshCw, Check, ChevronLeft, ChevronRight, ChevronDown, Settings2, Plus, Trash2 } from 'lucide-react';
-import { getOptionChain, getAvailableExpiries, UNDERLYINGS, getDaysToExpiry, parseExpiryDate, fetchOptionGreeks, clearOptionChainCache } from '../../services/optionChain';
+import { getOptionChain, getAvailableExpiries, UNDERLYINGS, getDaysToExpiry, parseExpiryDate, fetchOptionGreeks, fetchMultiOptionGreeks, clearOptionChainCache } from '../../services/optionChain';
 import { subscribeToMultiTicker } from '../../services/openalgo';
 import { STRATEGY_TEMPLATES, applyTemplate, validateStrategy, calculateNetPremium, formatStrategyName, generateLegId } from '../../services/strategyTemplates';
 import styles from './OptionChainPicker.module.css';
@@ -251,53 +251,53 @@ const OptionChainPicker = ({ isOpen, onClose, onSelect }) => {
         }));
     }, [availableExpiries, underlying, strikeCount]);
 
-    // Delay helper to avoid API rate limits
-    const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-    // Fetch Greeks for all strikes with rate limiting
+    // Fetch Greeks for all strikes using batch API (much faster than individual calls)
     const fetchGreeks = useCallback(async (chainRows) => {
         if (!chainRows?.length) return;
 
         setIsLoadingGreeks(true);
-        const results = {};
+        console.log('[Greeks] Using batch API for', chainRows.length, 'strikes');
 
-        const limitedRows = chainRows.slice(0, Math.min(chainRows.length, 15));
-        console.log('[Greeks] Fetching Greeks for', limitedRows.length, 'strikes');
+        try {
+            // Build symbols array for batch request (CE + PE for each row)
+            const symbols = chainRows.slice(0, 25).flatMap(row => [  // Max 50 symbols (25 rows × 2)
+                row.ce?.symbol && { symbol: row.ce.symbol, exchange: underlying.exchange },
+                row.pe?.symbol && { symbol: row.pe.symbol, exchange: underlying.exchange }
+            ].filter(Boolean));
 
-        for (const row of limitedRows) {
-            if (row.ce?.symbol) {
-                try {
-                    const ceGreeks = await fetchOptionGreeks(row.ce.symbol, underlying.exchange);
-                    if (ceGreeks) {
-                        results[row.ce.symbol] = {
-                            delta: ceGreeks.greeks?.delta,
-                            iv: ceGreeks.implied_volatility
+            if (symbols.length === 0) {
+                setIsLoadingGreeks(false);
+                return;
+            }
+
+            console.log('[Greeks] Batch request for', symbols.length, 'symbols');
+
+            // Single batch API call instead of 30+ individual calls
+            const response = await fetchMultiOptionGreeks(symbols);
+
+            if (response && response.data) {
+                const results = {};
+
+                // Map response data to results object
+                response.data.forEach(item => {
+                    if (item.status === 'success' && item.symbol) {
+                        results[item.symbol] = {
+                            delta: item.greeks?.delta,
+                            iv: item.implied_volatility
                         };
                     }
-                } catch (e) {
-                    console.warn('[Greeks] CE failed:', row.ce.symbol, e.message);
-                }
-                await delay(2000);
+                });
+
+                console.log('[Greeks] Batch results:', response.summary, '- Loaded', Object.keys(results).length, 'symbols');
+                setGreeksData(results);
+            } else {
+                console.warn('[Greeks] Batch API returned empty response');
             }
-            if (row.pe?.symbol) {
-                try {
-                    const peGreeks = await fetchOptionGreeks(row.pe.symbol, underlying.exchange);
-                    if (peGreeks) {
-                        results[row.pe.symbol] = {
-                            delta: peGreeks.greeks?.delta,
-                            iv: peGreeks.implied_volatility
-                        };
-                    }
-                } catch (e) {
-                    console.warn('[Greeks] PE failed:', row.pe.symbol, e.message);
-                }
-                await delay(2000);
-            }
-            setGreeksData({ ...results });
+        } catch (error) {
+            console.error('[Greeks] Batch API error:', error);
+        } finally {
+            setIsLoadingGreeks(false);
         }
-
-        console.log('[Greeks] Results:', Object.keys(results).length, 'symbols loaded');
-        setIsLoadingGreeks(false);
     }, [underlying.exchange]);
 
     useEffect(() => {
