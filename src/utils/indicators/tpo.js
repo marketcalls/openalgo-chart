@@ -111,15 +111,27 @@ const getPriceLevels = (low, high, tickSize) => {
 
 /**
  * Get TPO letter for a given period index
- * A-Z (0-25), then a-z (26-51) for extended sessions
+ * A-Z (0-25), then a-z (26-51), then AA-AZ, BA-BZ... for extended sessions
  */
 const getTPOLetter = (periodIndex) => {
+    if (periodIndex < 0) return '?';
     if (periodIndex < 26) {
         return String.fromCharCode(65 + periodIndex); // A-Z
     } else if (periodIndex < 52) {
         return String.fromCharCode(97 + (periodIndex - 26)); // a-z
     }
-    return '*'; // Fallback for very long sessions
+
+    // Extended periods: 52+ -> AA, AB...
+    const offset = periodIndex - 52;
+    const firstCharIndex = Math.floor(offset / 26);
+    const secondCharIndex = offset % 26;
+
+    // Safety check for ridiculous periods
+    if (firstCharIndex >= 26) return '*';
+
+    const firstChar = String.fromCharCode(65 + firstCharIndex);
+    const secondChar = String.fromCharCode(65 + secondCharIndex);
+    return firstChar + secondChar;
 };
 
 /**
@@ -138,10 +150,33 @@ const getDateString = (timestamp) => {
 };
 
 /**
- * Get minutes from midnight for a Unix timestamp
+ * Get minutes from midnight for a Unix timestamp in a specific timezone
  */
-const getMinutesFromMidnight = (timestamp) => {
+const getMinutesFromMidnight = (timestamp, timezone = undefined) => {
     const date = new Date(timestamp * 1000);
+
+    // If timezone specified, use Intl to get correct hours/minutes
+    if (timezone && timezone !== 'Local') {
+        try {
+            const options = {
+                timeZone: timezone,
+                hour: 'numeric',
+                minute: 'numeric',
+                hour12: false
+            };
+            const formatter = new Intl.DateTimeFormat('en-US', options);
+            const parts = formatter.formatToParts(date);
+            const hour = parseInt(parts.find(p => p.type === 'hour').value, 10);
+            const minute = parseInt(parts.find(p => p.type === 'minute').value, 10);
+
+            // Handle 24h format quirk (sometimes returns 24 instead of 0)
+            const h = hour === 24 ? 0 : hour;
+            return h * 60 + minute;
+        } catch (e) {
+            console.warn('Invalid timezone:', timezone, e);
+        }
+    }
+
     return date.getHours() * 60 + date.getMinutes();
 };
 
@@ -393,6 +428,7 @@ export const calculateTPO = (data, options = {}) => {
         allHours = true, // Set to true to include all hours (for crypto/24x7 markets)
         poorThreshold = 2, // TPO count threshold for poor high/low
         interval, // Chart interval (e.g., '15m', '1D')
+        timezone = 'Asia/Kolkata', // Default timezone (User can override)
     } = options;
 
     // Parse block size - support both string ('30m') and number (30)
@@ -490,7 +526,7 @@ export const calculateTPO = (data, options = {}) => {
 
         // Process each candle
         for (const candle of candles) {
-            const minutesFromMidnight = getMinutesFromMidnight(candle.time);
+            const minutesFromMidnight = getMinutesFromMidnight(candle.time, timezone);
 
             // Skip candles outside session hours (unless allHours is true)
             if (!allHours && (minutesFromMidnight < sessionStartMinutes || minutesFromMidnight >= sessionEndMinutes)) {
@@ -498,9 +534,25 @@ export const calculateTPO = (data, options = {}) => {
             }
 
             // Calculate which period (letter) this candle belongs to
-            // For allHours mode, use minutes from midnight instead of session start
-            const minutesIntoSession = allHours ? minutesFromMidnight : (minutesFromMidnight - sessionStartMinutes);
-            const periodIndex = Math.floor(minutesIntoSession / periodMinutes);
+            // Always anchor 'A' to sessionStart, even if allHours is used.
+            const minutesIntoSession = minutesFromMidnight - sessionStartMinutes;
+            let periodIndex = Math.floor(minutesIntoSession / periodMinutes);
+
+            // Handle pre-market (negative index) or extensive hours
+            if (periodIndex < 0) {
+                // Option: Use negative indices or special mapping.
+                // For now, let's just clamp or allow standard mapping to see.
+                // Ideally pre-market gets distinct letters, but let's stick to standard map
+                // If very negative (e.g. yesterday evening), it will be weird.
+                // Assuming intraday relative to 09:15.
+            }
+
+            // Adjust index to non-negative if we want 'A' to be first print?
+            // Standard TPO: 'A' is the first period of the session.
+            // If we allow allHours, 'A' should probably correspond to sessionStart.
+            // Pre-market (before sessionStart) would be negative periods?
+            // Let's rely on getTPOLetter to handle index.
+
             const letter = getTPOLetter(periodIndex);
 
             // Track period info
@@ -622,7 +674,7 @@ export const tpoToRenderData = (profile, options = {}) => {
     const renderData = [];
 
     for (const [price, levelData] of profile.priceLevels) {
-        const letters = [...levelData.letters].sort();
+        const letters = [...levelData.letters];
 
         renderData.push({
             price,

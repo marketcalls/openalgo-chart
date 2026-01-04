@@ -1499,9 +1499,10 @@ const fetchMultiGreeksBatch = async (symbols, options = {}) => {
         const data = await response.json();
         logger.debug('[OpenAlgo] Multi Option Greeks batch response:', data.summary);
 
-        if (data && (data.status === 'success' || data.status === 'partial')) {
+        // Handle success, partial, or error - always return structure if we have data
+        if (data && data.data) {
             return {
-                status: data.status,
+                status: data.status || 'error',
                 data: data.data || [],
                 summary: data.summary || { total: symbols.length, success: 0, failed: symbols.length }
             };

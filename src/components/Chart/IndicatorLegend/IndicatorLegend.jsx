@@ -4,7 +4,7 @@ import styles from './IndicatorLegend.module.css';
 /**
  * IndicatorRow - Renders a single indicator with name, params, value, and action buttons
  */
-const IndicatorRow = ({ indicator, onVisibilityToggle, onRemove }) => (
+const IndicatorRow = ({ indicator, onVisibilityToggle, onRemove, onSettings }) => (
     <div
         className={`${styles.indicatorRow} ${indicator.isHidden ? styles.indicatorHidden : ''}`}
     >
@@ -44,7 +44,12 @@ const IndicatorRow = ({ indicator, onVisibilityToggle, onRemove }) => (
             {/* Settings */}
             <button
                 className={styles.indicatorActionBtn}
-                onClick={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    if (onSettings) {
+                        onSettings(indicator.type);
+                    }
+                }}
                 title="Settings"
             >
                 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 18 18" width="18" height="18">
@@ -95,7 +100,8 @@ const IndicatorLegend = ({
     isCollapsed = false,
     onToggleCollapse,
     onVisibilityToggle,
-    onRemove
+    onRemove,
+    onSettings,
 }) => {
     // Separate indicators into main chart and pane indicators
     const mainIndicators = indicators.filter(ind => ind.pane === 'main');
@@ -115,6 +121,7 @@ const IndicatorLegend = ({
                                 indicator={indicator}
                                 onVisibilityToggle={onVisibilityToggle}
                                 onRemove={onRemove}
+                                onSettings={onSettings}
                             />
                         ))}
                     </div>
@@ -153,6 +160,7 @@ const IndicatorLegend = ({
                                 indicator={indicator}
                                 onVisibilityToggle={onVisibilityToggle}
                                 onRemove={onRemove}
+                                onSettings={onSettings}
                             />
                         </div>
                     </div>

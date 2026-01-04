@@ -10,6 +10,7 @@ import {
 } from 'lightweight-charts';
 import styles from './ChartComponent.module.css';
 import IndicatorLegend from './IndicatorLegend';
+import IndicatorSettingsDialog from '../IndicatorSettings/IndicatorSettingsDialog';
 import { getKlines, getHistoricalKlines, subscribeToTicker, saveDrawings, loadDrawings } from '../../services/openalgo';
 import { combinePremiumOHLC, combineMultiLegOHLC } from '../../services/optionChain';
 import { getAccurateISTTimestamp, syncTimeWithAPI, shouldResync } from '../../services/timeService';
@@ -115,6 +116,7 @@ const ChartComponent = forwardRef(({
     isSessionBreakVisible = false,
     onIndicatorRemove,
     onIndicatorVisibilityToggle,
+    onIndicatorSettings, // Callback when indicator settings are changed
     chartAppearance = {},
     strategyConfig = null, // { strategyType, legs: [{ id, symbol, direction, quantity }], exchange, displayName }
     onOpenOptionChain, // Callback to open option chain for current symbol
@@ -125,6 +127,7 @@ const ChartComponent = forwardRef(({
     const [isLoading, setIsLoading] = useState(true);
     const [contextMenu, setContextMenu] = useState({ show: false, x: 0, y: 0 });
     const [priceScaleMenu, setPriceScaleMenu] = useState({ visible: false, x: 0, y: 0, price: null });
+    const [indicatorSettingsOpen, setIndicatorSettingsOpen] = useState(null); // which indicator's settings are open
 
     // Close context menu on click outside
     useEffect(() => {
@@ -555,9 +558,9 @@ const ChartComponent = forwardRef(({
         if (smaEnabled) {
             active.push({
                 type: 'sma',
-                name: 'MA',
-                params: '20 close 0',
-                color: '#2962FF',
+                name: 'SMA',
+                params: `${(typeof smaConfig === 'object' && smaConfig.period) || 20} close 0`,
+                color: (typeof smaConfig === 'object' && smaConfig.color) || '#FF6D00',
                 value: indicatorValues.sma,
                 isHidden: typeof smaConfig === 'object' ? !!smaConfig.hidden : false,
                 pane: 'main' // Main chart indicator
@@ -571,8 +574,8 @@ const ChartComponent = forwardRef(({
             active.push({
                 type: 'ema',
                 name: 'EMA',
-                params: '20 close 0',
-                color: '#FF6D00',
+                params: `${(typeof emaConfig === 'object' && emaConfig.period) || 20} close 0`,
+                color: (typeof emaConfig === 'object' && emaConfig.color) || '#2962FF',
                 value: indicatorValues.ema,
                 isHidden: typeof emaConfig === 'object' ? !!emaConfig.hidden : false,
                 pane: 'main' // Main chart indicator
@@ -2554,10 +2557,15 @@ const ChartComponent = forwardRef(({
             const bbData = calculateBollingerBands(data, period, stdDev);
 
             if (canAddSeries && bbData.upper && bbData.upper.length > 0) {
+                // Config Colors
+                const upperColor = indicatorsConfig.bollingerBands.upperColor || '#2962FF';
+                const lowerColor = indicatorsConfig.bollingerBands.lowerColor || '#2962FF';
+                const middleColor = indicatorsConfig.bollingerBands.basisColor || '#FF6D00';
+
                 // Upper band
                 if (!bollingerSeriesRef.current.upper) {
                     bollingerSeriesRef.current.upper = chartRef.current.addSeries(LineSeries, {
-                        color: 'rgba(33, 150, 243, 0.5)',
+                        color: upperColor,
                         lineWidth: 1,
                         priceLineVisible: false,
                         lastValueVisible: false,
@@ -2566,12 +2574,12 @@ const ChartComponent = forwardRef(({
                     });
                 }
                 bollingerSeriesRef.current.upper.setData(bbData.upper);
-                bollingerSeriesRef.current.upper.applyOptions({ visible: !bbHidden });
+                bollingerSeriesRef.current.upper.applyOptions({ visible: !bbHidden, color: upperColor });
 
                 // Middle band (SMA)
                 if (!bollingerSeriesRef.current.middle) {
                     bollingerSeriesRef.current.middle = chartRef.current.addSeries(LineSeries, {
-                        color: 'rgba(33, 150, 243, 0.8)',
+                        color: middleColor,
                         lineWidth: 1,
                         lineStyle: 2, // Dashed
                         priceLineVisible: false,
@@ -2581,12 +2589,12 @@ const ChartComponent = forwardRef(({
                     });
                 }
                 bollingerSeriesRef.current.middle.setData(bbData.middle);
-                bollingerSeriesRef.current.middle.applyOptions({ visible: !bbHidden });
+                bollingerSeriesRef.current.middle.applyOptions({ visible: !bbHidden, color: middleColor });
 
                 // Lower band
                 if (!bollingerSeriesRef.current.lower) {
                     bollingerSeriesRef.current.lower = chartRef.current.addSeries(LineSeries, {
-                        color: 'rgba(33, 150, 243, 0.5)',
+                        color: lowerColor,
                         lineWidth: 1,
                         priceLineVisible: false,
                         lastValueVisible: false,
@@ -2595,7 +2603,7 @@ const ChartComponent = forwardRef(({
                     });
                 }
                 bollingerSeriesRef.current.lower.setData(bbData.lower);
-                bollingerSeriesRef.current.lower.applyOptions({ visible: !bbHidden });
+                bollingerSeriesRef.current.lower.applyOptions({ visible: !bbHidden, color: lowerColor });
             }
         } else {
             // Remove Bollinger Bands series if disabled
@@ -2616,9 +2624,10 @@ const ChartComponent = forwardRef(({
         // VWAP Indicator (overlay on main chart)
         const vwapHidden = indicatorsConfig.vwap?.hidden;
         if (indicatorsConfig.vwap?.enabled) {
+            const vwapColor = indicatorsConfig.vwap.color || '#2962FF';
             if (!vwapSeriesRef.current && canAddSeries) {
                 vwapSeriesRef.current = chartRef.current.addSeries(LineSeries, {
-                    color: indicatorsConfig.vwap.color || '#FF9800',
+                    color: vwapColor,
                     lineWidth: 2,
                     title: 'VWAP',
                     priceLineVisible: false,
@@ -2627,11 +2636,12 @@ const ChartComponent = forwardRef(({
                 });
             }
             if (vwapSeriesRef.current && typeof calculateVWAP === 'function') {
-                const vwapData = calculateVWAP(data);
+                const resetDaily = indicatorsConfig.vwap.resetDaily !== undefined ? indicatorsConfig.vwap.resetDaily : true;
+                const vwapData = calculateVWAP(data, { resetDaily });
                 if (vwapData && vwapData.length > 0) {
                     vwapSeriesRef.current.setData(vwapData);
                 }
-                vwapSeriesRef.current.applyOptions({ visible: !vwapHidden, lastValueVisible: !vwapHidden });
+                vwapSeriesRef.current.applyOptions({ visible: !vwapHidden, lastValueVisible: !vwapHidden, color: vwapColor });
             }
         } else {
             if (vwapSeriesRef.current) {
@@ -2657,9 +2667,21 @@ const ChartComponent = forwardRef(({
             if (supertrendSeriesRef.current && typeof calculateSupertrend === 'function') {
                 const period = indicatorsConfig.supertrend.period || 10;
                 const multiplier = indicatorsConfig.supertrend.multiplier || 3;
+
+                // Color override
+                const upColor = indicatorsConfig.supertrend.upColor || '#089981';
+                const downColor = indicatorsConfig.supertrend.downColor || '#F23645';
+
                 const supertrendData = calculateSupertrend(data, period, multiplier);
-                if (supertrendData && supertrendData.length > 0) {
-                    supertrendSeriesRef.current.setData(supertrendData);
+
+                // Apply custom colors
+                const coloredData = supertrendData.map(d => ({
+                    ...d,
+                    color: d.trend === 1 ? upColor : downColor
+                }));
+
+                if (coloredData && coloredData.length > 0) {
+                    supertrendSeriesRef.current.setData(coloredData);
                 }
                 supertrendSeriesRef.current.applyOptions({ visible: !supertrendHidden, lastValueVisible: !supertrendHidden });
             }
@@ -2689,6 +2711,7 @@ const ChartComponent = forwardRef(({
                 sessionType: tpoConfig.sessionType || 'daily',
                 sessionStart: tpoConfig.sessionStart || '09:15',
                 sessionEnd: tpoConfig.sessionEnd || '15:30',
+                timezone: tpoConfig.timezone || 'Asia/Kolkata',
                 valueAreaPercent: tpoConfig.valueAreaPercent || 70,
                 allHours: tpoConfig.allHours ?? true,
             };
@@ -2928,8 +2951,8 @@ const ChartComponent = forwardRef(({
                 });
             }
             if (volumeSeriesRef.current) {
-                const upColor = indicatorsConfig.volume.colorUp || '#26a69a80';
-                const downColor = indicatorsConfig.volume.colorDown || '#ef535080';
+                const upColor = indicatorsConfig.volume.colorUp || '#26A69A';
+                const downColor = indicatorsConfig.volume.colorDown || '#EF5350';
                 const volumeData = calculateVolume(data, upColor, downColor);
                 if (volumeData && volumeData.length > 0) {
                     volumeSeriesRef.current.setData(volumeData);
@@ -2949,12 +2972,18 @@ const ChartComponent = forwardRef(({
                 rsiPaneRef.current = chartRef.current.addPane({ height: 100 });
             }
 
+            const rsiColor = indicatorsConfig.rsi?.color || '#7B1FA2';
+            const overboughtColor = indicatorsConfig.rsi?.overboughtColor || '#F23645';
+            const oversoldColor = indicatorsConfig.rsi?.oversoldColor || '#089981';
+            const overboughtLevel = indicatorsConfig.rsi?.overbought || 70;
+            const oversoldLevel = indicatorsConfig.rsi?.oversold || 30;
+
             // Handle show/hide of series (not pane)
             if (!rsiHidden) {
                 // Show: Add series to the RSI pane if not exists
                 if (rsiPaneRef.current && !rsiSeriesRef.current && canAddSeries) {
                     rsiSeriesRef.current = rsiPaneRef.current.addSeries(LineSeries, {
-                        color: indicatorsConfig.rsi?.color || '#7B1FA2',
+                        color: rsiColor,
                         lineWidth: 2,
                         priceLineVisible: false,
                         lastValueVisible: true,
@@ -2969,7 +2998,35 @@ const ChartComponent = forwardRef(({
                     if (rsiData && rsiData.length > 0) {
                         rsiSeriesRef.current.setData(rsiData);
                     }
-                    rsiSeriesRef.current.applyOptions({ visible: true, lastValueVisible: true });
+                    rsiSeriesRef.current.applyOptions({ visible: true, lastValueVisible: true, color: rsiColor });
+
+                    // Update or Create Overbought Line
+                    if (rsiSeriesRef.current._obLine) {
+                        rsiSeriesRef.current._obLine.applyOptions({ price: overboughtLevel, color: overboughtColor });
+                    } else {
+                        rsiSeriesRef.current._obLine = rsiSeriesRef.current.createPriceLine({
+                            price: overboughtLevel,
+                            color: overboughtColor,
+                            lineWidth: 1,
+                            lineStyle: 2, // Dashed
+                            axisLabelVisible: false,
+                            title: '',
+                        });
+                    }
+
+                    // Update or Create Oversold Line
+                    if (rsiSeriesRef.current._osLine) {
+                        rsiSeriesRef.current._osLine.applyOptions({ price: oversoldLevel, color: oversoldColor });
+                    } else {
+                        rsiSeriesRef.current._osLine = rsiSeriesRef.current.createPriceLine({
+                            price: oversoldLevel,
+                            color: oversoldColor,
+                            lineWidth: 1,
+                            lineStyle: 2, // Dashed
+                            axisLabelVisible: false,
+                            title: '',
+                        });
+                    }
                 }
             } else {
                 // Hidden: Use visibility toggle instead of removing series
@@ -3008,6 +3065,11 @@ const ChartComponent = forwardRef(({
                 macdPaneRef.current = chartRef.current.addPane({ height: 120 });
             }
 
+            const macdColor = indicatorsConfig.macd?.macdColor || '#2962FF';
+            const signalColor = indicatorsConfig.macd?.signalColor || '#FF6D00';
+            const histUpColor = indicatorsConfig.macd?.histUpColor || '#26A69A';
+            const histDownColor = indicatorsConfig.macd?.histDownColor || '#EF5350';
+
             // Handle show/hide of series (not pane)
             if (!macdHidden) {
                 // MACD Histogram
@@ -3020,7 +3082,7 @@ const ChartComponent = forwardRef(({
                 // MACD Line
                 if (!macdSeriesRef.current.macd) {
                     macdSeriesRef.current.macd = macdPaneRef.current.addSeries(LineSeries, {
-                        color: indicatorsConfig.macd?.macdColor || '#2962FF',
+                        color: macdColor,
                         lineWidth: 2,
                         priceLineVisible: false,
                         lastValueVisible: true,
@@ -3030,7 +3092,7 @@ const ChartComponent = forwardRef(({
                 // Signal Line
                 if (!macdSeriesRef.current.signal) {
                     macdSeriesRef.current.signal = macdPaneRef.current.addSeries(LineSeries, {
-                        color: indicatorsConfig.macd?.signalColor || '#FF6D00',
+                        color: signalColor,
                         lineWidth: 2,
                         priceLineVisible: false,
                         lastValueVisible: true,
@@ -3046,16 +3108,20 @@ const ChartComponent = forwardRef(({
             const macdResult = calculateMACD(data, fast, slow, signal);
 
             if (macdSeriesRef.current.histogram && macdResult?.histogram) {
-                macdSeriesRef.current.histogram.setData(macdResult.histogram);
+                const coloredHist = macdResult.histogram.map(d => ({
+                    ...d,
+                    color: d.value >= 0 ? histUpColor : histDownColor
+                }));
+                macdSeriesRef.current.histogram.setData(coloredHist);
                 macdSeriesRef.current.histogram.applyOptions({ visible: !macdHidden });
             }
             if (macdSeriesRef.current.macd && macdResult?.macdLine) {
                 macdSeriesRef.current.macd.setData(macdResult.macdLine);
-                macdSeriesRef.current.macd.applyOptions({ visible: !macdHidden, lastValueVisible: !macdHidden });
+                macdSeriesRef.current.macd.applyOptions({ visible: !macdHidden, lastValueVisible: !macdHidden, color: macdColor });
             }
             if (macdSeriesRef.current.signal && macdResult?.signalLine) {
                 macdSeriesRef.current.signal.setData(macdResult.signalLine);
-                macdSeriesRef.current.signal.applyOptions({ visible: !macdHidden, lastValueVisible: !macdHidden });
+                macdSeriesRef.current.signal.applyOptions({ visible: !macdHidden, lastValueVisible: !macdHidden, color: signalColor });
             }
         } else {
             // Disabled: Cleanup MACD pane and series entirely
@@ -3083,11 +3149,14 @@ const ChartComponent = forwardRef(({
                 stochasticPaneRef.current = chartRef.current.addPane({ height: 100 });
             }
 
+            const kColor = indicatorsConfig.stochastic?.kColor || '#2962FF';
+            const dColor = indicatorsConfig.stochastic?.dColor || '#FF6D00';
+
             if (stochasticPaneRef.current && canAddSeries) {
                 // %K Line
                 if (!stochasticSeriesRef.current.k) {
                     stochasticSeriesRef.current.k = stochasticPaneRef.current.addSeries(LineSeries, {
-                        color: indicatorsConfig.stochastic?.kColor || '#2962FF',
+                        color: kColor,
                         lineWidth: 2,
                         priceLineVisible: false,
                         lastValueVisible: !stochasticHidden,
@@ -3098,7 +3167,7 @@ const ChartComponent = forwardRef(({
                 // %D Line
                 if (!stochasticSeriesRef.current.d) {
                     stochasticSeriesRef.current.d = stochasticPaneRef.current.addSeries(LineSeries, {
-                        color: indicatorsConfig.stochastic?.dColor || '#FF6D00',
+                        color: dColor,
                         lineWidth: 2,
                         priceLineVisible: false,
                         lastValueVisible: !stochasticHidden,
@@ -3108,27 +3177,28 @@ const ChartComponent = forwardRef(({
                 }
             }
 
+            // Set Data
             const kPeriod = indicatorsConfig.stochastic.kPeriod || 14;
             const dPeriod = indicatorsConfig.stochastic.dPeriod || 3;
             const smooth = indicatorsConfig.stochastic.smooth || 3;
-            const stochResult = calculateStochastic(data, kPeriod, dPeriod, smooth);
+            const stochData = calculateStochastic(data, kPeriod, dPeriod, smooth);
 
-            if (stochasticSeriesRef.current.k && stochResult?.kLine) {
-                stochasticSeriesRef.current.k.setData(stochResult.kLine);
-                stochasticSeriesRef.current.k.applyOptions({ visible: !stochasticHidden, lastValueVisible: !stochasticHidden });
-            }
-            if (stochasticSeriesRef.current.d && stochResult?.dLine) {
-                stochasticSeriesRef.current.d.setData(stochResult.dLine);
-                stochasticSeriesRef.current.d.applyOptions({ visible: !stochasticHidden, lastValueVisible: !stochasticHidden });
+            if (stochData) {
+                if (stochData.kLine && stochasticSeriesRef.current.k) {
+                    stochasticSeriesRef.current.k.setData(stochData.kLine);
+                    stochasticSeriesRef.current.k.applyOptions({ visible: !stochasticHidden, color: kColor });
+                }
+                if (stochData.dLine && stochasticSeriesRef.current.d) {
+                    stochasticSeriesRef.current.d.setData(stochData.dLine);
+                    stochasticSeriesRef.current.d.applyOptions({ visible: !stochasticHidden, color: dColor });
+                }
             }
         } else {
-            // Disabled: Cleanup Stochastic pane and series
+            // Cleanup logic (simplified)
             if (stochasticPaneRef.current) {
                 try {
                     const paneIndex = chartRef.current.panes().indexOf(stochasticPaneRef.current);
-                    if (paneIndex > 0) { // Don't remove main pane (index 0)
-                        chartRef.current.removePane(paneIndex);
-                    }
+                    if (paneIndex > 0) chartRef.current.removePane(paneIndex);
                 } catch (e) {
                     console.warn('Error removing Stochastic pane:', e);
                 }
@@ -3143,30 +3213,33 @@ const ChartComponent = forwardRef(({
         if (indicatorsConfig.atr?.enabled) {
             // Create dedicated pane for ATR if not exists
             if (!atrPaneRef.current && canAddSeries) {
-                atrPaneRef.current = chartRef.current.addPane({ height: 80 });
+                atrPaneRef.current = chartRef.current.addPane({ height: 100 });
             }
-            // Add series to the ATR pane
+
+            const atrColor = indicatorsConfig.atr?.color || '#FF9800';
+
+            // Show: Add series to the ATR pane if not exists
             if (atrPaneRef.current && !atrSeriesRef.current && canAddSeries) {
                 atrSeriesRef.current = atrPaneRef.current.addSeries(LineSeries, {
-                    color: indicatorsConfig.atr?.color || '#FF9800',
+                    color: atrColor,
                     lineWidth: 2,
                     priceLineVisible: false,
-                    lastValueVisible: !atrHidden,
+                    lastValueVisible: true,
                     title: 'ATR',
-                    visible: !atrHidden,
+                    visible: true,
                 });
             }
-            // Set ATR data
+            // Set ATR data and ensure visible
             if (atrSeriesRef.current) {
                 const period = indicatorsConfig.atr.period || 14;
                 const atrData = calculateATR(data, period);
                 if (atrData && atrData.length > 0) {
                     atrSeriesRef.current.setData(atrData);
                 }
-                atrSeriesRef.current.applyOptions({ visible: !atrHidden, lastValueVisible: !atrHidden });
+                atrSeriesRef.current.applyOptions({ visible: !atrHidden, lastValueVisible: !atrHidden, color: atrColor });
             }
         } else {
-            // Cleanup ATR pane and series
+            // Disabled: Cleanup ATR pane and series entirely
             if (atrSeriesRef.current && atrPaneRef.current) {
                 try {
                     atrPaneRef.current.removeSeries(atrSeriesRef.current);
@@ -3178,7 +3251,7 @@ const ChartComponent = forwardRef(({
             if (atrPaneRef.current) {
                 try {
                     const paneIndex = chartRef.current.panes().indexOf(atrPaneRef.current);
-                    if (paneIndex > 0) { // Don't remove main pane (index 0)
+                    if (paneIndex > 0) {
                         chartRef.current.removePane(paneIndex);
                     }
                 } catch (e) {
@@ -3284,8 +3357,10 @@ const ChartComponent = forwardRef(({
             try {
                 updateIndicators(dataRef.current, indicators);
                 // Update EMA last value if EMA series exists
-                if (emaSeriesRef.current && dataRef.current.length >= 20) {
-                    const emaData = calculateEMA(dataRef.current, 20);
+                const emaConfig = indicators.ema;
+                const emaPeriod = (typeof emaConfig === 'object' && emaConfig?.period) || 20;
+                if (emaSeriesRef.current && dataRef.current.length >= emaPeriod) {
+                    const emaData = calculateEMA(dataRef.current, emaPeriod);
                     if (emaData && emaData.length > 0) {
                         emaLastValueRef.current = emaData[emaData.length - 1].value;
                         emaSeriesRef.current.setData(emaData);
@@ -4220,41 +4295,39 @@ const ChartComponent = forwardRef(({
             />
             {isLoading && isActuallyLoadingRef.current && <div className={styles.loadingOverlay}><div className={styles.spinner}></div><div>Loading...</div></div>}
 
-            {/* Persistent Chart Label - Always visible for multi-chart identification */}
-            <div className={styles.chartLabel} style={{ left: isToolbarVisible ? '55px' : '10px' }}>
-                <span className={styles.chartLabelSymbol}>{strategyConfig?.displayName || `${symbol}:${exchange}`}</span>
-                <span className={styles.chartLabelInterval}>· {interval.toUpperCase()}</span>
-            </div>
-
-            {/* OHLC Header Bar */}
-            {ohlcData && (
-                <div className={styles.ohlcHeader} style={{ left: isToolbarVisible ? '55px' : '10px', top: '22px' }}>
-                    <span className={`${styles.ohlcDot} ${ohlcData.isUp ? '' : styles.down}`}></span>
-                    <div className={styles.ohlcValues}>
-                        <span className={styles.ohlcItem}>
-                            <span className={styles.ohlcLabel}>O</span>
-                            <span className={styles.ohlcValue}>{ohlcData.open?.toFixed(2)}</span>
-                        </span>
-                        <span className={styles.ohlcItem}>
-                            <span className={styles.ohlcLabel}>H</span>
-                            <span className={styles.ohlcValue}>{ohlcData.high?.toFixed(2)}</span>
-                        </span>
-                        <span className={styles.ohlcItem}>
-                            <span className={styles.ohlcLabel}>L</span>
-                            <span className={styles.ohlcValue}>{ohlcData.low?.toFixed(2)}</span>
-                        </span>
-                        <span className={styles.ohlcItem}>
-                            <span className={styles.ohlcLabel}>C</span>
-                            <span className={`${styles.ohlcValue} ${ohlcData.isUp ? styles.up : styles.down}`}>{ohlcData.close?.toFixed(2)}</span>
-                        </span>
-                        <span className={styles.ohlcChange}>
-                            <span className={`${styles.ohlcChangeValue} ${ohlcData.change >= 0 ? styles.up : styles.down}`}>
-                                {ohlcData.change >= 0 ? '+' : ''}{ohlcData.change?.toFixed(2)} ({ohlcData.changePercent >= 0 ? '+' : ''}{ohlcData.changePercent?.toFixed(2)}%)
+            {/* Symbol + OHLC Header Bar - All on one line */}
+            <div className={styles.ohlcHeader} style={{ left: isToolbarVisible ? '55px' : '10px' }}>
+                <span className={styles.ohlcSymbol}>{strategyConfig?.displayName || `${symbol}:${exchange}`}</span>
+                <span className={styles.ohlcInterval}>· {interval.toUpperCase()}</span>
+                {ohlcData && (
+                    <>
+                        <span className={`${styles.ohlcDot} ${ohlcData.isUp ? '' : styles.down}`}></span>
+                        <div className={styles.ohlcValues}>
+                            <span className={styles.ohlcItem}>
+                                <span className={styles.ohlcLabel}>O</span>
+                                <span className={styles.ohlcValue}>{ohlcData.open?.toFixed(2)}</span>
                             </span>
-                        </span>
-                    </div>
-                </div>
-            )}
+                            <span className={styles.ohlcItem}>
+                                <span className={styles.ohlcLabel}>H</span>
+                                <span className={styles.ohlcValue}>{ohlcData.high?.toFixed(2)}</span>
+                            </span>
+                            <span className={styles.ohlcItem}>
+                                <span className={styles.ohlcLabel}>L</span>
+                                <span className={styles.ohlcValue}>{ohlcData.low?.toFixed(2)}</span>
+                            </span>
+                            <span className={styles.ohlcItem}>
+                                <span className={styles.ohlcLabel}>C</span>
+                                <span className={`${styles.ohlcValue} ${ohlcData.isUp ? styles.up : styles.down}`}>{ohlcData.close?.toFixed(2)}</span>
+                            </span>
+                            <span className={styles.ohlcChange}>
+                                <span className={`${styles.ohlcChangeValue} ${ohlcData.change >= 0 ? styles.up : styles.down}`}>
+                                    {ohlcData.change >= 0 ? '+' : ''}{ohlcData.change?.toFixed(2)} ({ohlcData.changePercent >= 0 ? '+' : ''}{ohlcData.changePercent?.toFixed(2)}%)
+                                </span>
+                            </span>
+                        </div>
+                    </>
+                )}
+            </div>
 
             {/* Indicator Legend - Using reusable component */}
             <IndicatorLegend
@@ -4265,6 +4338,21 @@ const ChartComponent = forwardRef(({
                 onToggleCollapse={() => setIndicatorDropdownOpen(prev => !prev)}
                 onVisibilityToggle={onIndicatorVisibilityToggle}
                 onRemove={onIndicatorRemove}
+                onSettings={(indicatorType) => setIndicatorSettingsOpen(indicatorType)}
+            />
+
+            {/* Per-Indicator Settings Dialog */}
+            <IndicatorSettingsDialog
+                isOpen={!!indicatorSettingsOpen}
+                onClose={() => setIndicatorSettingsOpen(null)}
+                indicatorType={indicatorSettingsOpen}
+                settings={indicatorSettingsOpen ? indicators[indicatorSettingsOpen] : {}}
+                onSave={(newSettings) => {
+                    if (onIndicatorSettings && indicatorSettingsOpen) {
+                        onIndicatorSettings(indicatorSettingsOpen, newSettings);
+                    }
+                }}
+                theme={theme}
             />
 
             {/* Shift+Click Quick Measure Overlay */}

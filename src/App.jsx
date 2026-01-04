@@ -30,7 +30,7 @@ import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
 import { useOILines } from './hooks/useOILines';
-import IndicatorSettingsModal from './components/IndicatorSettings/IndicatorSettingsModal';
+
 import PositionTracker from './components/PositionTracker';
 import { SectorHeatmapModal } from './components/SectorHeatmap';
 import GlobalAlertPopup from './components/GlobalAlertPopup/GlobalAlertPopup';
@@ -1721,6 +1721,39 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     }));
   };
 
+  // Handler for updating indicator settings from TradingView-style dialog
+  const handleIndicatorSettings = (indicatorType, newSettings) => {
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+
+      const currentIndicator = chart.indicators[indicatorType];
+
+      // Merge new settings with existing indicator config
+      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: { ...currentIndicator, ...newSettings }
+          }
+        };
+      }
+
+      // Handle boolean indicators - convert to object with settings
+      if (typeof currentIndicator === 'boolean' && currentIndicator) {
+        return {
+          ...chart,
+          indicators: {
+            ...chart.indicators,
+            [indicatorType]: { enabled: true, ...newSettings }
+          }
+        };
+      }
+
+      return chart;
+    }));
+  };
+
   const [activeTool, setActiveTool] = useState(null);
   const [isMagnetMode, setIsMagnetMode] = useState(false);
   const [showDrawingToolbar, setShowDrawingToolbar] = useState(true);
@@ -2796,6 +2829,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             isSessionBreakVisible={isSessionBreakVisible}
             onIndicatorRemove={handleIndicatorRemove}
             onIndicatorVisibilityToggle={handleIndicatorVisibilityToggle}
+            onIndicatorSettings={handleIndicatorSettings}
             chartAppearance={chartAppearance}
             onOpenOptionChain={handleOpenOptionChainForSymbol}
             oiLines={oiLines}
@@ -2875,13 +2909,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         onChartAppearanceChange={handleChartAppearanceChange}
         onResetChartAppearance={handleResetChartAppearance}
       />
-      <IndicatorSettingsModal
-        isOpen={isIndicatorSettingsOpen}
-        onClose={() => setIsIndicatorSettingsOpen(false)}
-        theme={theme}
-        indicators={activeChart.indicators}
-        onIndicatorSettingsChange={updateIndicatorSettings}
-      />
+
       <LayoutTemplateDialog
         isOpen={isTemplateDialogOpen}
         onClose={() => setIsTemplateDialogOpen(false)}

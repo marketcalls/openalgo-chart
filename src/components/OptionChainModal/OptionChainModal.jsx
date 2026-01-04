@@ -35,6 +35,11 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     const expiryRequestIdRef = useRef(0);
     const chainRequestIdRef = useRef(0);
     const greeksRequestIdRef = useRef(0);
+    // Track symbols that permanently failed to fetch Greeks (after MAX_RETRY_COUNT attempts)
+    const failedGreeksSymbolsRef = useRef(new Set());
+    // Track retry counts per symbol (symbol -> attempt count)
+    const greeksRetryCountRef = useRef(new Map());
+    const MAX_GREEKS_RETRY_COUNT = 3; // Block symbol after 3 failed attempts
     // Track if we're waiting for initialSymbol to be processed before fetching
     const pendingInitialSymbolRef = useRef(false);
 
@@ -390,13 +395,13 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
         // Increment request ID and capture current value to detect stale responses
         const requestId = ++greeksRequestIdRef.current;
 
-        // Collect all option symbols that need Greeks
+        // Collect all option symbols that need Greeks (exclude permanently failed ones)
         const symbolsToFetch = [];
         optionChain.chain.forEach(row => {
-            if (row.ce?.symbol && !greeksData.has(row.ce.symbol)) {
+            if (row.ce?.symbol && !greeksData.has(row.ce.symbol) && !failedGreeksSymbolsRef.current.has(row.ce.symbol)) {
                 symbolsToFetch.push({ symbol: row.ce.symbol, exchange: underlying.exchange });
             }
-            if (row.pe?.symbol && !greeksData.has(row.pe.symbol)) {
+            if (row.pe?.symbol && !greeksData.has(row.pe.symbol) && !failedGreeksSymbolsRef.current.has(row.pe.symbol)) {
                 symbolsToFetch.push({ symbol: row.pe.symbol, exchange: underlying.exchange });
             }
         });
@@ -405,6 +410,20 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
 
         console.log('[OptionChain] Fetching Greeks for', symbolsToFetch.length, 'options using batch API, requestId:', requestId);
         setGreeksLoading(true);
+
+        // Helper to increment retry count and check if should block
+        const markSymbolFailed = (symbol) => {
+            const currentCount = greeksRetryCountRef.current.get(symbol) || 0;
+            const newCount = currentCount + 1;
+            greeksRetryCountRef.current.set(symbol, newCount);
+
+            if (newCount >= MAX_GREEKS_RETRY_COUNT) {
+                failedGreeksSymbolsRef.current.add(symbol);
+                console.log(`[OptionChain] Symbol ${symbol} permanently blocked after ${newCount} failed attempts`);
+            } else {
+                console.log(`[OptionChain] Symbol ${symbol} failed attempt ${newCount}/${MAX_GREEKS_RETRY_COUNT}`);
+            }
+        };
 
         try {
             // Single batch API call instead of many individual calls
@@ -416,24 +435,49 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
                 return;
             }
 
-            if (response && response.data) {
+            if (response && response.data && response.data.length > 0) {
                 const newGreeksData = new Map(greeksData);
+                const symbolsInResponse = new Set();
 
-                // Map response data to greeksData
+                // Map response data to greeksData and track failures
                 response.data.forEach(item => {
                     if (item.status === 'success' && item.symbol) {
                         newGreeksData.set(item.symbol, {
                             iv: item.implied_volatility,
                             greeks: item.greeks
                         });
+                        symbolsInResponse.add(item.symbol);
+                        // Clear retry count on success
+                        greeksRetryCountRef.current.delete(item.symbol);
+                    } else if (item.symbol) {
+                        // Mark failure (with retry counting)
+                        markSymbolFailed(item.symbol);
+                        symbolsInResponse.add(item.symbol);
+                    }
+                });
+
+                // Mark any symbols that weren't in the response as failed
+                symbolsToFetch.forEach(s => {
+                    if (!symbolsInResponse.has(s.symbol) && !newGreeksData.has(s.symbol)) {
+                        markSymbolFailed(s.symbol);
                     }
                 });
 
                 setGreeksData(newGreeksData);
-                console.log('[OptionChain] Greeks batch loaded:', response.summary, '- Total:', newGreeksData.size, 'options');
+                console.log('[OptionChain] Greeks batch loaded:', response.summary, '- Total:', newGreeksData.size, ', Permanently failed:', failedGreeksSymbolsRef.current.size);
+            } else {
+                // API returned null/empty - increment retry count for all requested symbols
+                console.log('[OptionChain] Greeks batch returned empty/null, incrementing retry count for', symbolsToFetch.length, 'symbols');
+                symbolsToFetch.forEach(s => {
+                    markSymbolFailed(s.symbol);
+                });
             }
         } catch (error) {
             console.error('[OptionChain] Greeks batch API error:', error);
+            // On error, increment retry count for all symbols
+            symbolsToFetch.forEach(s => {
+                markSymbolFailed(s.symbol);
+            });
         } finally {
             if (requestId === greeksRequestIdRef.current) {
                 setGreeksLoading(false);
@@ -442,30 +486,43 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     }, [optionChain?.chain, underlying.exchange, greeksData]);
 
     // Retry mechanism for failed Greeks - auto-retries missing symbols after delay
+    // Only retries symbols that haven't been marked as permanently failed
     const retryFailedGreeks = useCallback(async () => {
         if (!optionChain?.chain?.length) return;
 
-        // Find symbols still missing Greeks data
+        // Find symbols still missing Greeks data (exclude permanently failed ones)
         const missingSymbols = [];
         optionChain.chain.forEach(row => {
-            if (row.ce?.symbol && !greeksData.has(row.ce.symbol)) {
+            if (row.ce?.symbol && !greeksData.has(row.ce.symbol) && !failedGreeksSymbolsRef.current.has(row.ce.symbol)) {
                 missingSymbols.push({ symbol: row.ce.symbol, exchange: underlying.exchange });
             }
-            if (row.pe?.symbol && !greeksData.has(row.pe.symbol)) {
+            if (row.pe?.symbol && !greeksData.has(row.pe.symbol) && !failedGreeksSymbolsRef.current.has(row.pe.symbol)) {
                 missingSymbols.push({ symbol: row.pe.symbol, exchange: underlying.exchange });
             }
         });
 
         if (missingSymbols.length === 0) {
-            console.log('[OptionChain] No missing Greeks to retry');
+            console.log('[OptionChain] No more Greeks to retry (permanently failed:', failedGreeksSymbolsRef.current.size, ')');
             return;
         }
 
-        console.log('[OptionChain] Retrying', missingSymbols.length, 'missing Greeks after delay...');
+        console.log('[OptionChain] Retrying', missingSymbols.length, 'missing Greeks...');
         setGreeksLoading(true);
 
         // Wait 2 seconds to avoid rate limits
         await new Promise(r => setTimeout(r, 2000));
+
+        // Helper to increment retry count and check if should block
+        const markSymbolFailed = (symbol) => {
+            const currentCount = greeksRetryCountRef.current.get(symbol) || 0;
+            const newCount = currentCount + 1;
+            greeksRetryCountRef.current.set(symbol, newCount);
+
+            if (newCount >= MAX_GREEKS_RETRY_COUNT) {
+                failedGreeksSymbolsRef.current.add(symbol);
+                console.log(`[OptionChain] Symbol ${symbol} permanently blocked after ${newCount} failed attempts`);
+            }
+        };
 
         const requestId = greeksRequestIdRef.current;
         try {
@@ -473,21 +530,48 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
 
             if (requestId !== greeksRequestIdRef.current) return;
 
-            if (response && response.data) {
+            if (response && response.data && response.data.length > 0) {
                 const newGreeksData = new Map(greeksData);
+                const symbolsInResponse = new Set();
+
                 response.data.forEach(item => {
                     if (item.status === 'success' && item.symbol) {
                         newGreeksData.set(item.symbol, {
                             iv: item.implied_volatility,
                             greeks: item.greeks
                         });
+                        symbolsInResponse.add(item.symbol);
+                        // Clear retry count on success
+                        greeksRetryCountRef.current.delete(item.symbol);
+                    } else if (item.symbol) {
+                        // Increment retry count
+                        markSymbolFailed(item.symbol);
+                        symbolsInResponse.add(item.symbol);
                     }
                 });
+
+                // Mark any symbols not in response
+                missingSymbols.forEach(s => {
+                    if (!symbolsInResponse.has(s.symbol) && !newGreeksData.has(s.symbol)) {
+                        markSymbolFailed(s.symbol);
+                    }
+                });
+
                 setGreeksData(newGreeksData);
-                console.log('[OptionChain] Retry loaded:', response.summary);
+                console.log('[OptionChain] Retry loaded:', response.summary, '- Permanently failed:', failedGreeksSymbolsRef.current.size);
+            } else {
+                // API returned null/empty - increment retry count
+                console.log('[OptionChain] Retry returned empty, incrementing retry count for', missingSymbols.length, 'symbols');
+                missingSymbols.forEach(s => {
+                    markSymbolFailed(s.symbol);
+                });
             }
         } catch (error) {
             console.error('[OptionChain] Retry failed:', error);
+            // On error, increment retry count
+            missingSymbols.forEach(s => {
+                markSymbolFailed(s.symbol);
+            });
         } finally {
             if (requestId === greeksRequestIdRef.current) {
                 setGreeksLoading(false);
@@ -498,34 +582,53 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
 
     // Trigger Greeks fetch when switching to greeks view
     useEffect(() => {
-        if (viewMode === 'greeks' && optionChain?.chain?.length > 0) {
+        if (isOpen && viewMode === 'greeks' && optionChain?.chain?.length > 0) {
             fetchGreeks();
         }
-    }, [viewMode, optionChain?.chain]);
+    }, [isOpen, viewMode, optionChain?.chain]);
 
-    // Auto-retry missing Greeks after initial fetch completes
+    // Auto-retry missing Greeks after initial fetch completes (max 3 retries)
+    // Excludes symbols already marked as permanently failed (no trading data)
     useEffect(() => {
-        if (viewMode !== 'greeks' || greeksLoading || greeksData.size === 0) return;
+        if (!isOpen || viewMode !== 'greeks' || greeksLoading || greeksData.size === 0) return;
 
-        // Check if there are still missing Greeks
+        // Check if there are still missing Greeks (excluding permanently failed ones)
         const hasMissing = optionChain?.chain?.some(row =>
-            (row.ce?.symbol && !greeksData.has(row.ce.symbol)) ||
-            (row.pe?.symbol && !greeksData.has(row.pe.symbol))
+            (row.ce?.symbol && !greeksData.has(row.ce.symbol) && !failedGreeksSymbolsRef.current.has(row.ce.symbol)) ||
+            (row.pe?.symbol && !greeksData.has(row.pe.symbol) && !failedGreeksSymbolsRef.current.has(row.pe.symbol))
         );
 
         if (hasMissing) {
-            console.log('[OptionChain] Some Greeks missing, scheduling retry...');
+            console.log('[OptionChain] Some Greeks missing (excluding failed), scheduling retry...');
             const timeoutId = setTimeout(() => {
                 retryFailedGreeks();
             }, 500);
             return () => clearTimeout(timeoutId);
+        } else if (failedGreeksSymbolsRef.current.size > 0) {
+            console.log('[OptionChain] All retryable Greeks loaded. Permanently failed:', failedGreeksSymbolsRef.current.size, 'symbols');
         }
-    }, [viewMode, greeksLoading, greeksData.size, optionChain?.chain, retryFailedGreeks]);
+    }, [isOpen, viewMode, greeksLoading, greeksData.size, optionChain?.chain, retryFailedGreeks]);
 
-    // Clear Greeks cache and invalidate pending requests when expiry changes
+    // Clear Greeks cache and invalidate pending requests when expiry changes or modal closes
+    useEffect(() => {
+        if (!isOpen) {
+            // Modal closed - invalidate pending requests and reset state
+            greeksRequestIdRef.current++;
+            setGreeksData(new Map());
+            failedGreeksSymbolsRef.current = new Set(); // Clear failed symbols
+            greeksRetryCountRef.current = new Map(); // Reset retry counts
+            setViewMode('ltp-oi'); // Reset view mode for next open
+            console.log('[OptionChain] Modal closed - Greeks state reset');
+            return;
+        }
+    }, [isOpen]);
+
+    // Clear Greeks cache when expiry changes
     useEffect(() => {
         greeksRequestIdRef.current++; // Invalidate any pending Greeks requests
         setGreeksData(new Map());
+        failedGreeksSymbolsRef.current = new Set(); // Clear failed symbols for new expiry
+        greeksRetryCountRef.current = new Map(); // Reset retry counts for new expiry
     }, [selectedExpiry]);
 
 
