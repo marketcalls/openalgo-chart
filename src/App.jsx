@@ -30,6 +30,7 @@ import logger from './utils/logger';
 import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
 import { useOILines } from './hooks/useOILines';
+import { indicatorConfigs } from './components/IndicatorSettings/indicatorConfigs';
 
 import PositionTracker from './components/PositionTracker';
 import { SectorHeatmapModal } from './components/SectorHeatmap';
@@ -224,41 +225,58 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [activeChartId, setActiveChartId] = useState(1);
   const [charts, setCharts] = useState(() => {
     const saved = safeParseJSON(localStorage.getItem('tv_saved_layout'), null);
-    const defaultIndicators = {
-      // Moving Averages
-      sma: { enabled: false, period: 20, color: '#2196F3' },
-      ema: { enabled: false, period: 20, color: '#FF9800' },
-      // Oscillators
-      rsi: { enabled: false, period: 14, color: '#7B1FA2' },
-      stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
-      // Momentum
-      macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
-      // Volatility
-      bollingerBands: { enabled: false, period: 20, stdDev: 2, color: '#2962FF' },
-      atr: { enabled: false, period: 14, color: '#FF9800' },
-      // Trend
-      supertrend: { enabled: false, period: 10, multiplier: 3, upColor: '#089981', downColor: '#F23645' },
-      // Volume
-      volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
-      vwap: { enabled: false, color: '#FF9800' },
-      // Profile
-      tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' },
-      // First Candle Strategy
-      firstCandle: { enabled: false, highlightColor: '#FFD700', highLineColor: '#ef5350', lowLineColor: '#26a69a' },
-      // Price Action Range Strategy
-      priceActionRange: { enabled: false, supportColor: '#26a69a', resistanceColor: '#ef5350' }
-    };
-    // Migration function: converts old boolean SMA/EMA to object format
+    const defaultIndicators = []; // Start with empty array for new charts
+
+    // Migration function: converts old object format to new array format
     const migrateIndicators = (indicators) => {
-      const migrated = { ...indicators };
-      // Migrate boolean SMA to object
-      if (typeof migrated.sma === 'boolean') {
-        migrated.sma = { enabled: migrated.sma, period: 20, color: '#2196F3' };
-      }
-      // Migrate boolean EMA to object
-      if (typeof migrated.ema === 'boolean') {
-        migrated.ema = { enabled: migrated.ema, period: 20, color: '#FF9800' };
-      }
+      // If already an array, return as is
+      if (Array.isArray(indicators)) return indicators;
+
+      // Migrate object format to array
+      const migrated = [];
+      const timestamp = Date.now();
+      let counter = 0;
+
+      Object.entries(indicators).forEach(([type, config]) => {
+        // Skip hidden/disabled indicators if they were just booleans
+        if (config === false) return;
+
+        // Create base object
+        const base = {
+          id: `${type}_${timestamp}_${counter++}`,
+          type: type,
+          visible: true
+        };
+
+        // Handle boolean configs (old simple indicators)
+        if (config === true) {
+          // Add default props based on type if needed, or rely on chart component defaults
+          // For now, we just push the type. Chart component will handle defaults if missing.
+          // BUT better to have defaults here.
+          // Let's assume defaults are applied when adding. For migration, we keep it minimum.
+          if (type === 'sma') Object.assign(base, { period: 20, color: '#2196F3' });
+          if (type === 'ema') Object.assign(base, { period: 20, color: '#FF9800' });
+          migrated.push(base);
+          return;
+        }
+
+        // Handle object configs
+        if (typeof config === 'object' && config !== null) {
+          if (config.enabled === false) return; // Skip disabled
+
+          // Flatten config into the indicator object
+          // Old: { sma: { enabled: true, period: 20 } }
+          // New: { id: '...', type: 'sma', period: 20 }
+          const { enabled, ...settings } = config;
+          Object.assign(base, settings);
+          // Map 'hidden' to !visible
+          if (settings.hidden) {
+            base.visible = false;
+            delete base.hidden;
+          }
+          migrated.push(base);
+        }
+      });
       return migrated;
     };
 
@@ -267,7 +285,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       // Also ensure strategyConfig exists (for migration from older versions)
       return saved.charts.map(chart => ({
         ...chart,
-        indicators: migrateIndicators({ ...defaultIndicators, ...chart.indicators }),
+        indicators: migrateIndicators(chart.indicators || []),
         strategyConfig: chart.strategyConfig ?? null
       }));
     }
@@ -1652,105 +1670,95 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     }));
   }, [activeChartId]);
 
-  // Handler for removing indicator from pane (called from ChartComponent)
-  const handleIndicatorRemove = (indicatorType) => {
+  // Handler for adding a new indicator instance
+  const handleAddIndicator = (type) => {
     setCharts(prev => prev.map(chart => {
       if (chart.id !== activeChartId) return chart;
 
-      const currentIndicator = chart.indicators[indicatorType];
+      const config = indicatorConfigs[type];
+      const defaultSettings = {};
 
-      // Handle object indicators (rsi, macd, volume, etc.)
-      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
-        return {
-          ...chart,
-          indicators: {
-            ...chart.indicators,
-            [indicatorType]: { ...currentIndicator, enabled: false }
+      // Merge defaults from config inputs
+      if (config && config.inputs) {
+        config.inputs.forEach(input => {
+          if (input.default !== undefined) {
+            defaultSettings[input.key] = input.default;
           }
-        };
+        });
       }
 
-      // Handle boolean indicators (sma, ema)
-      if (typeof currentIndicator === 'boolean') {
-        return {
-          ...chart,
-          indicators: {
-            ...chart.indicators,
-            [indicatorType]: false
+      // Merge defaults from config styles
+      if (config && config.style) {
+        config.style.forEach(style => {
+          if (style.default !== undefined) {
+            defaultSettings[style.key] = style.default;
           }
-        };
+        });
       }
 
-      return chart;
+      // Fallback defaults for legacy/hardcoded types if config missing
+      if (!config) {
+        if (type === 'sma') Object.assign(defaultSettings, { period: 20, color: '#2196F3' });
+        if (type === 'ema') Object.assign(defaultSettings, { period: 20, color: '#FF9800' });
+        if (type === 'tpo') Object.assign(defaultSettings, { blockSize: '30m', tickSize: 'auto' });
+      }
+
+      const newIndicator = {
+        id: `${type}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        type: type,
+        visible: true,
+        ...defaultSettings
+      };
+
+      return {
+        ...chart,
+        indicators: [...(chart.indicators || []), newIndicator]
+      };
     }));
   };
 
-  // Handler for toggling indicator visibility (hide/show without removing)
-  const handleIndicatorVisibilityToggle = (indicatorType) => {
+  // Handler for removing indicator from pane (called from ChartComponent)
+  const handleIndicatorRemove = (id) => {
     setCharts(prev => prev.map(chart => {
       if (chart.id !== activeChartId) return chart;
+      return {
+        ...chart,
+        indicators: (chart.indicators || []).filter(ind => ind.id !== id)
+      };
+    }));
+  };
 
-      const currentIndicator = chart.indicators[indicatorType];
 
-      // Handle object indicators (rsi, macd, volume, etc.)
-      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
-        return {
-          ...chart,
-          indicators: {
-            ...chart.indicators,
-            [indicatorType]: {
-              ...currentIndicator,
-              hidden: !currentIndicator.hidden
-            }
+
+  // Handler for toggling indicator visibility (hide/show without removing)
+  const handleIndicatorVisibilityToggle = (id) => {
+    setCharts(prev => prev.map(chart => {
+      if (chart.id !== activeChartId) return chart;
+      return {
+        ...chart,
+        indicators: (chart.indicators || []).map(ind => {
+          if (ind.id === id) {
+            return { ...ind, visible: !ind.visible };
           }
-        };
-      }
-
-      // Handle boolean indicators (sma, ema) - convert to object to support hiding
-      if (typeof currentIndicator === 'boolean' && currentIndicator) {
-        return {
-          ...chart,
-          indicators: {
-            ...chart.indicators,
-            [indicatorType]: { enabled: true, hidden: true }
-          }
-        };
-      }
-
-      return chart;
+          return ind;
+        })
+      };
     }));
   };
 
   // Handler for updating indicator settings from TradingView-style dialog
-  const handleIndicatorSettings = (indicatorType, newSettings) => {
+  const handleIndicatorSettings = (id, newSettings) => {
     setCharts(prev => prev.map(chart => {
       if (chart.id !== activeChartId) return chart;
-
-      const currentIndicator = chart.indicators[indicatorType];
-
-      // Merge new settings with existing indicator config
-      if (typeof currentIndicator === 'object' && currentIndicator !== null) {
-        return {
-          ...chart,
-          indicators: {
-            ...chart.indicators,
-            [indicatorType]: { ...currentIndicator, ...newSettings }
+      return {
+        ...chart,
+        indicators: (chart.indicators || []).map(ind => {
+          if (ind.id === id) {
+            return { ...ind, ...newSettings };
           }
-        };
-      }
-
-      // Handle boolean indicators - convert to object with settings
-      if (typeof currentIndicator === 'boolean' && currentIndicator) {
-        return {
-          ...chart,
-          indicators: {
-            ...chart.indicators,
-            [indicatorType]: { enabled: true, ...newSettings }
-          }
-        };
-      }
-
-      return chart;
+          return ind;
+        })
+      };
     }));
   };
 
@@ -1763,8 +1771,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isReplayMode, setIsReplayMode] = useState(false);
   const [isDrawingsLocked, setIsDrawingsLocked] = useState(false);
   const [isDrawingsHidden, setIsDrawingsHidden] = useState(false);
-  const [isTimerVisible, setIsTimerVisible] = useState(false);
-  const [isSessionBreakVisible, setIsSessionBreakVisible] = useState(false);
+  const [isTimerVisible, setIsTimerVisible] = useState(() => {
+    return localStorage.getItem('oa_timer_visible') === 'true';
+  });
+  const [isSessionBreakVisible, setIsSessionBreakVisible] = useState(() => {
+    return localStorage.getItem('oa_session_break_visible') === 'true';
+  });
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isIndicatorSettingsOpen, setIsIndicatorSettingsOpen] = useState(false);
   const [websocketUrl, setWebsocketUrl] = useState(() => {
@@ -1780,6 +1792,16 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const toggleDrawingToolbar = () => {
     setShowDrawingToolbar(prev => !prev);
   };
+
+  // Persist timer setting
+  useEffect(() => {
+    localStorage.setItem('oa_timer_visible', isTimerVisible);
+  }, [isTimerVisible]);
+
+  // Persist session break setting
+  useEffect(() => {
+    localStorage.setItem('oa_session_break_visible', isSessionBreakVisible);
+  }, [isSessionBreakVisible]);
 
   const handleToolChange = (tool) => {
     if (tool === 'magnet') {
@@ -2621,7 +2643,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onSymbolClick={handleSymbolClick}
             onIntervalChange={handleIntervalChange}
             onChartTypeChange={setChartType}
-            onToggleIndicator={toggleIndicator}
+            onAddIndicator={handleAddIndicator}
             onToggleFavorite={handleToggleFavorite}
             onAddCustomInterval={handleAddCustomInterval}
             onRemoveCustomInterval={handleRemoveCustomInterval}

@@ -1422,6 +1422,11 @@ const ChartComponent = forwardRef(({
             });
             series.attachPrimitive(timer);
             priceScaleTimerRef.current = timer;
+
+            // Enforce visibility rule
+            if (isTimerVisible) {
+                series.applyOptions({ lastValueVisible: false });
+            }
         }
     };
 
@@ -1814,6 +1819,10 @@ const ChartComponent = forwardRef(({
         if (priceScaleTimerRef.current) {
             try {
                 replacementSeries.attachPrimitive(priceScaleTimerRef.current);
+                // Enforce visibility rule immediately
+                if (isTimerVisible) {
+                    replacementSeries.applyOptions({ lastValueVisible: false });
+                }
             } catch (e) {
                 console.warn('Error re-attaching timer to new series:', e);
             }
@@ -1902,6 +1911,13 @@ const ChartComponent = forwardRef(({
                     }
                 }
                 mainSeriesRef.current = null;
+            }
+
+            // Cleanup PriceScaleTimer
+            if (priceScaleTimerRef.current) {
+                // If the timer has a destroy or detach method, call it here
+                // Assumed primitive cleanup handled by series removal, but clearing ref is crucial
+                priceScaleTimerRef.current = null;
             }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
