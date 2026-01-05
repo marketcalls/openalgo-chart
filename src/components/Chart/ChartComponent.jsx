@@ -268,9 +268,31 @@ const ChartComponent = forwardRef(({
     // CONFIGURABLE CHART CONSTANTS
     // ============================================
     const DEFAULT_CANDLE_WINDOW = 235;        // Fixed number of candles to show
-    const DEFAULT_RIGHT_OFFSET = 10;           // Right margin in candle units
+    const DEFAULT_RIGHT_OFFSET = 50;           // Right margin in candle units (~50 for TradingView-like future time display)
     const PREFETCH_THRESHOLD = 126;            // Candles from oldest before prefetching
     const MIN_CANDLES_FOR_SCROLL_BACK = 50;   // Minimum candles before enabling scroll-back
+    const FUTURE_TIME_CANDLES = 120;           // Number of future candles to display time labels for
+
+    // Helper: Generate whitespace points for future time display
+    // Whitespace points are data objects with only 'time' property (no price data)
+    // This allows lightweight-charts to render future time labels on the axis
+    const addFutureWhitespacePoints = useCallback((data, intervalSeconds) => {
+        if (!data || data.length === 0 || !Number.isFinite(intervalSeconds) || intervalSeconds <= 0) {
+            return data;
+        }
+
+        const lastCandle = data[data.length - 1];
+        const lastTime = lastCandle.time;
+        const whitespacePoints = [];
+
+        for (let i = 1; i <= FUTURE_TIME_CANDLES; i++) {
+            whitespacePoints.push({
+                time: lastTime + (i * intervalSeconds)
+            });
+        }
+
+        return [...data, ...whitespacePoints];
+    }, []);
 
     // Loading state for scroll-back (shows subtle indicator)
     const [isLoadingOlderData, setIsLoadingOlderData] = useState(false);
@@ -1479,6 +1501,7 @@ const ChartComponent = forwardRef(({
             timeScale: {
                 borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
                 timeVisible: true,
+                rightOffset: 10, // Show ~10 candle widths of future time (TradingView style)
             },
             rightPriceScale: {
                 borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
@@ -1996,14 +2019,17 @@ const ChartComponent = forwardRef(({
 
                     const activeType = chartTypeRef.current;
                     const transformedData = transformData(data, activeType);
-                    mainSeriesRef.current.setData(transformedData);
+
+                    // Add whitespace points for future time display (TradingView-style)
+                    const intervalSeconds = intervalToSeconds(interval);
+                    const dataWithFuture = addFutureWhitespacePoints(transformedData, intervalSeconds);
+                    mainSeriesRef.current.setData(dataWithFuture);
 
                     // Mark chart as ready immediately after data is set
                     // This allows indicators to be added without delay
                     chartReadyRef.current = true;
 
                     // Initialize the candle countdown timer
-                    const intervalSeconds = intervalToSeconds(interval);
                     if (!priceScaleTimerRef.current && mainSeriesRef.current && Number.isFinite(intervalSeconds) && intervalSeconds > 0) {
                         initializePriceScaleTimer(mainSeriesRef.current, intervalSeconds);
                     } else if (priceScaleTimerRef.current && Number.isFinite(intervalSeconds) && intervalSeconds > 0) {
@@ -2182,7 +2208,16 @@ const ChartComponent = forwardRef(({
                             const transformedCandle = transformData([candle], currentChartType)[0];
 
                             if (transformedCandle && mainSeriesRef.current && !isReplayModeRef.current) {
-                                mainSeriesRef.current.update(transformedCandle);
+                                // Use setData with regenerated whitespace points to handle future time display
+                                // update() fails when series contains whitespace points with future times
+                                try {
+                                    const currentChartTypeForSet = chartTypeRef.current;
+                                    const transformedFullData = transformData(currentData, currentChartTypeForSet);
+                                    const dataWithFuture = addFutureWhitespacePoints(transformedFullData, intervalSeconds);
+                                    mainSeriesRef.current.setData(dataWithFuture);
+                                } catch (setDataErr) {
+                                    console.warn('[WebSocket] Failed to update chart with setData:', setDataErr);
+                                }
 
                                 updateRealtimeIndicators(currentData);
                                 updateAxisLabel();
