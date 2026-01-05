@@ -648,19 +648,19 @@ const Topbar = ({
                                                             style={{ top: indicatorPos.top, left: indicatorPos.left }}
                                                         >
                                                             <div className={styles.dropdownSection}>Moving Averages</div>
-                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('sma'); }}>SMA (Simple Moving Average)</div>
-                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('ema'); }}>EMA (Exponential Moving Average)</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('sma'); }}>SMA</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('ema'); }}>EMA</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Oscillators</div>
-                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('rsi'); }}>RSI (Relative Strength Index)</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('rsi'); }}>RSI</div>
                                                             <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('stochastic'); }}>Stochastic</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Momentum</div>
-                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('macd'); }}>MACD (Moving Average Convergence Divergence)</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('macd'); }}>MACD</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Volatility</div>
                                                             <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('bollingerBands'); }}>Bollinger Bands</div>
-                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('atr'); }}>ATR (Average True Range)</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('atr'); }}>ATR</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Trend</div>
                                                             <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('supertrend'); }}>Supertrend</div>
