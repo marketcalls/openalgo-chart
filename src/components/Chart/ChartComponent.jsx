@@ -2208,8 +2208,13 @@ const ChartComponent = forwardRef(({
                             const transformedCandle = transformData([candle], currentChartType)[0];
 
                             if (transformedCandle && mainSeriesRef.current && !isReplayModeRef.current) {
-                                // Use setData with regenerated whitespace points to handle future time display
-                                // update() fails when series contains whitespace points with future times
+                                // PERFORMANCE NOTE: Using setData() instead of update() for real-time WebSocket updates.
+                                // This regenerates 120 whitespace points on every tick, which is less efficient.
+                                // However, this is NECESSARY because update() cannot insert data before existing
+                                // whitespace points (future time labels). If future optimization is needed,
+                                // consider removing whitespace points feature or finding alternative approach.
+                                // Impact: ~1-2 ticks/second in practice, so this should be negligible.
+                                // To switch back to update(): remove whitespace points and use mainSeriesRef.current.update(transformedCandle);
                                 try {
                                     const currentChartTypeForSet = chartTypeRef.current;
                                     const transformedFullData = transformData(currentData, currentChartTypeForSet);
