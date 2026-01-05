@@ -1857,29 +1857,16 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setCharts(prev => {
       const newCharts = [...prev];
       if (newCharts.length < count) {
-        // Add charts with default indicators
-        const defaultIndicators = {
-          sma: false,
-          ema: false,
-          rsi: { enabled: false, period: 14, color: '#7B1FA2' },
-          macd: { enabled: false, fast: 12, slow: 26, signal: 9, macdColor: '#2962FF', signalColor: '#FF6D00' },
-          bollingerBands: { enabled: false, period: 20, stdDev: 2 },
-          volume: { enabled: false, colorUp: '#089981', colorDown: '#F23645' },
-          atr: { enabled: false, period: 14, color: '#FF9800' },
-          stochastic: { enabled: false, kPeriod: 14, dPeriod: 3, smooth: 3, kColor: '#2962FF', dColor: '#FF6D00' },
-          vwap: { enabled: false, color: '#FF9800' },
-          supertrend: { enabled: false, period: 10, multiplier: 3 },
-          tpo: { enabled: false, blockSize: '30m', tickSize: 'auto' },
-          firstCandle: { enabled: false, highlightColor: '#FFD700', highLineColor: '#ef5350', lowLineColor: '#26a69a' },
-          priceActionRange: { enabled: false, supportColor: '#26a69a', resistanceColor: '#ef5350' }
-        };
+        // Add new charts with empty indicators array (per-indicator system)
         for (let i = newCharts.length; i < count; i++) {
           newCharts.push({
             id: i + 1,
             symbol: activeChart.symbol,
+            exchange: activeChart.exchange || 'NSE',
             interval: activeChart.interval,
-            indicators: { ...defaultIndicators },
-            comparisonSymbols: []
+            indicators: [], // Empty array - indicators added individually
+            comparisonSymbols: [],
+            strategyConfig: null
           });
         }
       } else if (newCharts.length > count) {
