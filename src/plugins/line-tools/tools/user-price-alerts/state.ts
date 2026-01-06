@@ -18,6 +18,8 @@ export interface AlertNotificationSettings {
 	openalgoPricetype?: 'MARKET' | 'LIMIT';
 	// Custom message template
 	message?: string; // Template with {{variables}}
+	// Telegram notification
+	telegramEnabled?: boolean; // Send alert to Telegram
 }
 
 /**
@@ -32,7 +34,8 @@ export const DEFAULT_NOTIFICATION_SETTINGS: AlertNotificationSettings = {
 	openalgoProduct: 'MIS',
 	openalgoQuantity: 1,
 	openalgoPricetype: 'MARKET',
-	message: '{{symbol}} {{condition}} {{price}}'
+	message: '{{symbol}} {{condition}} {{price}}',
+	telegramEnabled: false
 };
 
 export interface UserAlertInfo {

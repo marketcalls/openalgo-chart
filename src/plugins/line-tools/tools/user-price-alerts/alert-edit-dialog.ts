@@ -803,6 +803,14 @@ export class AlertEditDialog {
         });
 
         content.appendChild(webhookSection);
+
+        // Telegram toggle
+        content.appendChild(this._createToggleRow(
+            'Telegram notification',
+            'Sends alert message to your Telegram via OpenAlgo bot.',
+            this._notifications.telegramEnabled || false,
+            (checked) => { this._notifications.telegramEnabled = checked; }
+        ));
     }
 
     private _createToggleRow(

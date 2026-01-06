@@ -1,6 +1,6 @@
 import { AlertCondition } from '../line-tool-alert-manager';
 import { AlertNotificationSettings } from './state';
-import { processAlertWebhook } from '../../../../services/webhookService';
+import { processAlertWebhook, sendTelegramNotification, processMessageTemplate, WebhookPayload } from '../../../../services/webhookService';
 
 export interface AlertNotificationData {
     alertId: string;
@@ -200,6 +200,11 @@ export class AlertNotification {
         if (sendWebhook && settings) {
             this._sendWebhook(data, settings);
         }
+
+        // Send Telegram notification if enabled
+        if (settings?.telegramEnabled) {
+            this._sendTelegram(data, settings);
+        }
     }
 
     private async _sendWebhook(data: AlertNotificationData, settings: AlertNotificationSettings): Promise<void> {
@@ -241,6 +246,41 @@ export class AlertNotification {
             const errorMsg = error instanceof Error ? error.message : String(error);
             console.error('[AlertNotification] Webhook error:', errorMsg);
             this._showWebhookResultToast(false, errorMsg);
+        }
+    }
+
+    private async _sendTelegram(data: AlertNotificationData, settings: AlertNotificationSettings): Promise<void> {
+        try {
+            // Build the payload for message template processing
+            const payload: WebhookPayload = {
+                symbol: data.symbol,
+                exchange: data.exchange || 'NSE',
+                price: data.numericPrice || parseFloat(data.price) || 0,
+                direction: data.direction,
+                condition: data.condition,
+                timestamp: Date.now(),
+                close: data.closePrice || data.numericPrice || parseFloat(data.price) || 0,
+            };
+
+            // Process message template or use default
+            const message = settings.message
+                ? processMessageTemplate(settings.message, payload)
+                : `🔔 Alert: ${data.symbol} ${data.condition} ${data.price}`;
+
+            // Send to Telegram with priority 7 (high - for price alerts)
+            const result = await sendTelegramNotification(message, 7);
+
+            if (!result.success) {
+                console.error('[AlertNotification] Telegram failed:', result.error);
+                this._showWebhookResultToast(false, `Telegram: ${result.error}`);
+            } else {
+                console.log('[AlertNotification] Telegram sent successfully');
+                this._showWebhookResultToast(true, 'Telegram notification sent');
+            }
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            console.error('[AlertNotification] Telegram error:', errorMsg);
+            this._showWebhookResultToast(false, `Telegram: ${errorMsg}`);
         }
     }
 

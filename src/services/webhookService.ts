@@ -233,6 +233,65 @@ export async function sendOpenAlgoOrder(
 }
 
 /**
+ * Send notification to Telegram via OpenAlgo API.
+ */
+export async function sendTelegramNotification(
+    message: string,
+    priority: number = 7
+): Promise<{ success: boolean; error?: string }> {
+    const apiKey = getApiKey();
+    if (!apiKey) {
+        logger.warn('[WebhookService] No OpenAlgo API key available for Telegram');
+        return { success: false, error: 'No API key. Please login to OpenAlgo first.' };
+    }
+
+    // Get username from localStorage (OpenAlgo login username)
+    const username = localStorage.getItem('oa_username') || '';
+    if (!username) {
+        logger.warn('[WebhookService] No username found. Please login to OpenAlgo.');
+        return { success: false, error: 'No username found. Please login to OpenAlgo.' };
+    }
+
+    const apiBase = getApiBase();
+    const url = `${apiBase}/telegram/notify`;
+
+    const payload = {
+        apikey: apiKey,
+        username: username,
+        message: message,
+        priority: priority
+    };
+
+    try {
+        logger.info(`[WebhookService] Sending Telegram notification: ${message.slice(0, 50)}...`);
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify(payload),
+        });
+
+        const data = await response.json();
+
+        if (!response.ok || data.status === 'error') {
+            const errorMsg = data.message || `HTTP ${response.status}`;
+            logger.error(`[WebhookService] Telegram notification failed: ${errorMsg}`);
+            return { success: false, error: errorMsg };
+        }
+
+        logger.info('[WebhookService] Telegram notification sent successfully');
+        return { success: true };
+    } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        logger.error('[WebhookService] Failed to send Telegram notification:', errorMsg);
+        return { success: false, error: errorMsg };
+    }
+}
+
+/**
  * Process alert trigger and send appropriate notifications.
  * Called when an alert is triggered.
  */

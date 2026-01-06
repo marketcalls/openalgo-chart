@@ -1797,6 +1797,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       return 'http://127.0.0.1:5000';
     }
   });
+  const [openalgoUsername, setOpenalgoUsername] = useState(() => {
+    try {
+      return localStorage.getItem('oa_username') || '';
+    } catch {
+      return '';
+    }
+  });
 
   const toggleDrawingToolbar = () => {
     setShowDrawingToolbar(prev => !prev);
@@ -2446,6 +2453,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     localStorage.setItem('oa_host_url', newUrl);
   };
 
+  const handleUsernameSave = (newUsername) => {
+    setOpenalgoUsername(newUsername);
+    localStorage.setItem('oa_username', newUsername);
+  };
+
   // Command Palette (Cmd+K / Ctrl+K)
   const commandPaletteHandlers = React.useMemo(() => ({
     onChartTypeChange: setChartType,
@@ -2913,6 +2925,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         onApiKeySave={handleApiKeySaveFromSettings}
         websocketUrl={websocketUrl}
         onWebsocketUrlSave={handleWebsocketUrlSave}
+        openalgoUsername={openalgoUsername}
+        onUsernameSave={handleUsernameSave}
         chartAppearance={chartAppearance}
         onChartAppearanceChange={handleChartAppearanceChange}
         onResetChartAppearance={handleResetChartAppearance}
