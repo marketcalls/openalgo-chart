@@ -536,6 +536,13 @@ const ChartComponent = forwardRef(({
 
                 return newMode;
             });
+        },
+        editAlertById: (alertId) => {
+            // Open the edit dialog for a specific alert by ID
+            const manager = lineToolManagerRef.current;
+            if (manager && typeof manager.editAlertById === 'function') {
+                manager.editAlertById(alertId);
+            }
         }
     }));
 

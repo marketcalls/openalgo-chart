@@ -2787,6 +2787,19 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
                   chart.id === activeChartId ? { ...chart, symbol: symbolData.symbol, exchange: symbolData.exchange, strategyConfig: null } : chart
                 ));
               }}
+              onEditAlert={(alert) => {
+                // Navigate to the symbol first
+                setCharts(prev => prev.map(chart =>
+                  chart.id === activeChartId ? { ...chart, symbol: alert.symbol, exchange: alert.exchange || 'NSE', strategyConfig: null } : chart
+                ));
+                // Call editAlertById on the chart after a short delay to allow chart to update
+                setTimeout(() => {
+                  const activeRef = chartRefs.current[activeChartId];
+                  if (activeRef && typeof activeRef.editAlertById === 'function' && alert.externalId) {
+                    activeRef.editAlertById(alert.externalId);
+                  }
+                }, 500);
+              }}
             />
           ) : activeRightPanel === 'position_tracker' ? (
             <PositionTracker

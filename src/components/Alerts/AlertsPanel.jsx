@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { X, Bell, Trash2, PlayCircle, PauseCircle, Clock } from 'lucide-react';
+import { X, Bell, Trash2, PlayCircle, PauseCircle, Clock, Edit2 } from 'lucide-react';
 import styles from './AlertsPanel.module.css';
 import classNames from 'classnames';
 
-const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert, onNavigate }) => {
+const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert, onNavigate, onEditAlert }) => {
     const [activeTab, setActiveTab] = useState('alerts');
     const [focusedIndex, setFocusedIndex] = useState(-1);
     const listRef = useRef(null);
@@ -128,6 +128,12 @@ const AlertsPanel = ({ alerts, logs, onRemoveAlert, onRestartAlert, onPauseAlert
                                                         title="Resume Alert"
                                                     />
                                                 )}
+                                                <Edit2
+                                                    size={16}
+                                                    className={styles.actionIcon}
+                                                    onClick={() => onEditAlert && onEditAlert(alert)}
+                                                    title="Edit Alert"
+                                                />
                                                 <Trash2
                                                     size={16}
                                                     className={styles.actionIcon}

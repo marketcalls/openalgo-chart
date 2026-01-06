@@ -530,6 +530,16 @@ export class LineToolManager extends PluginBase {
             tool instanceof ParallelChannel;
     }
 
+    /**
+     * Open edit dialog for an alert by its ID
+     * Used when clicking Edit button in Alerts panel
+     */
+    public editAlertById(alertId: string): void {
+        if (this._userPriceAlerts) {
+            this._userPriceAlerts.openEditDialog(alertId);
+        }
+    }
+
     public enableSessionHighlighting(): void {
         console.log('[LineToolManager] enableSessionHighlighting called');
         // Check if session highlighting is already active
