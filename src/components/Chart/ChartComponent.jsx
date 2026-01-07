@@ -3712,9 +3712,17 @@ const ChartComponent = forwardRef(({
             tpoProfileRef.current = null;
         }
 
-        // Add new TPO if exists
+        // Add new TPO if exists and is visible
         if (tpoIndicators.length > 0 && dataRef.current.length > 0) {
             const tpoInd = tpoIndicators[0];
+
+            // Check if indicator is visible (default to true if not specified)
+            const isVisible = tpoInd.visible !== false;
+
+            if (!isVisible) {
+                console.log('[TPO] Indicator hidden, skipping render');
+                return;
+            }
 
             try {
                 const profiles = calculateTPO(dataRef.current, {
@@ -3732,6 +3740,7 @@ const ChartComponent = forwardRef(({
                 console.log('[TPO] Calculated profiles:', profiles.length);
 
                 const tpoPrimitive = new TPOProfilePrimitive({
+                    visible: isVisible,
                     showLetters: tpoInd.settings?.showLetters !== false,
                     showPOC: tpoInd.settings?.showPOC !== false,
                     showValueArea: tpoInd.settings?.showValueArea !== false,
@@ -3749,7 +3758,8 @@ const ChartComponent = forwardRef(({
                 console.error('[TPO] Error rendering TPO:', error);
             }
         }
-    }, [indicators, interval, symbol, exchange]);
+    }, [indicators, interval, symbol, exchange, JSON.stringify(indicators)]);
+
 
 
     // Helper to prepare indicators for the legend
