@@ -37,6 +37,7 @@ import PositionTracker from './components/PositionTracker';
 import { SectorHeatmapModal } from './components/SectorHeatmap';
 import GlobalAlertPopup from './components/GlobalAlertPopup/GlobalAlertPopup';
 import DepthOfMarket from './components/DepthOfMarket';
+import AccountPanel from './components/AccountPanel';
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
 
@@ -437,6 +438,30 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
   // Sector Heatmap Modal State
   const [isSectorHeatmapOpen, setIsSectorHeatmapOpen] = useState(false);
+
+  // Account Panel State - defaults to visible (true) on new browsers
+  const [isAccountPanelOpen, setIsAccountPanelOpen] = useState(() => {
+    const saved = localStorage.getItem('tv_account_panel_open');
+    return saved === null ? true : saved === 'true';
+  });
+  const [isAccountPanelMinimized, setIsAccountPanelMinimized] = useState(false);
+  const [isAccountPanelMaximized, setIsAccountPanelMaximized] = useState(false);
+
+  // Persist account panel state
+  useEffect(() => {
+    localStorage.setItem('tv_account_panel_open', isAccountPanelOpen.toString());
+  }, [isAccountPanelOpen]);
+
+  // Account panel minimize/maximize handlers
+  const handleAccountPanelMinimize = useCallback(() => {
+    setIsAccountPanelMinimized(prev => !prev);
+    if (isAccountPanelMaximized) setIsAccountPanelMaximized(false);
+  }, [isAccountPanelMaximized]);
+
+  const handleAccountPanelMaximize = useCallback(() => {
+    setIsAccountPanelMaximized(prev => !prev);
+    if (isAccountPanelMinimized) setIsAccountPanelMinimized(false);
+  }, [isAccountPanelMinimized]);
 
   // Persist position tracker settings
   useEffect(() => {
@@ -2621,6 +2646,28 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
         isMobile={isMobile}
         isWatchlistVisible={isWatchlistVisible}
         onWatchlistOverlayClick={() => setIsWatchlistVisible(false)}
+        isAccountPanelOpen={isAccountPanelOpen}
+        accountPanel={
+          <AccountPanel
+            isOpen={isAccountPanelOpen}
+            onClose={() => setIsAccountPanelOpen(false)}
+            isAuthenticated={isAuthenticated}
+            onSymbolSelect={(symData) => {
+              const symbol = typeof symData === 'string' ? symData : symData.symbol;
+              const exchange = typeof symData === 'string' ? 'NSE' : (symData.exchange || 'NSE');
+              setCharts(prev => prev.map(chart =>
+                chart.id === activeChartId ? { ...chart, symbol, exchange, strategyConfig: null } : chart
+              ));
+            }}
+            isMinimized={isAccountPanelMinimized}
+            onMinimize={handleAccountPanelMinimize}
+            isMaximized={isAccountPanelMaximized}
+            onMaximize={handleAccountPanelMaximize}
+            isToolbarVisible={showDrawingToolbar}
+          />
+        }
+        isAccountPanelMinimized={isAccountPanelMinimized}
+        isAccountPanelMaximized={isAccountPanelMaximized}
         mobileNav={
           <MobileNav
             activeTab={mobileTab}
@@ -2710,6 +2757,8 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             isToolbarVisible={showDrawingToolbar}
             showOILines={showOILines}
             onToggleOILines={handleToggleOILines}
+            isAccountPanelOpen={isAccountPanelOpen}
+            onToggleAccountPanel={() => setIsAccountPanelOpen(prev => !prev)}
           />
         }
         watchlist={

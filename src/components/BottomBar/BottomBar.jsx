@@ -16,6 +16,8 @@ const BottomBar = ({
     isToolbarVisible = true,
     showOILines = false,
     onToggleOILines,
+    isAccountPanelOpen = false,
+    onToggleAccountPanel,
 }) => {
     // Local time state - updates every second
     const [localTime, setLocalTime] = useState(new Date());
@@ -145,6 +147,14 @@ const BottomBar = ({
                 <div className={styles.separator} />
                 <div className={styles.item}>
                     <span className={styles.timezone}>{timezone}</span>
+                </div>
+                <div className={styles.separator} />
+                <div
+                    className={classNames(styles.item, styles.actionItem, { [styles.active]: isAccountPanelOpen })}
+                    onClick={onToggleAccountPanel}
+                    title="Toggle Account Manager Panel"
+                >
+                    Acc
                 </div>
                 <div className={styles.separator} />
                 <div
