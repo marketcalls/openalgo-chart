@@ -236,13 +236,6 @@ const AccountPanel = ({
                         ))}
                     </tbody>
                 </table>
-                {orders.statistics && (
-                    <div className={styles.orderStats}>
-                        <span>Open: {orders.statistics.total_open_orders || 0}</span>
-                        <span>Completed: {orders.statistics.total_completed_orders || 0}</span>
-                        <span>Rejected: {orders.statistics.total_rejected_orders || 0}</span>
-                    </div>
-                )}
             </div>
         );
     };
@@ -296,14 +289,6 @@ const AccountPanel = ({
                         })}
                     </tbody>
                 </table>
-                {holdings.statistics && (
-                    <div className={styles.holdingStats}>
-                        <span>Total Value: ₹{formatCurrency(holdings.statistics.totalholdingvalue)}</span>
-                        <span className={holdings.statistics.totalprofitandloss >= 0 ? styles.positive : styles.negative}>
-                            Total P&L: ₹{formatCurrency(holdings.statistics.totalprofitandloss)} ({holdings.statistics.totalpnlpercentage?.toFixed(2)}%)
-                        </span>
-                    </div>
-                )}
             </div>
         );
     };
@@ -454,20 +439,42 @@ const AccountPanel = ({
 
             {/* Content - hidden when minimized */}
             {!isMinimized && (
-                <div className={`${styles.content} ${!isToolbarVisible ? styles.noToolbar : ''}`}>
-                    {!isAuthenticated ? (
-                        <div className={styles.emptyState}>
-                            <p>Connect to OpenAlgo to view account data</p>
+                <>
+                    <div className={`${styles.content} ${!isToolbarVisible ? styles.noToolbar : ''}`}>
+                        {!isAuthenticated ? (
+                            <div className={styles.emptyState}>
+                                <p>Connect to OpenAlgo to view account data</p>
+                            </div>
+                        ) : isLoading && positions.length === 0 ? (
+                            <div className={styles.loading}>
+                                <RefreshCw size={24} className={styles.spinning} />
+                                <p>Loading account data...</p>
+                            </div>
+                        ) : (
+                            renderContent()
+                        )}
+                    </div>
+                    {/* Footer Stats - Pinned to bottom */}
+                    {isAuthenticated && !isLoading && (
+                        <div className={`${styles.footer} ${!isToolbarVisible ? styles.noToolbar : ''}`}>
+                            {activeTab === 'orders' && orders.statistics && (
+                                <div className={styles.orderStats}>
+                                    <span>Open: {orders.statistics.total_open_orders || 0}</span>
+                                    <span>Completed: {orders.statistics.total_completed_orders || 0}</span>
+                                    <span>Rejected: {orders.statistics.total_rejected_orders || 0}</span>
+                                </div>
+                            )}
+                            {activeTab === 'holdings' && holdings.statistics && (
+                                <div className={styles.holdingStats}>
+                                    <span>Total Value: ₹{formatCurrency(holdings.statistics.totalholdingvalue)}</span>
+                                    <span className={holdings.statistics.totalprofitandloss >= 0 ? styles.positive : styles.negative}>
+                                        Total P&L: ₹{formatCurrency(holdings.statistics.totalprofitandloss)} ({holdings.statistics.totalpnlpercentage?.toFixed(2)}%)
+                                    </span>
+                                </div>
+                            )}
                         </div>
-                    ) : isLoading && positions.length === 0 ? (
-                        <div className={styles.loading}>
-                            <RefreshCw size={24} className={styles.spinning} />
-                            <p>Loading account data...</p>
-                        </div>
-                    ) : (
-                        renderContent()
                     )}
-                </div>
+                </>
             )}
         </div>
     );

@@ -326,14 +326,27 @@
   color: #FF9800;
 }
 
+/* Footer */
+.footer {
+  flex-shrink: 0;
+  border-top: 1px solid var(--tv-color-border, #2A2E39);
+  background-color: var(--tv-color-toolbar-background, #1e1e1e);
+  z-index: 2;
+  transition: padding-left 0.15s ease;
+  padding-left: 48px;
+  /* Match content padding */
+}
+
+.footer.noToolbar {
+  padding-left: 0 !important;
+}
+
 /* Stats Footer */
 .orderStats,
 .holdingStats {
   display: flex;
   gap: 16px;
   padding: 8px 12px;
-  background-color: var(--tv-color-toolbar-background, #1e1e1e);
-  border-top: 1px solid var(--tv-color-border, #2A2E39);
   font-size: 11px;
   color: var(--tv-color-text-secondary);
 }
