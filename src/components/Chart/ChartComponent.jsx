@@ -43,6 +43,10 @@ import ReplayControls from '../Replay/ReplayControls';
 import ReplaySlider from '../Replay/ReplaySlider';
 import PriceScaleMenu from './PriceScaleMenu';
 import { VisualTrading } from '../../plugins/visual-trading/visual-trading';
+import { useChartResize } from '../../hooks/useChartResize';
+import { useChartDrawings } from '../../hooks/useChartDrawings';
+import { useChartAlerts } from '../../hooks/useChartAlerts';
+import { getChartTheme, getThemeType } from '../../utils/chartTheme';
 
 const TOOL_MAP = {
     'cursor': 'None',
@@ -136,6 +140,13 @@ const ChartComponent = forwardRef(({
     const [indicatorSettingsOpen, setIndicatorSettingsOpen] = useState(null); // which indicator's settings are open
     const [indicatorValues, setIndicatorValues] = useState({}); // Current value under cursor for each indicator { id: value }
     const [tpoLocalSettings, setTpoLocalSettings] = useState({}); // Local TPO settings storage (workaround for broken parent callback)
+
+    const [chartInstance, setChartInstance] = useState(null);
+    useChartResize(chartContainerRef, chartInstance);
+
+    const [lineToolManager, setLineToolManager] = useState(null);
+    useChartDrawings(lineToolManager, symbol, exchange, interval);
+    useChartAlerts(lineToolManager, symbol, exchange);
 
     // Close context menu on click outside
     useEffect(() => {
@@ -1435,77 +1446,11 @@ const ChartComponent = forwardRef(({
             }
 
             window.lineToolManager = manager;
+            setLineToolManager(manager);
             window.chartInstance = chartRef.current;
             window.seriesInstance = series;
 
-            // Load saved drawings from backend
-            const loadSavedDrawings = async () => {
-                console.log('[ChartComponent] loadSavedDrawings called for:', symbol, exchange, interval);
-                try {
-                    const drawings = await loadDrawings(symbol, exchange, interval);
-                    console.log('[ChartComponent] loadDrawings result:', drawings);
-                    if (drawings && drawings.length > 0 && manager.importDrawings) {
-                        console.log('[ChartComponent] Importing', drawings.length, 'drawings...');
-                        manager.importDrawings(drawings, true);
-                        console.log('[ChartComponent] Import complete!');
-                    } else {
-                        console.log('[ChartComponent] No drawings to import or importDrawings not available');
-                    }
-                } catch (error) {
-                    console.warn('[ChartComponent] Failed to load saved drawings:', error);
-                }
-            };
-            loadSavedDrawings();
-
-
-
-            // === Alert Persistence: Restore alerts for new symbol ===
-            try {
-                const userAlerts = manager._userPriceAlerts;
-                console.log('[Alerts] Checking restore for', symbol, '- userAlerts exists:', !!userAlerts);
-                if (userAlerts && typeof userAlerts.importAlerts === 'function') {
-                    const savedAlerts = loadAlertsForSymbol(symbol, exchange);
-                    console.log('[Alerts] Found saved alerts:', savedAlerts);
-                    if (savedAlerts && savedAlerts.length > 0) {
-                        userAlerts.importAlerts(savedAlerts);
-                        console.log('[Alerts] Restored', savedAlerts.length, 'alerts for', symbol);
-                    } else {
-                        console.log('[Alerts] No saved alerts for', symbol);
-                    }
-                } else {
-                    console.log('[Alerts] importAlerts not available on userAlerts');
-                }
-            } catch (err) {
-                console.warn('[Alerts] Failed to restore alerts:', err);
-            }
-
-            // Set up debounced auto-save for drawings
-            let saveTimeout = null;
-            const autoSaveDrawings = () => {
-                if (saveTimeout) clearTimeout(saveTimeout);
-                saveTimeout = setTimeout(async () => {
-                    try {
-                        if (manager.exportDrawings) {
-                            const drawings = manager.exportDrawings();
-                            await saveDrawings(symbol, exchange, interval, drawings);
-                            console.log('[ChartComponent] Auto-saved', drawings.length, 'drawings');
-                        }
-                    } catch (error) {
-                        console.warn('[ChartComponent] Failed to auto-save drawings:', error);
-                    }
-                }, 1000); // Debounce 1 second
-            };
-
-            // Connect auto-save to LineToolManager's onDrawingsChanged callback
-            if (manager.setOnDrawingsChanged) {
-                manager.setOnDrawingsChanged(() => {
-                    console.log('[ChartComponent] Drawing changed, triggering auto-save...');
-                    autoSaveDrawings();
-                });
-            }
-
-            // Store autoSave function for external access
-            manager._autoSaveDrawings = autoSaveDrawings;
+            // Drawings persistence handled by useChartDrawings hook
         }
     };
 
@@ -1552,20 +1497,34 @@ const ChartComponent = forwardRef(({
     useEffect(() => {
         if (!chartContainerRef.current) return;
 
-        // Use appearance settings or defaults
-        const backgroundColor = theme === 'dark'
-            ? (chartAppearance.darkBackground || '#131722')
-            : (chartAppearance.lightBackground || '#ffffff');
-        const gridColor = theme === 'dark'
-            ? (chartAppearance.darkGridColor || '#2A2E39')
-            : (chartAppearance.lightGridColor || '#e0e3eb');
+        // Use appearance settings or defaults based on theme
+        const themeColors = getChartTheme(theme);
+        const themeType = getThemeType(theme);
+
+        // Only apply legacy appearance overrides for standard 'dark'/'light' themes
+        // New themes (midnight, ocean) use their defined colors
+        let backgroundColor = themeColors.background;
+        let gridColor = themeColors.grid;
+        let textColor = themeColors.text;
+
+        if (theme === 'dark' && chartAppearance.darkBackground) {
+            backgroundColor = chartAppearance.darkBackground;
+        } else if (theme === 'light' && chartAppearance.lightBackground) {
+            backgroundColor = chartAppearance.lightBackground;
+        }
+
+        if (theme === 'dark' && chartAppearance.darkGridColor) {
+            gridColor = chartAppearance.darkGridColor;
+        } else if (theme === 'light' && chartAppearance.lightGridColor) {
+            gridColor = chartAppearance.lightGridColor;
+        }
 
         const chart = createChart(chartContainerRef.current, {
             watermark: {
                 visible: false,
             },
             layout: {
-                textColor: theme === 'dark' ? '#D1D4DC' : '#131722',
+                textColor: textColor,
                 background: { color: backgroundColor },
                 attributionLogo: false,
             },
@@ -1583,24 +1542,24 @@ const ChartComponent = forwardRef(({
                 mode: magnetMode ? 1 : 0,
                 vertLine: {
                     width: 1,
-                    color: theme === 'dark' ? '#758696' : '#9598a1',
+                    color: themeColors.crosshair,
                     style: 3,
-                    labelBackgroundColor: theme === 'dark' ? '#758696' : '#9598a1',
+                    labelBackgroundColor: themeColors.crosshair,
                 },
                 horzLine: {
                     width: 1,
-                    color: theme === 'dark' ? '#758696' : '#9598a1',
+                    color: themeColors.crosshair,
                     style: 3,
-                    labelBackgroundColor: theme === 'dark' ? '#758696' : '#9598a1',
+                    labelBackgroundColor: themeColors.crosshair,
                 },
             },
             timeScale: {
-                borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
+                borderColor: themeColors.borderColor,
                 timeVisible: true,
                 rightOffset: 10, // Show ~10 candle widths of future time (TradingView style)
             },
             rightPriceScale: {
-                borderColor: theme === 'dark' ? '#2A2E39' : '#e0e3eb',
+                borderColor: themeColors.borderColor,
             },
             handleScroll: {
                 mouseWheel: false,
@@ -1617,26 +1576,10 @@ const ChartComponent = forwardRef(({
         });
 
         chartRef.current = chart;
+        setChartInstance(chart);
 
-        // --- Resize Observer Integration ---
-        const resizeObserver = new ResizeObserver(entries => {
-            if (!entries || entries.length === 0) return;
-            const entry = entries[0];
-            const { width, height } = entry.contentRect;
 
-            if (width > 0 && height > 0) {
-                chart.applyOptions({ width, height });
-            }
-        });
 
-        if (chartContainerRef.current) {
-            resizeObserver.observe(chartContainerRef.current);
-            // Force initial sizing
-            const { clientWidth, clientHeight } = chartContainerRef.current;
-            if (clientWidth > 0 && clientHeight > 0) {
-                chart.applyOptions({ width: clientWidth, height: clientHeight });
-            }
-        }
 
         // Load older historical data when user scrolls back to the oldest loaded candle
         const loadOlderData = async () => {
@@ -1897,11 +1840,7 @@ const ChartComponent = forwardRef(({
             } catch (error) {
                 console.warn('Failed to remove contextmenu listener', error);
             }
-            try {
-                resizeObserver.disconnect();
-            } catch (error) {
-                console.warn('Failed to disconnect resize observer', error);
-            }
+
 
             // Mark chart as disposed FIRST to prevent any pending RAF callbacks
             isDisposedRef.current = true;

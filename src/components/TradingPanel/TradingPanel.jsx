@@ -269,4 +269,4 @@ const TradingPanel = ({ symbol, exchange = 'NSE', isOpen, onClose, showToast }) 
     );
 };
 
-export default TradingPanel;
+export default React.memo(TradingPanel);

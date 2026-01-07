@@ -1138,4 +1138,4 @@ const OptionChainModal = ({ isOpen, onClose, onSelectOption, initialSymbol }) =>
     );
 };
 
-export default OptionChainModal;
+export default React.memo(OptionChainModal);

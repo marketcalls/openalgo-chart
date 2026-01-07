@@ -508,4 +508,4 @@ const AccountPanel = ({
     );
 };
 
-export default AccountPanel;
+export default React.memo(AccountPanel);

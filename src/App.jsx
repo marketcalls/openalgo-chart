@@ -32,6 +32,8 @@ import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
 import { useOILines } from './hooks/useOILines';
 import { useTradingData } from './hooks/useTradingData';
+import { useTheme } from './context/ThemeContext';
+import { useUser } from './context/UserContext';
 import { indicatorConfigs } from './components/IndicatorSettings/indicatorConfigs';
 
 import PositionTracker from './components/PositionTracker';
@@ -497,19 +499,10 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   }, []);
 
   // Theme State
-  const [theme, setTheme] = useState(() => {
-    return localStorage.getItem('tv_theme') || 'dark';
-  });
+  // Theme State (Refactored to Context)
+  const { theme, toggleTheme, setTheme } = useTheme();
 
-  // Apply theme to document
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('tv_theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'dark' ? 'light' : 'dark');
-  };
+  // Legacy effect removed - handled by ThemeContext
 
   // Chart Appearance State
   const [chartAppearance, setChartAppearance] = useState(() => {
@@ -2571,6 +2564,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setDrawingDefaults(DEFAULT_DRAWING_OPTIONS);
   }, []);
 
+  const handleResetChart = useCallback(() => {
+    handleResetChartAppearance();
+    handleResetDrawingDefaults();
+    showToast('Chart settings reset to default', 'success');
+  }, [handleResetDrawingDefaults]);
+
   const handleApiKeySaveFromSettings = (newApiKey) => {
     setApiKey(newApiKey);
     localStorage.setItem('oa_apikey', newApiKey);
@@ -2605,12 +2604,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     onUndo: handleUndo,
     onRedo: handleRedo,
     toggleTheme,
+    setTheme,
     toggleFullscreen: handleFullScreen,
     takeScreenshot: handleDownloadImage,
     copyImage: handleCopyImage,
     createAlert: handleAlertClick,
     clearDrawings: () => handleToolChange('clear_all'),
-  }), [toggleIndicator, handleToolChange, handleUndo, handleRedo, toggleTheme, handleFullScreen, handleDownloadImage, handleCopyImage, handleAlertClick]);
+    resetChart: handleResetChart,
+  }), [toggleIndicator, handleToolChange, handleUndo, handleRedo, toggleTheme, setTheme, handleFullScreen, handleDownloadImage, handleCopyImage, handleAlertClick, handleResetChart]);
 
   const {
     commands,
@@ -3175,15 +3176,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 // AppWrapper - handles auth and cloud sync BEFORE mounting AppContent
 // This ensures React state initializers see the cloud data in localStorage
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(null); // null = checking, false = not auth, true = auth
-
-  useEffect(() => {
-    const verifyAuth = async () => {
-      const isAuth = await checkAuth();
-      setIsAuthenticated(isAuth);
-    };
-    verifyAuth();
-  }, []);
+  const { isAuthenticated, setIsAuthenticated } = useUser();
 
   // Cloud Workspace Sync - blocks until cloud data is fetched or 5s timeout
   // syncKey changes when cloud data is applied, forcing AppContent remount

@@ -3,6 +3,8 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import ErrorBoundary from './components/ErrorBoundary/ErrorBoundary.jsx'
+import { ThemeProvider } from './context/ThemeContext.jsx'
+import { UserProvider } from './context/UserContext.jsx'
 
 // Apply theme immediately to prevent flash of default theme
 // This runs synchronously BEFORE React renders anything
@@ -23,7 +25,11 @@ window.addEventListener('unhandledrejection', (event) => {
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <UserProvider>
+        <ThemeProvider>
+          <App />
+        </ThemeProvider>
+      </UserProvider>
     </ErrorBoundary>
   </StrictMode>,
 )

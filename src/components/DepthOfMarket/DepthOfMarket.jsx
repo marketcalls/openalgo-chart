@@ -215,4 +215,4 @@ const DepthOfMarket = ({ symbol, exchange = 'NSE', isOpen, onClose }) => {
     );
 };
 
-export default DepthOfMarket;
+export default React.memo(DepthOfMarket);
