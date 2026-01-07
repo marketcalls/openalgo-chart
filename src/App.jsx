@@ -407,6 +407,7 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setMobileTab(tab);
     // Show/hide watchlist based on tab
     if (tab === 'watchlist') {
+      setActiveRightPanel('watchlist');
       setIsWatchlistVisible(true);
     } else {
       setIsWatchlistVisible(false);
@@ -418,7 +419,13 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     }
     // Handle alerts tab
     if (tab === 'alerts') {
-      setIsAlertsPanelOpen(true);
+      setActiveRightPanel('alerts');
+      setIsWatchlistVisible(true);
+      setMobileTab('alerts');
+    }
+    // Handle tools tab
+    if (tab === 'tools') {
+      setShowDrawingToolbar(true);
       setMobileTab('chart');
     }
   }, []);

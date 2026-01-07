@@ -1457,6 +1457,8 @@ const ChartComponent = forwardRef(({
             };
             loadSavedDrawings();
 
+
+
             // === Alert Persistence: Restore alerts for new symbol ===
             try {
                 const userAlerts = manager._userPriceAlerts;
@@ -1616,19 +1618,25 @@ const ChartComponent = forwardRef(({
 
         chartRef.current = chart;
 
+        // --- Resize Observer Integration ---
+        const resizeObserver = new ResizeObserver(entries => {
+            if (!entries || entries.length === 0) return;
+            const entry = entries[0];
+            const { width, height } = entry.contentRect;
 
-
-        const handleResize = () => {
-            if (chartContainerRef.current) {
-                chart.applyOptions({
-                    width: chartContainerRef.current.clientWidth,
-                    height: chartContainerRef.current.clientHeight,
-                });
+            if (width > 0 && height > 0) {
+                chart.applyOptions({ width, height });
             }
-        };
+        });
 
-        const resizeObserver = new ResizeObserver(handleResize);
-        resizeObserver.observe(chartContainerRef.current);
+        if (chartContainerRef.current) {
+            resizeObserver.observe(chartContainerRef.current);
+            // Force initial sizing
+            const { clientWidth, clientHeight } = chartContainerRef.current;
+            if (clientWidth > 0 && clientHeight > 0) {
+                chart.applyOptions({ width: clientWidth, height: clientHeight });
+            }
+        }
 
         // Load older historical data when user scrolls back to the oldest loaded candle
         const loadOlderData = async () => {

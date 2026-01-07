@@ -150,9 +150,9 @@ const Layout = ({
       </div>
 
       <div className={styles.mainArea}>
-        {/* Left toolbar - hidden on mobile */}
-        {!isMobile && (
-          <div className={`${styles.leftToolbarArea} ${!isLeftToolbarVisible ? styles.leftToolbarHidden : ''}`}>
+        {/* Left toolbar - hidden on mobile unless explicitly toggled */}
+        {(!isMobile || isLeftToolbarVisible) && (
+          <div className={`${styles.leftToolbarArea} ${!isLeftToolbarVisible ? styles.leftToolbarHidden : ''} ${isMobile ? styles.leftToolbarMobile : ''}`}>
             {leftToolbar}
           </div>
         )}

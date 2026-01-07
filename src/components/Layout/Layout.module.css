@@ -243,6 +243,11 @@
   .leftToolbarArea {
     display: none;
   }
+  
+  .leftToolbarArea.leftToolbarMobile {
+    display: block;
+    z-index: 50; /* Ensure above chart */
+  }
 
   .bottomBarArea {
     display: none;
