@@ -161,7 +161,7 @@
 
 /* When left toolbar is hidden, reduce left padding */
 .noToolbar {
-  padding-left: 12px;
+  padding-left: 12px !important;
 }
 
 .tab {
@@ -209,7 +209,14 @@
 .content {
   flex: 1;
   overflow: auto;
-  padding: 0;
+  padding: 0 0 0 48px;
+  /* Extra left padding to clear left toolbar (48px) - table cells add 12px more = 60px aligns with header */
+  transition: padding-left 0.15s ease;
+}
+
+.content.noToolbar {
+  padding-left: 0 !important;
+  /* 0px padding + 12px table cell padding = 12px aligns with header */
 }
 
 /* Tables */
@@ -221,6 +228,8 @@
   width: 100%;
   border-collapse: collapse;
   font-size: 11px;
+  table-layout: fixed;
+  /* Force columns to respect width */
 }
 
 .table thead {
@@ -240,12 +249,16 @@
   text-transform: uppercase;
   font-size: 10px;
   letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--tv-color-border-subtle, rgba(255, 255, 255, 0.05));
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .table tbody tr:hover {

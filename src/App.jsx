@@ -38,6 +38,7 @@ import { SectorHeatmapModal } from './components/SectorHeatmap';
 import GlobalAlertPopup from './components/GlobalAlertPopup/GlobalAlertPopup';
 import DepthOfMarket from './components/DepthOfMarket';
 import AccountPanel from './components/AccountPanel';
+import TradingPanel from './components/TradingPanel/TradingPanel';
 const VALID_INTERVAL_UNITS = new Set(['s', 'm', 'h', 'd', 'w', 'M']);
 const DEFAULT_FAVORITE_INTERVALS = []; // No default favorites
 
@@ -583,13 +584,22 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
       forceCloseAllWebSockets();
     };
 
-    // Add event listeners for both beforeunload and unload
+    // Handler for external toast events (from line tools etc)
+    const handleExternalToast = (e) => {
+      if (e.detail && e.detail.message) {
+        showToast(e.detail.message, e.detail.type || 'info');
+      }
+    };
+
+    // Add event listeners
     window.addEventListener('beforeunload', handleBeforeUnload);
     window.addEventListener('unload', handleUnload);
+    window.addEventListener('oa-show-toast', handleExternalToast);
 
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
       window.removeEventListener('unload', handleUnload);
+      window.removeEventListener('oa-show-toast', handleExternalToast);
       // Also close all WebSockets when App component unmounts
       closeAllWebSockets();
     };
@@ -2314,8 +2324,10 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     };
     setAlertLogs(prev => [logEntry, ...prev]);
     setUnreadAlertCount(prev => prev + 1);
-    // Toast notification disabled
-    // showToast(`Alert Triggered: ${symbol}:${exchange} at ${displayPrice}`, 'info');
+    // Toast notification disabled for price alerts (user prefers bottom-left only)
+    // showToast(alertMsg, 'info');
+
+    // Bottom-left visual alerts are now handled internally by alert-notification.ts (restored to original state)
 
     // Mark corresponding alert as Triggered in the Alerts tab, or add a new history row
     setAlerts(prev => {
@@ -2874,6 +2886,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
               isOpen={true}
               onClose={() => setActiveRightPanel('watchlist')}
             />
+          ) : activeRightPanel === 'trade' ? (
+            <TradingPanel
+              symbol={currentSymbol}
+              exchange={currentExchange}
+              isOpen={true}
+              onClose={() => setActiveRightPanel('watchlist')}
+              showToast={showToast}
+            />
           ) : null
         }
         rightToolbar={
@@ -2955,12 +2975,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
           onClose={() => setSnapshotToast(null)}
         />
       )}
-      {/* Global Alert Popup for background alerts */}
+      {/* Global Alert Popup Restored */}
       <GlobalAlertPopup
         alerts={globalAlertPopups}
         onDismiss={(alertId) => setGlobalAlertPopups(prev => prev.filter(a => a.id !== alertId))}
         onClick={(symbolData) => {
-          // Switch active chart to the alert's symbol
           setCharts(prev => prev.map(chart =>
             chart.id === activeChartId ? { ...chart, symbol: symbolData.symbol, exchange: symbolData.exchange, strategyConfig: null } : chart
           ));

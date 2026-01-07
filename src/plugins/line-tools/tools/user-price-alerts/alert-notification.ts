@@ -285,6 +285,17 @@ export class AlertNotification {
     }
 
     private _showWebhookResultToast(success: boolean, message: string): void {
+        // Dispatch custom event for App.jsx to handle via standard Toast
+        const event = new CustomEvent('oa-show-toast', {
+            detail: {
+                message: success ? `✓ ${message}` : `✗ ${message}`,
+                type: success ? 'success' : 'error'
+            }
+        });
+        window.dispatchEvent(event);
+        return; // Stop here to prevent duplicate "old" popup for webhooks
+
+        // Original logic below is kept but unreachable for webhooks (plugin handles its own visual alerts separately)
         // Create a toast for webhook result
         const toast = document.createElement('div');
         toast.style.cssText = `

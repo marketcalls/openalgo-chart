@@ -454,7 +454,7 @@ const AccountPanel = ({
 
             {/* Content - hidden when minimized */}
             {!isMinimized && (
-                <div className={styles.content}>
+                <div className={`${styles.content} ${!isToolbarVisible ? styles.noToolbar : ''}`}>
                     {!isAuthenticated ? (
                         <div className={styles.emptyState}>
                             <p>Connect to OpenAlgo to view account data</p>
