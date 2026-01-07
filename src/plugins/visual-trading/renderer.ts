@@ -23,7 +23,6 @@ export interface OrderRendererData {
         color: string;
         text: string;
         hovered: boolean;
-        showHover: boolean;
         hoverRemove: boolean; // Mouse over the X button
         lineWidth: number;
         lineStyle: number[];
@@ -57,9 +56,8 @@ export class VisualTradingRenderer implements IPrimitivePaneRenderer {
             // Draw Orders
             this._data.orders.forEach(order => {
                 this._drawOrderLine(ctx, scope, order.y, order.color, order.lineWidth);
-                if (order.showHover) {
-                    this._drawOrderLabel(ctx, scope, order);
-                }
+                // Always show label (TradingView style - not just on hover)
+                this._drawOrderLabel(ctx, scope, order);
             });
         });
     }
@@ -126,10 +124,8 @@ export class VisualTradingRenderer implements IPrimitivePaneRenderer {
         const textLength = order.text.length;
         const labelWidth = this._calculateLabelWidth(textLength);
 
-        // Right align the label with some padding (e.g. 60px from right edge to avoid overlapping axis slightly or just 5px)
-        // User wants it at "right end".
-        // Let's place it 5px from the right edge.
-        const paddingRight = 5;
+        // Position on RIGHT side with padding to avoid price axis overlap
+        const paddingRight = 60;
         const xCenter = scope.mediaSize.width - (labelWidth / 2) - paddingRight;
 
         const labelXDimensions = positionsLine(
@@ -185,7 +181,7 @@ export class VisualTradingRenderer implements IPrimitivePaneRenderer {
                 scope.horizontalPixelRatio,
                 1
             );
-            ctx.fillStyle = '#F1F3FB';
+            ctx.fillStyle = '#E8EAED';
             ctx.fillRect(
                 dividerDimensions.position,
                 yDimensions.position,
@@ -193,7 +189,7 @@ export class VisualTradingRenderer implements IPrimitivePaneRenderer {
                 yDimensions.length
             );
 
-            // Stroke for main body
+            // Colored border stroke (TradingView style - 2px border matching order color)
             ctx.beginPath();
             ctx.roundRect(
                 labelXDimensions.position,
@@ -202,8 +198,8 @@ export class VisualTradingRenderer implements IPrimitivePaneRenderer {
                 yDimensions.length,
                 radius
             );
-            ctx.strokeStyle = '#131722';
-            ctx.lineWidth = 1 * scope.horizontalPixelRatio;
+            ctx.strokeStyle = order.color; // Use order color for border
+            ctx.lineWidth = 2 * scope.horizontalPixelRatio; // 2px border
             ctx.stroke();
 
             // Text

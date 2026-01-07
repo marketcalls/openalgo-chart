@@ -122,7 +122,6 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
                 color,
                 text: `${order.action} ${order.quantity} @ ${price.toFixed(2)}`,
                 hovered,
-                showHover: hovered, // Only show label when hovered (like Alerts)
                 hoverRemove: hovered && this._hoveredRemove,
                 lineWidth: 1,
                 lineStyle: [4, 4] // Dashed
