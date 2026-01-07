@@ -131,13 +131,16 @@ const AccountPanel = ({
 
     // Render positions table
     const renderPositions = () => {
-        const openPositions = positions.filter(p => p.quantity !== 0);
+        // Filter out positions with 0 quantity and sort by timestamp (latest first)
+        const openPositions = positions
+            .filter(p => p.quantity !== 0)
+            .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
 
         if (openPositions.length === 0) {
             return (
                 <div className={styles.emptyState}>
                     <span className={styles.emptyIcon}>📊</span>
-                    <p>There are no open positions in your trading account yet</p>
+                    <p>No open positions</p>
                 </div>
             );
         }
@@ -187,7 +190,24 @@ const AccountPanel = ({
 
     // Render orders table
     const renderOrders = () => {
-        const orderList = orders.orders || [];
+        let orderList = orders.orders || [];
+
+        // Sort orders: OPEN orders first, then by timestamp (latest first)
+        orderList = [...orderList].sort((a, b) => {
+            const statusA = (a.order_status || '').toUpperCase();
+            const statusB = (b.order_status || '').toUpperCase();
+
+            // Define open statuses
+            const isOpenA = ['OPEN', 'PENDING', 'TRIGGER_PENDING', 'AMO REQ RECEIVED'].includes(statusA);
+            const isOpenB = ['OPEN', 'PENDING', 'TRIGGER_PENDING', 'AMO REQ RECEIVED'].includes(statusB);
+
+            // If one is open and other isn't, open comes first
+            if (isOpenA && !isOpenB) return -1;
+            if (!isOpenA && isOpenB) return 1;
+
+            // Otherwise sort by timestamp (latest first)
+            return (b.timestamp || '').localeCompare(a.timestamp || '');
+        });
 
         if (orderList.length === 0) {
             return (
@@ -242,7 +262,10 @@ const AccountPanel = ({
 
     // Render holdings table
     const renderHoldings = () => {
-        const holdingsList = holdings.holdings || [];
+        // Sort holdings by timestamp (latest first)
+        const holdingsList = (holdings.holdings || []).sort((a, b) =>
+            (b.timestamp || '').localeCompare(a.timestamp || '')
+        );
 
         if (holdingsList.length === 0) {
             return (
@@ -295,7 +318,12 @@ const AccountPanel = ({
 
     // Render trades table
     const renderTrades = () => {
-        if (trades.length === 0) {
+        // Sort trades by timestamp (latest first)
+        const sortedTrades = [...trades].sort((a, b) =>
+            (b.timestamp || '').localeCompare(a.timestamp || '')
+        );
+
+        if (sortedTrades.length === 0) {
             return (
                 <div className={styles.emptyState}>
                     <span className={styles.emptyIcon}>📈</span>
@@ -318,7 +346,7 @@ const AccountPanel = ({
                         </tr>
                     </thead>
                     <tbody>
-                        {trades.map((trade, idx) => (
+                        {sortedTrades.map((trade, idx) => (
                             <tr
                                 key={trade.orderid || idx}
                                 onClick={() => handleRowClick(trade.symbol, trade.exchange)}
