@@ -76,7 +76,11 @@ const IndicatorRow = ({ indicator, onVisibilityToggle, onRemove, onSettings }) =
         {/* Value - colored, shown by default */}
         <span className={styles.indicatorValue} style={{ color: indicator.color }}>
             {indicator.value !== undefined
-                ? (typeof indicator.value === 'number' ? indicator.value.toFixed(2) : indicator.value)
+                ? (typeof indicator.value === 'number'
+                    ? indicator.value.toFixed(2)
+                    : typeof indicator.value === 'object' && indicator.value !== null
+                        ? Object.values(indicator.value).map(v => typeof v === 'number' ? v.toFixed(2) : v).join(' / ')
+                        : indicator.value)
                 : '--'}
         </span>
     </div>
