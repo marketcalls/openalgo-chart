@@ -135,6 +135,7 @@ const ChartComponent = forwardRef(({
     const [priceScaleMenu, setPriceScaleMenu] = useState({ visible: false, x: 0, y: 0, price: null });
     const [indicatorSettingsOpen, setIndicatorSettingsOpen] = useState(null); // which indicator's settings are open
     const [indicatorValues, setIndicatorValues] = useState({}); // Current value under cursor for each indicator { id: value }
+    const [tpoLocalSettings, setTpoLocalSettings] = useState({}); // Local TPO settings storage (workaround for broken parent callback)
 
     // Close context menu on click outside
     useEffect(() => {
@@ -3700,11 +3701,18 @@ const ChartComponent = forwardRef(({
     const tpoSettingsHash = useMemo(() => {
         const tpoIndicators = (indicators || []).filter(ind => ind.type === 'tpo');
         if (tpoIndicators.length === 0) return null;
-        return JSON.stringify({
+
+        const tpoId = tpoIndicators[0].id;
+        // Prefer local settings over indicator props
+        const effectiveSettings = tpoLocalSettings[tpoId] || tpoIndicators[0].settings;
+
+        const hash = JSON.stringify({
             visible: tpoIndicators[0].visible,
-            settings: tpoIndicators[0].settings
+            settings: effectiveSettings
         });
-    }, [indicators]);
+        console.log('[TPO] Settings hash updated:', hash);
+        return hash;
+    }, [indicators, tpoLocalSettings]);
 
     // Handle TPO Indicator
     useEffect(() => {
@@ -3725,6 +3733,10 @@ const ChartComponent = forwardRef(({
         // Add new TPO if exists and is visible
         if (tpoIndicators.length > 0 && dataRef.current.length > 0) {
             const tpoInd = tpoIndicators[0];
+            const tpoId = tpoInd.id;
+
+            // Prefer local settings over indicator props
+            const effectiveSettings = tpoLocalSettings[tpoId] || tpoInd.settings || {};
 
             // Check if indicator is visible (default to true if not specified)
             const isVisible = tpoInd.visible !== false;
@@ -3736,27 +3748,27 @@ const ChartComponent = forwardRef(({
 
             try {
                 const profiles = calculateTPO(dataRef.current, {
-                    tickSize: tpoInd.settings?.tickSize || 'auto',
-                    blockSize: tpoInd.settings?.blockSize || '30m',
-                    sessionType: tpoInd.settings?.sessionType || 'daily',
-                    sessionStart: tpoInd.settings?.sessionStart || '09:15',
-                    sessionEnd: tpoInd.settings?.sessionEnd || '15:30',
-                    valueAreaPercent: tpoInd.settings?.valueAreaPercent || 70,
-                    allHours: tpoInd.settings?.allHours !== false,
-                    timezone: tpoInd.settings?.timezone || 'Asia/Kolkata',
+                    tickSize: effectiveSettings.tickSize || 'auto',
+                    blockSize: effectiveSettings.blockSize || '30m',
+                    sessionType: effectiveSettings.sessionType || 'daily',
+                    sessionStart: effectiveSettings.sessionStart || '09:15',
+                    sessionEnd: effectiveSettings.sessionEnd || '15:30',
+                    valueAreaPercent: effectiveSettings.valueAreaPercent || 70,
+                    allHours: effectiveSettings.allHours !== false,
+                    timezone: effectiveSettings.timezone || 'Asia/Kolkata',
                     interval: interval
                 });
 
-                console.log('[TPO] Calculated profiles:', profiles.length, 'Settings:', tpoInd.settings);
+                console.log('[TPO] Calculated profiles:', profiles.length, 'Settings:', effectiveSettings);
 
                 const tpoPrimitive = new TPOProfilePrimitive({
                     visible: isVisible,
-                    showLetters: tpoInd.settings?.showLetters !== false,
-                    showPOC: tpoInd.settings?.showPOC !== false,
-                    showValueArea: tpoInd.settings?.showValueArea !== false,
-                    showVAH: tpoInd.settings?.showVAH !== false,
-                    showVAL: tpoInd.settings?.showVAL !== false,
-                    useGradientColors: tpoInd.settings?.useGradientColors !== false,
+                    showLetters: effectiveSettings.showLetters !== false,
+                    showPOC: effectiveSettings.showPOC !== false,
+                    showValueArea: effectiveSettings.showValueArea !== false,
+                    showVAH: effectiveSettings.showVAH !== false,
+                    showVAL: effectiveSettings.showVAL !== false,
+                    useGradientColors: effectiveSettings.useGradientColors !== false,
                 });
 
                 tpoPrimitive.setData(profiles);
@@ -3882,6 +3894,19 @@ const ChartComponent = forwardRef(({
                         indicatorType={activeInd ? activeInd.type : null}
                         settings={activeInd || {}}
                         onSave={(newSettings) => {
+                            console.log('[TPO] Settings dialog onSave called:', { indicatorSettingsOpen, newSettings, hasCallback: !!onIndicatorSettings });
+
+                            // Store TPO settings locally (workaround for broken parent callback)
+                            const activeInd = indicators?.find(i => i.id === indicatorSettingsOpen);
+                            if (activeInd?.type === 'tpo') {
+                                setTpoLocalSettings(prev => ({
+                                    ...prev,
+                                    [indicatorSettingsOpen]: newSettings
+                                }));
+                                console.log('[TPO] Stored settings locally:', newSettings);
+                            }
+
+                            // Also call parent callback
                             if (onIndicatorSettings && indicatorSettingsOpen) {
                                 onIndicatorSettings(indicatorSettingsOpen, newSettings);
                             }
