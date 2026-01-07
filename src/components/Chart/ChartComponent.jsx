@@ -3696,6 +3696,62 @@ const ChartComponent = forwardRef(({
         };
     }, [isSelectingReplayPoint, updateReplayData]);
 
+    // Handle TPO Indicator
+    useEffect(() => {
+        if (!chartRef.current || !mainSeriesRef.current || !dataRef.current) return;
+
+        const tpoIndicators = (indicators || []).filter(ind => ind.type === 'tpo');
+
+        // Remove old TPO primitives
+        if (tpoProfileRef.current) {
+            try {
+                mainSeriesRef.current.detachPrimitive(tpoProfileRef.current);
+            } catch (e) {
+                // Primitive might already be detached
+            }
+            tpoProfileRef.current = null;
+        }
+
+        // Add new TPO if exists
+        if (tpoIndicators.length > 0 && dataRef.current.length > 0) {
+            const tpoInd = tpoIndicators[0];
+
+            try {
+                const profiles = calculateTPO(dataRef.current, {
+                    tickSize: tpoInd.settings?.tickSize || 'auto',
+                    blockSize: tpoInd.settings?.blockSize || '30m',
+                    sessionType: tpoInd.settings?.sessionType || 'daily',
+                    sessionStart: tpoInd.settings?.sessionStart || '09:15',
+                    sessionEnd: tpoInd.settings?.sessionEnd || '15:30',
+                    valueAreaPercent: tpoInd.settings?.valueAreaPercent || 70,
+                    allHours: tpoInd.settings?.allHours !== false,
+                    timezone: tpoInd.settings?.timezone || 'Asia/Kolkata',
+                    interval: interval
+                });
+
+                console.log('[TPO] Calculated profiles:', profiles.length);
+
+                const tpoPrimitive = new TPOProfilePrimitive({
+                    showLetters: tpoInd.settings?.showLetters !== false,
+                    showPOC: tpoInd.settings?.showPOC !== false,
+                    showValueArea: tpoInd.settings?.showValueArea !== false,
+                    showVAH: tpoInd.settings?.showVAH !== false,
+                    showVAL: tpoInd.settings?.showVAL !== false,
+                    useGradientColors: tpoInd.settings?.useGradientColors !== false,
+                });
+
+                tpoPrimitive.setData(profiles);
+                mainSeriesRef.current.attachPrimitive(tpoPrimitive);
+                tpoProfileRef.current = tpoPrimitive;
+
+                console.log('[TPO] Primitive attached successfully');
+            } catch (error) {
+                console.error('[TPO] Error rendering TPO:', error);
+            }
+        }
+    }, [indicators, interval, symbol, exchange]);
+
+
     // Helper to prepare indicators for the legend
     const getActiveIndicators = useCallback(() => {
         if (!Array.isArray(indicators)) return [];
