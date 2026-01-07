@@ -9,7 +9,7 @@ import SymbolSearch from './components/SymbolSearch/SymbolSearch';
 import Toast from './components/Toast/Toast';
 import SnapshotToast from './components/Toast/SnapshotToast';
 import html2canvas from 'html2canvas';
-import { getTickerPrice, subscribeToMultiTicker, checkAuth, closeAllWebSockets, forceCloseAllWebSockets, saveUserPreferences } from './services/openalgo';
+import { getTickerPrice, subscribeToMultiTicker, checkAuth, closeAllWebSockets, forceCloseAllWebSockets, saveUserPreferences, modifyOrder, cancelOrder } from './services/openalgo';
 import { globalAlertMonitor } from './services/globalAlertMonitor';
 
 import BottomBar from './components/BottomBar/BottomBar';
@@ -31,6 +31,7 @@ import { useIsMobile, useCommandPalette, useGlobalShortcuts } from './hooks';
 import { useLocalStorage } from './hooks/useLocalStorage';
 import { useCloudWorkspaceSync } from './hooks/useCloudWorkspaceSync';
 import { useOILines } from './hooks/useOILines';
+import { useTradingData } from './hooks/useTradingData';
 import { indicatorConfigs } from './components/IndicatorSettings/indicatorConfigs';
 
 import PositionTracker from './components/PositionTracker';
@@ -396,6 +397,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [mobileTab, setMobileTab] = useState('chart');
   const [isWatchlistVisible, setIsWatchlistVisible] = useState(false);
 
+  // Trading Data (Orders/Positions) for visual trading
+  const { orders: activeOrders, positions: activePositions, refresh: refreshTradingData } = useTradingData(isAuthenticated);
+
+
+
   // Handle mobile tab changes
   const handleMobileTabChange = useCallback((tab) => {
     setMobileTab(tab);
@@ -563,6 +569,85 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
     setSnapshotToast(message);
     snapshotToastTimeoutRef.current = setTimeout(() => setSnapshotToast(null), 3000);
   };
+
+  const handleModifyOrder = useCallback(async (orderId, newPrice) => {
+    // Find order to get other details
+    // Debug: Log what we are looking for
+    console.log('[App] handleModifyOrder called with:', { orderId, newPrice });
+    // console.log('[App] Active orders IDs:', activeOrders.map(o => o.orderid));
+
+    // Find order to get other details
+    // Check both orderid and order_id, and handle string/number mismatch
+    const order = activeOrders.find(o => String(o.orderid) === String(orderId) || String(o.order_id) === String(orderId));
+
+    if (!order) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[App] Order mismatch! Available IDs:', activeOrders.map(o => o.orderid));
+      }
+      showToast(`Order ${orderId} not found`, 'error');
+      return;
+    }
+
+    try {
+      const payload = {
+        // apikey: 'ignored', // Do NOT pass apikey, it overrides the service's getApiKey() logic
+        orderid: orderId,
+        strategy: 'Manual', // Required by API.
+        exchange: order.exchange,
+        symbol: order.symbol,
+        action: order.action,
+        product: order.product,
+        pricetype: order.pricetype,
+        price: newPrice, // Updated Price
+        quantity: order.quantity,
+        disclosed_quantity: order.disclosed_quantity || 0,
+        trigger_price: (order.pricetype === 'SL' || order.pricetype === 'SL-M') ? newPrice : (parseFloat(order.trigger_price) || 0)
+      };
+
+      if (process.env.NODE_ENV === 'development') {
+        console.log('[App] Modifying order:', payload);
+      }
+
+      const result = await modifyOrder(payload);
+
+      if (result.status === 'success') {
+        showToast(`${order.action} ${order.symbol} @ ₹${parseFloat(newPrice).toFixed(2)} (Qty: ${order.quantity})`, 'success');
+        refreshTradingData();
+      } else {
+        showToast(result.message, 'error');
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[App] Order modification error:', e);
+      }
+      showToast(e.message || 'Failed to modify order', 'error');
+    }
+  }, [activeOrders, showToast, refreshTradingData]);
+
+  const handleCancelOrder = useCallback(async (orderId) => {
+    // Find order details
+    const order = activeOrders.find(o => o.orderid === orderId);
+    if (!order) return;
+
+    try {
+      const result = await cancelOrder({
+        orderid: orderId,
+        strategy: 'Manual' // Required by some implementations, or optional. Keeping it for now.
+      });
+
+      if (result.status === 'success') {
+        showToast(`Cancelled ${order.action} ${order.symbol}`, 'success');
+        refreshTradingData();
+      } else {
+        showToast(result.message, 'error');
+      }
+    } catch (e) {
+      if (process.env.NODE_ENV === 'development') {
+        console.error('[App] Order cancellation error:', e);
+      }
+      showToast(e.message || 'Failed to cancel order', 'error');
+    }
+  }, [activeOrders, showToast, refreshTradingData]);
 
   // Cleanup toast timeouts on unmount
   useEffect(() => {
@@ -2936,6 +3021,11 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             onOpenOptionChain={handleOpenOptionChainForSymbol}
             oiLines={oiLines}
             showOILines={showOILines}
+            // Visual Trading Props
+            orders={activeOrders}
+            positions={activePositions}
+            onModifyOrder={handleModifyOrder}
+            onCancelOrder={handleCancelOrder}
           />
         }
       />

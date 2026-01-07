@@ -1847,6 +1847,116 @@ export const placeOrder = async (orderDetails) => {
 };
 
 /**
+ * Modify an existing order
+ * @param {Object} orderDetails - Order modification details
+ * @returns {Promise<Object>} { orderid, status, message }
+ */
+export const modifyOrder = async (orderDetails) => {
+    try {
+        const apiKey = getApiKey();
+        if (!apiKey) throw new Error('API Key not found');
+
+        const requestBody = {
+            apikey: apiKey,
+            ...orderDetails
+        };
+
+        logger.debug('[OpenAlgo] Modify Order request:', requestBody);
+
+        const response = await fetch(`${getApiBase()}/modifyorder`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.message || `Modify order failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        logger.debug('[OpenAlgo] Modify Order response:', data);
+
+        if (data.status === 'success') {
+            return {
+                orderid: data.orderid,
+                status: 'success',
+                message: data.message
+            };
+        } else {
+            return {
+                status: 'error',
+                message: data.message || 'Unknown error'
+            };
+        }
+    } catch (error) {
+        console.error('[OpenAlgo] Modify Order error:', error);
+        return {
+            status: 'error',
+            message: error.message
+        };
+    }
+};
+
+/**
+ * Cancel an existing order
+ * @param {string} orderId - ID of order to cancel
+ * @returns {Promise<Object>} { status, message }
+ */
+export const cancelOrder = async (orderDetails) => {
+    try {
+        const apiKey = getApiKey();
+        if (!apiKey) throw new Error('API Key not found');
+
+        // Handle both string (ID only) and object input
+        const requestPayload = typeof orderDetails === 'string'
+            ? { orderid: orderDetails }
+            : orderDetails;
+
+        const requestBody = {
+            apikey: apiKey,
+            ...requestPayload
+        };
+
+        logger.debug('[OpenAlgo] Cancel Order request:', requestBody);
+
+        const response = await fetch(`${getApiBase()}/cancelorder`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify(requestBody)
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.message || `Cancel order failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        logger.debug('[OpenAlgo] Cancel Order response:', data);
+
+        if (data.status === 'success') {
+            return {
+                status: 'success',
+                message: data.message
+            };
+        } else {
+            return {
+                status: 'error',
+                message: data.message || 'Unknown error'
+            };
+        }
+    } catch (error) {
+        console.error('[OpenAlgo] Cancel Order error:', error);
+        return {
+            status: 'error',
+            message: error.message
+        };
+    }
+};
+
+/**
  * ============================================
  * CHART DRAWINGS API
  * ============================================
@@ -1930,9 +2040,6 @@ export const loadDrawings = async (symbol, exchange = 'NSE', interval = '1d') =>
 
         const response = await fetch(`${getApiBase()}/chart?apikey=${encodeURIComponent(apiKey)}`, {
             method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-            },
             credentials: 'include',
         });
 
@@ -2002,5 +2109,7 @@ export default {
     getOrderBook,
     getTradeBook,
     getHoldings,
-    placeOrder
+    placeOrder,
+    modifyOrder,
+    cancelOrder
 };

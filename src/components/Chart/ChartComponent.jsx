@@ -42,6 +42,7 @@ import '../../plugins/line-tools/floating-toolbar.css';
 import ReplayControls from '../Replay/ReplayControls';
 import ReplaySlider from '../Replay/ReplaySlider';
 import PriceScaleMenu from './PriceScaleMenu';
+import { VisualTrading } from '../../plugins/visual-trading/visual-trading';
 
 const TOOL_MAP = {
     'cursor': 'None',
@@ -123,6 +124,10 @@ const ChartComponent = forwardRef(({
     onOpenOptionChain, // Callback to open option chain for current symbol
     oiLines = null, // { maxCallOI, maxPutOI, maxPain } - OI levels to display as price lines
     showOILines = false, // Whether to show OI lines
+    orders = [],
+    positions = [],
+    onModifyOrder,
+    onCancelOrder
 }, ref) => {
     const chartContainerRef = useRef();
     const [isLoading, setIsLoading] = useState(true);
@@ -162,6 +167,7 @@ const ChartComponent = forwardRef(({
     const chartTypeRef = useRef(chartType);
     const dataRef = useRef([]);
     const comparisonSeriesRefs = useRef(new Map());
+    const visualTradingRef = useRef(null);
 
     // Multi-leg strategy mode refs
     const strategyWsRefs = useRef({}); // Map: legId -> WebSocket
@@ -1513,6 +1519,25 @@ const ChartComponent = forwardRef(({
         }
     };
 
+    const updateVisualTradingData = useCallback(() => {
+        if (!visualTradingRef.current) return;
+        const relevantOrders = orders.filter(o => o.symbol === symbol);
+        const relevantPositions = positions.filter(p => p.symbol === symbol);
+        visualTradingRef.current.setData(relevantOrders, relevantPositions);
+    }, [orders, positions, symbol]);
+
+    const initializeVisualTrading = (series) => {
+        if (!series) return;
+        visualTradingRef.current = new VisualTrading({
+            orders: [],
+            positions: [],
+            onModifyOrder: onModifyOrder,
+            onCancelOrder: onCancelOrder
+        });
+        series.attachPrimitive(visualTradingRef.current);
+        updateVisualTradingData();
+    };
+
     // Initialize chart once on mount
     useEffect(() => {
         if (!chartContainerRef.current) return;
@@ -1829,8 +1854,12 @@ const ChartComponent = forwardRef(({
                 if (onToolUsed) onToolUsed();
                 return;
             }
+
+            // check for hovered order
+            const hoveredOrderId = visualTradingRef.current ? visualTradingRef.current.getHoveredOrderId() : null;
+
             // Show custom context menu
-            setContextMenu({ show: true, x: event.clientX, y: event.clientY });
+            setContextMenu({ show: true, x: event.clientX, y: event.clientY, orderId: hoveredOrderId });
         };
         const container = chartContainerRef.current;
         container.addEventListener('contextmenu', handleContextMenu, true);
@@ -1898,6 +1927,7 @@ const ChartComponent = forwardRef(({
         const replacementSeries = createSeries(chart, chartType, strategyConfig?.displayName || symbol);
         mainSeriesRef.current = replacementSeries;
         initializeLineTools(replacementSeries);
+        initializeVisualTrading(replacementSeries);
 
         // Re-attach timer to the new series when chart type changes
         if (priceScaleTimerRef.current) {
@@ -2638,6 +2668,8 @@ const ChartComponent = forwardRef(({
             });
         }
 
+
+
         // --- CLEANUP LOGIC ---
         // Identify IDs that are no longer in the list
         const idsToRemove = [];
@@ -2676,6 +2708,84 @@ const ChartComponent = forwardRef(({
             indicatorSeriesMap.current.delete(id);
         });
 
+    }, []);
+
+    // --- VISUAL TRADING DATA SYNC ---
+    useEffect(() => {
+        if (!visualTradingRef.current) return;
+
+        const currentSym = symbolRef.current || symbol; // prefer Ref but fallback to prop
+
+        // Filter orders/positions for current symbol
+        // Use looser matching to handle "SYMBOL:Exch" vs "SYMBOL" mismatch
+        const normalize = s => s ? s.split(':')[0] : '';
+        const target = normalize(currentSym);
+
+        const relevantOrders = (orders || []).filter(o => normalize(o.symbol) === target);
+        const relevantPositions = (positions || []).filter(p => normalize(p.symbol) === target);
+
+        if (process.env.NODE_ENV === 'development') {
+            console.log('[VisualTrading] Sync:', {
+                currentSym,
+                target,
+                totalOrders: (orders || []).length,
+                relevantOrders,
+                allOrderSymbols: (orders || []).map(o => o.symbol)
+            });
+        }
+
+        visualTradingRef.current.setData(relevantOrders, relevantPositions);
+    }, [orders, positions, symbol]);
+
+
+
+    // Update callbacks for Visual Trading (fix stale closures)
+    useEffect(() => {
+        if (visualTradingRef.current) {
+            visualTradingRef.current.setCallbacks({
+                onModifyOrder,
+                onCancelOrder
+            });
+        }
+    }, [onModifyOrder, onCancelOrder]);
+
+    // --- VISUAL TRADING EVENT LISTENERS ---
+    useEffect(() => {
+        const container = chartContainerRef.current;
+        if (!container) return;
+
+        const handleMouseDown = (e) => {
+            if (visualTradingRef.current) {
+                const rect = container.getBoundingClientRect();
+                const handled = visualTradingRef.current.handleMouseDown(e.clientX - rect.left, e.clientY - rect.top);
+                if (handled) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }
+        };
+        const handleMouseMove = (e) => {
+            if (visualTradingRef.current) {
+                const rect = container.getBoundingClientRect();
+                visualTradingRef.current.handleMouseMove(e.clientX - rect.left, e.clientY - rect.top);
+            }
+        };
+        const handleMouseUp = (e) => {
+            if (visualTradingRef.current) {
+                const rect = container.getBoundingClientRect();
+                visualTradingRef.current.handleMouseUp(e.clientX - rect.left, e.clientY - rect.top);
+            }
+        };
+
+        container.addEventListener('mousedown', handleMouseDown, true); // Use capture to ensure we get event before chart swallows it
+        window.addEventListener('mousemove', handleMouseMove); // Window for drag continuation
+        window.addEventListener('mouseup', handleMouseUp);
+
+        return () => {
+            container.removeEventListener('mousedown', handleMouseDown, true);
+            window.removeEventListener('mousemove', handleMouseMove);
+            window.removeEventListener('mouseup', handleMouseUp);
+        };
     }, []);
 
     // ========== OI LINES EFFECT (Max Call OI, Max Put OI, Max Pain) ==========
@@ -3836,6 +3946,17 @@ const ChartComponent = forwardRef(({
                     style={{ left: contextMenu.x, top: contextMenu.y }}
                     onClick={(e) => e.stopPropagation()}
                 >
+                    {contextMenu.orderId && (
+                        <button
+                            className={styles.contextMenuItem}
+                            onClick={() => {
+                                onCancelOrder?.(contextMenu.orderId);
+                                setContextMenu({ show: false, x: 0, y: 0 });
+                            }}
+                        >
+                            Cancel Order
+                        </button>
+                    )}
                     <button
                         className={styles.contextMenuItem}
                         onClick={() => {
