@@ -144,10 +144,14 @@ export const indicatorConfigs = {
         fullName: 'Volume Weighted Average Price',
         pane: 'main',
         inputs: [
+            { key: 'source', label: 'Source', type: 'select', options: ['hlc3', 'close', 'open', 'high', 'low'], default: 'hlc3' },
             { key: 'resetDaily', label: 'New Daily Session', type: 'boolean', default: true },
+            { key: 'resetAtMarketOpen', label: 'Reset at Market Open', type: 'boolean', default: false },
+            { key: 'ignoreVolume', label: 'Equal Weight (No Volume)', type: 'boolean', default: false },
         ],
         style: [
             { key: 'color', label: 'Line Color', type: 'color', default: '#2962FF' },
+            { key: 'lineWidth', label: 'Line Width', type: 'number', min: 1, max: 5, default: 2 },
         ],
     },
     tpo: {

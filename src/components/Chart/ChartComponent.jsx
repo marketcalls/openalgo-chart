@@ -2606,7 +2606,7 @@ const ChartComponent = forwardRef(({
                         let val = null;
                         if (type === 'sma') val = calculateSMA(data, ind.period || 20);
                         else if (type === 'ema') val = calculateEMA(data, ind.period || 20);
-                        else if (type === 'vwap') val = calculateVWAP(data, { resetDaily: ind.resetDaily !== false });
+                        else if (type === 'vwap') val = calculateVWAP(data, { ...ind });
 
                         if (val && val.length > 0) series.setData(val);
 
@@ -3886,6 +3886,8 @@ const ChartComponent = forwardRef(({
                 const activeInd = indicatorSettingsOpen && Array.isArray(indicators)
                     ? indicators.find(i => i.id === indicatorSettingsOpen)
                     : null;
+
+                console.log('[Settings Dialog] activeInd:', activeInd);
 
                 return (
                     <IndicatorSettingsDialog

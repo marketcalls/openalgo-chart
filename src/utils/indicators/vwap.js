@@ -45,7 +45,12 @@ export const calculateVWAP = (data, options = {}) => {
     resetDaily = true,
     exchange = 'NSE',
     resetAtMarketOpen = false,
+    source = 'hlc3',
+    ignoreVolume = false,
   } = opts;
+
+  // Normalize source to lowercase to handle potential UI capitalization
+  const sourceKey = String(source).toLowerCase();
 
   if (!Array.isArray(data) || data.length === 0) {
     return [];
@@ -61,12 +66,22 @@ export const calculateVWAP = (data, options = {}) => {
 
   for (let i = 0; i < data.length; i++) {
     const candle = data[i];
-    const volume = candle.volume || 0;
+    // If ignoreVolume is true, treat volume as 1 for all candles (Equal Weight)
+    const volume = ignoreVolume ? 1 : (candle.volume || 0);
 
     // Handle candles with no volume - use typical price as fallback
-    if (volume === 0) {
-      const typicalPrice = (candle.high + candle.low + candle.close) / 3;
-      const fallbackValue = vwapData.length > 0 ? vwapData[vwapData.length - 1].value : typicalPrice;
+    // Only applies if we're NOT ignoring volume (since if ignoreVolume is true, volume is effectively 1)
+    if (volume === 0 && !ignoreVolume) {
+      // Calculate price based on source even for 0 volume, to have a value
+      let price;
+      switch (sourceKey) {
+        case 'close': price = candle.close; break;
+        case 'open': price = candle.open; break;
+        case 'high': price = candle.high; break;
+        case 'low': price = candle.low; break;
+        case 'hlc3': default: price = (candle.high + candle.low + candle.close) / 3; break;
+      }
+      const fallbackValue = vwapData.length > 0 ? vwapData[vwapData.length - 1].value : price;
       vwapData.push({ time: candle.time, value: fallbackValue });
       continue;
     }
@@ -102,15 +117,22 @@ export const calculateVWAP = (data, options = {}) => {
       lastSessionKey = sessionKey;
     }
 
-    // Calculate typical price
-    const typicalPrice = (candle.high + candle.low + candle.close) / 3;
+    // Calculate price based on source
+    let price;
+    switch (sourceKey) {
+      case 'close': price = candle.close; break;
+      case 'open': price = candle.open; break;
+      case 'high': price = candle.high; break;
+      case 'low': price = candle.low; break;
+      case 'hlc3': default: price = (candle.high + candle.low + candle.close) / 3; break;
+    }
 
     // Update cumulative values
-    cumTPV += typicalPrice * volume;
+    cumTPV += price * volume;
     cumVolume += volume;
 
     // Calculate VWAP
-    const vwap = cumVolume > 0 ? cumTPV / cumVolume : typicalPrice;
+    const vwap = cumVolume > 0 ? cumTPV / cumVolume : price;
 
     vwapData.push({ time: candle.time, value: vwap });
   }
