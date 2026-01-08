@@ -25,8 +25,12 @@ import {
     calculateATR,
     calculateStochastic,
     calculateVWAP,
-    calculateSupertrend
+    calculateSupertrend,
+    calculateADX,
+    calculateIchimoku,
+    calculatePivotPoints
 } from '../../utils/indicators';
+
 import { calculateTPO } from '../../utils/indicators/tpo';
 import { calculateFirstCandle } from '../../utils/indicators/firstCandle';
 import { calculatePriceActionRange } from '../../utils/indicators/priceActionRange';
@@ -2548,8 +2552,141 @@ const ChartComponent = forwardRef(({
                                 });
                                 series.priceScale().applyOptions({ scaleMargins: { top: 0.85, bottom: 0 } });
                                 break;
+                            case 'adx':
+                                // ADX in separate pane with 3 lines
+                                pane = chartRef.current.addPane({ height: 100 });
+                                series = {
+                                    adx: pane.addSeries(LineSeries, {
+                                        color: ind.adxColor || '#FF9800',
+                                        lineWidth: ind.lineWidth || 2,
+                                        priceLineVisible: false,
+                                        lastValueVisible: true,
+                                        title: 'ADX'
+                                    }),
+                                    plusDI: pane.addSeries(LineSeries, {
+                                        color: ind.plusDIColor || '#26A69A',
+                                        lineWidth: 1,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: '+DI'
+                                    }),
+                                    minusDI: pane.addSeries(LineSeries, {
+                                        color: ind.minusDIColor || '#EF5350',
+                                        lineWidth: 1,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: '-DI'
+                                    })
+                                };
+                                // Add reference lines at 20 and 25
+                                series.adx._line20 = series.adx.createPriceLine({ price: 20, color: '#555', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: '' });
+                                series.adx._line25 = series.adx.createPriceLine({ price: 25, color: '#777', lineWidth: 1, lineStyle: 2, axisLabelVisible: false, title: '' });
+                                indicatorPanesMap.current.set(id, pane);
+                                break;
+                            case 'ichimoku':
+                                // Ichimoku Cloud - 5 lines overlaid on main chart
+                                series = {
+                                    tenkan: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.tenkanColor || '#2962FF',
+                                        lineWidth: 1,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'Tenkan'
+                                    }),
+                                    kijun: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.kijunColor || '#EF5350',
+                                        lineWidth: 1,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'Kijun'
+                                    }),
+                                    senkouA: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.senkouAColor || '#26A69A',
+                                        lineWidth: 1,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'Senkou A'
+                                    }),
+                                    senkouB: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.senkouBColor || '#EF5350',
+                                        lineWidth: 1,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'Senkou B'
+                                    }),
+                                    chikou: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.chikouColor || '#9C27B0',
+                                        lineWidth: 1,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'Chikou'
+                                    })
+                                };
+                                break;
+                            case 'pivotPoints':
+                                // Pivot Points - 7 lines overlaid on main chart
+                                series = {
+                                    pivot: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.pivotColor || '#FF9800',
+                                        lineWidth: ind.lineWidth || 1,
+                                        lineStyle: 2,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'PP'
+                                    }),
+                                    r1: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.resistanceColor || '#EF5350',
+                                        lineWidth: ind.lineWidth || 1,
+                                        lineStyle: 2,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'R1'
+                                    }),
+                                    r2: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.resistanceColor || '#EF5350',
+                                        lineWidth: ind.lineWidth || 1,
+                                        lineStyle: 2,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'R2'
+                                    }),
+                                    r3: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.resistanceColor || '#EF5350',
+                                        lineWidth: ind.lineWidth || 1,
+                                        lineStyle: 2,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'R3'
+                                    }),
+                                    s1: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.supportColor || '#26A69A',
+                                        lineWidth: ind.lineWidth || 1,
+                                        lineStyle: 2,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'S1'
+                                    }),
+                                    s2: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.supportColor || '#26A69A',
+                                        lineWidth: ind.lineWidth || 1,
+                                        lineStyle: 2,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'S2'
+                                    }),
+                                    s3: chartRef.current.addSeries(LineSeries, {
+                                        color: ind.supportColor || '#26A69A',
+                                        lineWidth: ind.lineWidth || 1,
+                                        lineStyle: 2,
+                                        priceLineVisible: false,
+                                        lastValueVisible: false,
+                                        title: 'S3'
+                                    })
+                                };
+                                break;
                             // Add other types as needed
                         }
+
 
                         if (series) {
                             indicatorSeriesMap.current.set(id, series);
@@ -2635,8 +2772,63 @@ const ChartComponent = forwardRef(({
                         series.applyOptions({ visible: isVisible });
                         const val = calculateVolume(data, ind.colorUp || '#26A69A', ind.colorDown || '#EF5350');
                         if (val) series.setData(val);
+                    } else if (type === 'adx') {
+                        // Update ADX, +DI, -DI lines
+                        if (series.adx) series.adx.applyOptions({ visible: isVisible, color: ind.adxColor || '#FF9800', lineWidth: ind.lineWidth || 2 });
+                        if (series.plusDI) series.plusDI.applyOptions({ visible: isVisible, color: ind.plusDIColor || '#26A69A' });
+                        if (series.minusDI) series.minusDI.applyOptions({ visible: isVisible, color: ind.minusDIColor || '#EF5350' });
+
+                        const val = calculateADX(data, ind.period || 14);
+                        if (val) {
+                            if (val.adx && series.adx) series.adx.setData(val.adx);
+                            if (val.plusDI && series.plusDI) series.plusDI.setData(val.plusDI);
+                            if (val.minusDI && series.minusDI) series.minusDI.setData(val.minusDI);
+                        }
+                    } else if (type === 'ichimoku') {
+                        // Update all 5 Ichimoku lines
+                        if (series.tenkan) series.tenkan.applyOptions({ visible: isVisible, color: ind.tenkanColor || '#2962FF' });
+                        if (series.kijun) series.kijun.applyOptions({ visible: isVisible, color: ind.kijunColor || '#EF5350' });
+                        if (series.senkouA) series.senkouA.applyOptions({ visible: isVisible, color: ind.senkouAColor || '#26A69A' });
+                        if (series.senkouB) series.senkouB.applyOptions({ visible: isVisible, color: ind.senkouBColor || '#EF5350' });
+                        if (series.chikou) series.chikou.applyOptions({ visible: isVisible, color: ind.chikouColor || '#9C27B0' });
+
+                        const val = calculateIchimoku(
+                            data,
+                            ind.tenkanPeriod || 9,
+                            ind.kijunPeriod || 26,
+                            ind.senkouBPeriod || 52,
+                            ind.displacement || 26
+                        );
+                        if (val) {
+                            if (val.tenkan && series.tenkan) series.tenkan.setData(val.tenkan);
+                            if (val.kijun && series.kijun) series.kijun.setData(val.kijun);
+                            if (val.senkouA && series.senkouA) series.senkouA.setData(val.senkouA);
+                            if (val.senkouB && series.senkouB) series.senkouB.setData(val.senkouB);
+                            if (val.chikou && series.chikou) series.chikou.setData(val.chikou);
+                        }
+                    } else if (type === 'pivotPoints') {
+                        // Update all 7 pivot point lines
+                        if (series.pivot) series.pivot.applyOptions({ visible: isVisible, color: ind.pivotColor || '#FF9800', lineWidth: ind.lineWidth || 1 });
+                        if (series.r1) series.r1.applyOptions({ visible: isVisible, color: ind.resistanceColor || '#EF5350', lineWidth: ind.lineWidth || 1 });
+                        if (series.r2) series.r2.applyOptions({ visible: isVisible, color: ind.resistanceColor || '#EF5350', lineWidth: ind.lineWidth || 1 });
+                        if (series.r3) series.r3.applyOptions({ visible: isVisible, color: ind.resistanceColor || '#EF5350', lineWidth: ind.lineWidth || 1 });
+                        if (series.s1) series.s1.applyOptions({ visible: isVisible, color: ind.supportColor || '#26A69A', lineWidth: ind.lineWidth || 1 });
+                        if (series.s2) series.s2.applyOptions({ visible: isVisible, color: ind.supportColor || '#26A69A', lineWidth: ind.lineWidth || 1 });
+                        if (series.s3) series.s3.applyOptions({ visible: isVisible, color: ind.supportColor || '#26A69A', lineWidth: ind.lineWidth || 1 });
+
+                        const val = calculatePivotPoints(data, ind.pivotType || 'classic', ind.timeframe || 'daily');
+                        if (val) {
+                            if (val.pivot && series.pivot) series.pivot.setData(val.pivot);
+                            if (val.r1 && series.r1) series.r1.setData(val.r1);
+                            if (val.r2 && series.r2) series.r2.setData(val.r2);
+                            if (val.r3 && series.r3) series.r3.setData(val.r3);
+                            if (val.s1 && series.s1) series.s1.setData(val.s1);
+                            if (val.s2 && series.s2) series.s2.setData(val.s2);
+                            if (val.s3 && series.s3) series.s3.setData(val.s3);
+                        }
                     }
                 }
+
             });
         }
 
@@ -2727,7 +2919,7 @@ const ChartComponent = forwardRef(({
         if (!container) return;
 
         const handleMouseDown = (e) => {
-            if (visualTradingRef.current) {
+            if (visualTradingRef.current?.handleMouseDown) {
                 const rect = container.getBoundingClientRect();
                 const handled = visualTradingRef.current.handleMouseDown(e.clientX - rect.left, e.clientY - rect.top);
                 if (handled) {
@@ -2735,19 +2927,21 @@ const ChartComponent = forwardRef(({
                     e.stopPropagation();
                 }
             }
+
         };
         const handleMouseMove = (e) => {
-            if (visualTradingRef.current) {
+            if (visualTradingRef.current?.handleMouseMove) {
                 const rect = container.getBoundingClientRect();
                 visualTradingRef.current.handleMouseMove(e.clientX - rect.left, e.clientY - rect.top);
             }
         };
         const handleMouseUp = (e) => {
-            if (visualTradingRef.current) {
+            if (visualTradingRef.current?.handleMouseUp) {
                 const rect = container.getBoundingClientRect();
                 visualTradingRef.current.handleMouseUp(e.clientX - rect.left, e.clientY - rect.top);
             }
         };
+
 
         container.addEventListener('mousedown', handleMouseDown, true); // Use capture to ensure we get event before chart swallows it
         window.addEventListener('mousemove', handleMouseMove); // Window for drag continuation

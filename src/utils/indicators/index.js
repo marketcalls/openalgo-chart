@@ -34,3 +34,12 @@ export { calculateFirstCandle, getLatestFirstCandle } from './firstCandle';
 // Price Action Range Strategy
 export { calculatePriceActionRange, getLatestPriceActionRange } from './priceActionRange';
 
+// ADX - Trend Strength
+export { calculateADX } from './adx';
+
+// Ichimoku Cloud
+export { calculateIchimoku, getCloudData } from './ichimoku';
+
+// Pivot Points
+export { calculatePivotPoints } from './pivotPoints';
+
