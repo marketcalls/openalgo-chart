@@ -107,7 +107,7 @@ const areSymbolsEquivalent = (s1, s2) => {
 
 const ChartComponent = forwardRef(({
     data: initialData = [],
-    symbol = 'BTCUSD',
+    symbol = 'RELIANCE',
     exchange = 'NSE',
     interval,
     chartType,
@@ -1254,7 +1254,8 @@ const ChartComponent = forwardRef(({
 
     // Create appropriate series based on chart type
     const createSeries = (chart, type, title = '') => {
-        const commonOptions = { lastValueVisible: true, priceScaleId: 'right', title: title };
+        // Remove title from options to prevent it from showing on the price axis label
+        const commonOptions = { lastValueVisible: true, priceScaleId: 'right', title: '' };
 
         // Use appearance colors or defaults
         const upColor = chartAppearance.candleUpColor || '#089981';

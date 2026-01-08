@@ -593,7 +593,7 @@ export class LineToolManager extends PluginBase {
 
     /**
      * Set the symbol name and exchange for alerts
-     * @param name The symbol name (e.g., 'BTCUSD', 'AAPL')
+     * @param name The symbol name (e.g., 'RELIANCE', 'NIFTY')
      * @param exchange The exchange code (e.g., 'NSE', 'NFO')
      */
     public setSymbolName(name: string, exchange?: string): void {
