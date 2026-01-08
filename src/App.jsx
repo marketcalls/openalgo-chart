@@ -400,7 +400,18 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
   const [isWatchlistVisible, setIsWatchlistVisible] = useState(false);
 
   // Trading Data (Orders/Positions) for visual trading
-  const { orders: activeOrders, positions: activePositions, refresh: refreshTradingData } = useTradingData(isAuthenticated);
+  // Trading Data (Orders/Positions) for visual trading and Account Panel
+  // We fetch ALL data here to avoid duplicate API calls in child components
+  const {
+    activeOrders,
+    activePositions,
+    positions: allPositions,
+    orders: allOrders,
+    funds,
+    holdings,
+    trades,
+    refreshTradingData
+  } = useTradingData(isAuthenticated);
 
 
 
@@ -626,8 +637,14 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
 
   const handleCancelOrder = useCallback(async (orderId) => {
     // Find order details
-    const order = activeOrders.find(o => o.orderid === orderId);
-    if (!order) return;
+    // Check both orderid and order_id, and handle string/number mismatch
+    const order = activeOrders.find(o => String(o.orderid) === String(orderId) || String(o.order_id) === String(orderId));
+
+    if (!order) {
+      console.error('[App] Cancel Order: Order not found', { orderId });
+      showToast(`Order ${orderId} not found`, 'error');
+      return;
+    }
 
     try {
       const result = await cancelOrder({
@@ -2773,6 +2790,12 @@ function AppContent({ isAuthenticated, setIsAuthenticated }) {
             isMaximized={isAccountPanelMaximized}
             onMaximize={handleAccountPanelMaximize}
             isToolbarVisible={showDrawingToolbar}
+            // Pass shared data to avoid duplicate fetching
+            positions={allPositions}
+            orders={allOrders}
+            holdings={holdings}
+            trades={trades}
+            funds={funds}
           />
         }
         isAccountPanelMinimized={isAccountPanelMinimized}

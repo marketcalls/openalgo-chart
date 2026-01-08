@@ -35,7 +35,13 @@ const AccountPanel = ({
     onMinimize,
     isMaximized = false,
     onMaximize,
-    isToolbarVisible = true
+    isToolbarVisible = true,
+    // Data props from parent (optional, to avoid duplicate fetching)
+    positions: propPositions,
+    orders: propOrders,
+    holdings: propHoldings,
+    trades: propTrades,
+    funds: propFunds
 }) => {
     const [activeTab, setActiveTab] = useState('positions');
     const [isLoading, setIsLoading] = useState(false);
@@ -49,7 +55,27 @@ const AccountPanel = ({
     const [holdings, setHoldings] = useState({ holdings: [], statistics: {} });
     const [trades, setTrades] = useState([]);
 
+    // Sync props to state if provided
+    useEffect(() => {
+        if (propFunds) setFunds(propFunds);
+        if (propPositions) setPositions(propPositions);
+        // App passes orders array, we expect object with orders array
+        if (propOrders) setOrders(prev => ({ ...prev, orders: propOrders }));
+        // App passes holdings array, we expect object with holdings array
+        if (propHoldings) setHoldings(prev => ({ ...prev, holdings: propHoldings }));
+        if (propTrades) setTrades(propTrades);
+    }, [propFunds, propPositions, propOrders, propHoldings, propTrades]);
+
     // Fetch all account data
+    // Calculate order stats locally to ensure consistency with table (handling Trigger Pending etc.)
+    const orderStats = (orders.orders || []).reduce((acc, o) => {
+        const s = (o.status || o.order_status || '').toUpperCase().replace(/\s+/g, '_');
+        if (['OPEN', 'PENDING', 'TRIGGER_PENDING', 'AMO_REQ_RECEIVED', 'VALIDATION_PENDING'].includes(s)) acc.open++;
+        else if (['COMPLETE', 'COMPLETED'].includes(s)) acc.completed++;
+        else if (['REJECTED', 'CANCELLED', 'CANCELED'].includes(s)) acc.rejected++;
+        return acc;
+    }, { open: 0, completed: 0, rejected: 0 });
+
     const fetchAccountData = useCallback(async () => {
         if (!isAuthenticated) return;
 
@@ -80,20 +106,22 @@ const AccountPanel = ({
         }
     }, [isAuthenticated]);
 
-    // Fetch data when panel opens
+    // Fetch data when panel opens, ONLY if not provided via props
     useEffect(() => {
-        if (isOpen && isAuthenticated) {
+        // If props are provided (we check orders as a proxy), active fetching is handled by parent
+        const isManaged = !!propOrders;
+
+        if (isOpen && isAuthenticated && !isManaged) {
             fetchAccountData();
+
+            // Auto-refresh every 30 seconds when panel is open
+            const interval = setInterval(fetchAccountData, 30000);
+            return () => clearInterval(interval);
         }
-    }, [isOpen, isAuthenticated, fetchAccountData]);
+    }, [isOpen, isAuthenticated, fetchAccountData, propOrders]);
 
-    // Auto-refresh every 30 seconds when panel is open
-    useEffect(() => {
-        if (!isOpen || !isAuthenticated) return;
+    // Removed the separate interval useEffect as it is now combined above
 
-        const interval = setInterval(fetchAccountData, 30000);
-        return () => clearInterval(interval);
-    }, [isOpen, isAuthenticated, fetchAccountData]);
 
     // Calculate P&L summary from positions
     const calculatePnLSummary = () => {
@@ -148,6 +176,15 @@ const AccountPanel = ({
         return (
             <div className={styles.tableWrapper}>
                 <table className={styles.table}>
+                    <colgroup>
+                        <col style={{ width: '20%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '12%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '15%' }} />
+                        <col style={{ width: '15%' }} />
+                        <col style={{ width: '16%' }} />
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Symbol</th>
@@ -194,12 +231,14 @@ const AccountPanel = ({
 
         // Sort orders: OPEN orders first, then by timestamp (latest first)
         orderList = [...orderList].sort((a, b) => {
-            const statusA = (a.order_status || '').toUpperCase();
-            const statusB = (b.order_status || '').toUpperCase();
+            // Normalize status: uppercase and replace spaces with underscores
+            const normalizeStatus = (s) => (s || '').toUpperCase().replace(/\s+/g, '_');
+            const statusA = normalizeStatus(a.order_status);
+            const statusB = normalizeStatus(b.order_status);
 
             // Define open statuses
-            const isOpenA = ['OPEN', 'PENDING', 'TRIGGER_PENDING', 'AMO REQ RECEIVED'].includes(statusA);
-            const isOpenB = ['OPEN', 'PENDING', 'TRIGGER_PENDING', 'AMO REQ RECEIVED'].includes(statusB);
+            const isOpenA = ['OPEN', 'PENDING', 'TRIGGER_PENDING', 'AMO_REQ_RECEIVED'].includes(statusA);
+            const isOpenB = ['OPEN', 'PENDING', 'TRIGGER_PENDING', 'AMO_REQ_RECEIVED'].includes(statusB);
 
             // If one is open and other isn't, open comes first
             if (isOpenA && !isOpenB) return -1;
@@ -221,6 +260,15 @@ const AccountPanel = ({
         return (
             <div className={styles.tableWrapper}>
                 <table className={styles.table}>
+                    <colgroup>
+                        <col style={{ width: '18%' }} />
+                        <col style={{ width: '18%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '14%' }} />
+                        <col style={{ width: '20%' }} />
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Time</th>
@@ -279,6 +327,13 @@ const AccountPanel = ({
         return (
             <div className={styles.tableWrapper}>
                 <table className={styles.table}>
+                    <colgroup>
+                        <col style={{ width: '30%' }} />
+                        <col style={{ width: '15%' }} />
+                        <col style={{ width: '15%' }} />
+                        <col style={{ width: '20%' }} />
+                        <col style={{ width: '20%' }} />
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Symbol</th>
@@ -335,6 +390,14 @@ const AccountPanel = ({
         return (
             <div className={styles.tableWrapper}>
                 <table className={styles.table}>
+                    <colgroup>
+                        <col style={{ width: '20%' }} />
+                        <col style={{ width: '25%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '10%' }} />
+                        <col style={{ width: '15%' }} />
+                        <col style={{ width: '20%' }} />
+                    </colgroup>
                     <thead>
                         <tr>
                             <th>Time</th>
@@ -457,8 +520,8 @@ const AccountPanel = ({
                             {tab.id === 'positions' && positions.filter(p => p.quantity !== 0).length > 0 && (
                                 <span className={styles.tabBadge}>{positions.filter(p => p.quantity !== 0).length}</span>
                             )}
-                            {tab.id === 'orders' && orders.statistics?.total_open_orders > 0 && (
-                                <span className={styles.tabBadge}>{orders.statistics.total_open_orders}</span>
+                            {tab.id === 'orders' && orderStats.open > 0 && (
+                                <span className={styles.tabBadge}>{orderStats.open}</span>
                             )}
                         </button>
                     ))}
@@ -485,11 +548,11 @@ const AccountPanel = ({
                     {/* Footer Stats - Pinned to bottom */}
                     {isAuthenticated && !isLoading && (
                         <div className={`${styles.footer} ${!isToolbarVisible ? styles.noToolbar : ''}`}>
-                            {activeTab === 'orders' && orders.statistics && (
+                            {activeTab === 'orders' && (
                                 <div className={styles.orderStats}>
-                                    <span>Open: {orders.statistics.total_open_orders || 0}</span>
-                                    <span>Completed: {orders.statistics.total_completed_orders || 0}</span>
-                                    <span>Rejected: {orders.statistics.total_rejected_orders || 0}</span>
+                                    <span>Open: {orderStats.open}</span>
+                                    <span>Completed: {orderStats.completed}</span>
+                                    <span>Rejected: {orderStats.rejected}</span>
                                 </div>
                             )}
                             {activeTab === 'holdings' && holdings.statistics && (

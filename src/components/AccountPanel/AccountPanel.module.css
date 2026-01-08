@@ -229,7 +229,6 @@
   border-collapse: collapse;
   font-size: 11px;
   table-layout: fixed;
-  /* Force columns to respect width */
 }
 
 .table thead {
@@ -275,6 +274,12 @@
 
 .alignRight {
   text-align: right;
+}
+
+/* Ensure right-alignment works for table headers (overrides .table th default) */
+.table th.alignRight,
+.table td.alignRight {
+  text-align: right !important;
 }
 
 .symbolCell {

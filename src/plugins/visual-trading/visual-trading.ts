@@ -34,6 +34,7 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
 
     // Cache for order prices during drag to show visual feedback
     private _dragPrices: Map<string, number> = new Map();
+    private _requestUpdate: () => void = () => { };
 
     constructor(options: VisualTradingOptions) {
         this._options = options;
@@ -43,18 +44,36 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
     attached(param: SeriesAttachedParameter<Time>) {
         this._chart = param.chart;
         this._series = param.series;
+        this._requestUpdate = param.requestUpdate;
 
         // Subscribe to mouse events for interactivity
         // Note: Lightweight Charts primitive mouse handling is tricky.
         this._chart.subscribeCrosshairMove(this._handleCrosshairMove);
         this._chart.subscribeClick(this._handleClick);
+
+        // Native DOM events for robust dragging (matching LineToolManager)
+        const chartElement = (this._chart as any).chartElement?.();
+        if (chartElement) {
+            chartElement.addEventListener('mousedown', this._mouseDownHandler);
+            window.addEventListener('mouseup', this._mouseUpHandler);
+            window.addEventListener('mousemove', this._mouseMoveHandler);
+        }
     }
 
     detached() {
         if (this._chart) {
             this._chart.unsubscribeCrosshairMove(this._handleCrosshairMove);
             this._chart.unsubscribeClick(this._handleClick);
+
+            const chartElement = (this._chart as any).chartElement?.();
+            if (chartElement) {
+                chartElement.removeEventListener('mousedown', this._mouseDownHandler);
+            }
         }
+        window.removeEventListener('mouseup', this._mouseUpHandler);
+        window.removeEventListener('mousemove', this._mouseMoveHandler);
+
+        this._requestUpdate = () => { };
     }
 
     paneViews() {
@@ -63,6 +82,7 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
 
     updateAllViews() {
         this._paneViews.forEach(pw => pw.update(this._getRendererData()));
+        this._requestUpdate();
     }
 
     setData(orders: any[], positions: any[]) {
@@ -75,6 +95,86 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
         if (callbacks.onModifyOrder) this._options.onModifyOrder = callbacks.onModifyOrder;
         if (callbacks.onCancelOrder) this._options.onCancelOrder = callbacks.onCancelOrder;
     }
+
+    // Native Event Handlers
+    private _mouseDownHandler = (event: MouseEvent) => {
+        if (this._hoveredRemove) {
+            // Clicked Close
+            if (this._hoveredOrderId) {
+                this._options.onCancelOrder(this._hoveredOrderId);
+                // Prevent default to avoid side effects
+                event.preventDefault();
+                event.stopPropagation();
+            }
+            return;
+        }
+
+        if (this._hoveredOrderId) {
+            this._draggingOrderId = this._hoveredOrderId;
+
+            // Lock chart interactions during drag
+            if (this._chart) {
+                this._chart.applyOptions({
+                    handleScroll: false,
+                    handleScale: false,
+                    kineticScroll: { touch: false, mouse: false }
+                });
+            }
+
+            // Set initial price
+            const chartElement = (this._chart as any).chartElement?.();
+            const rect = chartElement?.getBoundingClientRect();
+            if (rect && this._series) {
+                const y = event.clientY - rect.top;
+                const price = this._series.coordinateToPrice(y as Coordinate);
+                if (price !== null) {
+                    this._dragPrices.set(this._draggingOrderId, price);
+                }
+            }
+
+            event.preventDefault();
+        }
+    };
+
+    private _mouseMoveHandler = (event: MouseEvent) => {
+        if (!this._draggingOrderId || !this._series || !this._chart) return;
+
+        const chartElement = (this._chart as any).chartElement?.();
+        const rect = chartElement?.getBoundingClientRect();
+        if (!rect) return;
+
+        const y = event.clientY - rect.top;
+        const price = this._series.coordinateToPrice(y as Coordinate);
+
+        if (price !== null) {
+            this._dragPrices.set(this._draggingOrderId, price);
+            this.updateAllViews();
+        }
+    };
+
+    private _mouseUpHandler = (event: MouseEvent) => {
+        if (this._draggingOrderId) {
+            const price = this._dragPrices.get(this._draggingOrderId);
+
+            if (price !== undefined) {
+                this._options.onModifyOrder(this._draggingOrderId, price);
+            }
+
+            this._draggingOrderId = null;
+            this._dragPrices.clear();
+
+            // Re-enable chart interactions
+            if (this._chart) {
+                this._chart.applyOptions({
+                    handleScroll: true,
+                    handleScale: true,
+                    kineticScroll: { touch: true, mouse: true }
+                });
+            }
+
+            this.updateAllViews();
+        }
+    };
 
     private _getRendererData(): OrderRendererData {
         if (!this._series) return { orders: [], positions: [] };
@@ -96,15 +196,24 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
         }).filter(p => p !== null);
 
         const orders = this._options.orders.map(order => {
-            // If dragging, use overridden price
+            // Determine base price to display (Price for LIMIT, Trigger Price for SL/SL-M)
             let price = parseFloat(order.price);
+            const isSLOrder = order.pricetype === 'SL' || order.pricetype === 'SL-M';
+
+            if (isSLOrder) {
+                const triggerPrice = parseFloat(order.trigger_price || order.triggerprice);
+                if (!isNaN(triggerPrice) && triggerPrice > 0) {
+                    price = triggerPrice;
+                }
+            }
+
+            // If dragging, OVERRIDE with the temporary drag price
             if (this._dragPrices.has(order.orderid)) {
                 price = this._dragPrices.get(order.orderid)!;
             }
 
-            // Market orders don't have price usually, skip them or show at LTP
-            // Debug: Check why order might be skipped
-            if (order.pricetype === 'MARKET') return null;
+            // Skip if price is still invalid
+            if (isNaN(price) || price <= 0) return null;
 
             const y = this._series?.priceToCoordinate(price) ?? null;
             if (y === null) {
@@ -113,14 +222,22 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
             }
 
             const isBuy = order.action === 'BUY';
-            const color = isBuy ? '#3B82F6' : '#F59E0B'; // Blue / Orange
+            // Use different colors for SL orders - red for sell SL (stop loss exit), green for buy SL (stop loss entry)
+            let color = isBuy ? '#3B82F6' : '#F59E0B'; // Blue / Orange for regular orders
+            if (isSLOrder) {
+                color = isBuy ? '#10B981' : '#EF4444'; // Green / Red for SL orders
+            }
             const hovered = this._hoveredOrderId === order.orderid;
 
+            // Build label text - show order type for SL orders
+            const orderTypeLabel = isSLOrder ? ` ${order.pricetype}` : '';
+            const priceLabel = isSLOrder ? `@ ${price.toFixed(2)} (trigger)` : `@ ${price.toFixed(2)}`;
+
             return {
-                id: order.orderid,
+                id: order.orderid || order.order_id,
                 y: y as number,
                 color,
-                text: `${order.action} ${order.quantity} @ ${price.toFixed(2)}`,
+                text: `${order.action}${orderTypeLabel} ${order.quantity} ${priceLabel}`,
                 hovered,
                 hoverRemove: hovered && this._hoveredRemove,
                 lineWidth: 1,
@@ -160,7 +277,7 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
     ): boolean {
         const centreLabelHeight = 20;
         const removeButtonWidth = 26;
-        const paddingRight = 5;
+        const paddingRight = 60; // Must match renderer.ts paddingRight
 
         const distanceY = Math.abs(mouseY - alertY);
         if (distanceY > centreLabelHeight / 2) return false;
@@ -226,74 +343,10 @@ export class VisualTrading implements ISeriesPrimitive<Time> {
     };
 
     private _handleClick = (param: MouseEventParams) => {
-        // Handled by React via handleMouseDown
+        // Handled by native mousedown
     };
 
-    // Public methods for React to call
-    public handleMouseDown(x: number, y: number) {
-        if (this._hoveredRemove) {
-            // Clicked Close
-            if (this._hoveredOrderId) {
-                this._options.onCancelOrder(this._hoveredOrderId);
-            }
-            return true; // Handled
-        }
 
-        if (this._hoveredOrderId) {
-            console.log('[VisualTrading] Drag Start:', this._hoveredOrderId);
-            this._draggingOrderId = this._hoveredOrderId;
-
-            // Lock chart interactions during drag
-            if (this._chart) {
-                this._chart.applyOptions({
-                    handleScroll: false,
-                    handleScale: false,
-                    kineticScroll: { touch: false, mouse: false }
-                });
-            }
-
-            return true; // handled
-        }
-        return false;
-    }
-
-    public handleMouseMove(x: number, y: number) {
-        if (this._draggingOrderId && this._series) {
-            // Use crosshair Y if available for better accuracy in pane coordinates
-            // Fallback to y (raw) if crosshair is stale, but verify coordinate space
-            const effectiveY = (this._lastCrosshairY !== null) ? this._lastCrosshairY : y;
-
-            // console.log('[VisualTrading] Drag Move:', { y, lastCrosshairY: this._lastCrosshairY, effectiveY });
-
-            const price = this._series.coordinateToPrice(effectiveY as Coordinate);
-            if (price) {
-                this._dragPrices.set(this._draggingOrderId, price);
-                this.updateAllViews();
-            }
-        }
-    }
-
-    public handleMouseUp(x: number, y: number) {
-        if (this._draggingOrderId) {
-            const price = this._dragPrices.get(this._draggingOrderId);
-            if (price) {
-                this._options.onModifyOrder(this._draggingOrderId, price);
-            }
-
-            // Unlock chart interactions
-            if (this._chart) {
-                this._chart.applyOptions({
-                    handleScroll: true,
-                    handleScale: true,
-                    kineticScroll: { touch: true, mouse: true }
-                });
-            }
-
-            this._draggingOrderId = null;
-            this._dragPrices.clear();
-            this.updateAllViews();
-        }
-    }
 
     public getHoveredOrderId(): string | null {
         return this._hoveredOrderId;

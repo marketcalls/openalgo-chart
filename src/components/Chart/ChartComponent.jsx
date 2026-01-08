@@ -98,8 +98,16 @@ const hexToRgba = (hex, alpha) => {
     return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
+// Helper to normalize symbols for comparison (handle exchange suffixes)
+const areSymbolsEquivalent = (s1, s2) => {
+    if (!s1 || !s2) return false;
+    const normalize = (s) => s.split(':')[0].trim().toUpperCase();
+    return normalize(s1) === normalize(s2);
+};
+
 const ChartComponent = forwardRef(({
-    symbol,
+    data: initialData = [],
+    symbol = 'BTCUSD',
     exchange = 'NSE',
     interval,
     chartType,
@@ -1476,8 +1484,16 @@ const ChartComponent = forwardRef(({
 
     const updateVisualTradingData = useCallback(() => {
         if (!visualTradingRef.current) return;
-        const relevantOrders = orders.filter(o => o.symbol === symbol);
-        const relevantPositions = positions.filter(p => p.symbol === symbol);
+
+        const relevantOrders = orders.filter(o => areSymbolsEquivalent(o.symbol, symbol));
+        const relevantPositions = positions.filter(p => areSymbolsEquivalent(p.symbol, symbol));
+
+        // Debug logging for missing orders
+        if (orders.length > 0 && relevantOrders.length === 0) {
+            console.warn('[VisualTrading] Orders exist but none matched symbol:', symbol,
+                'Available symbols:', orders.map(o => o.symbol));
+        }
+
         visualTradingRef.current.setData(relevantOrders, relevantPositions);
     }, [orders, positions, symbol]);
 
@@ -3841,7 +3857,7 @@ const ChartComponent = forwardRef(({
                     ? indicators.find(i => i.id === indicatorSettingsOpen)
                     : null;
 
-                console.log('[Settings Dialog] activeInd:', activeInd);
+
 
                 return (
                     <IndicatorSettingsDialog
