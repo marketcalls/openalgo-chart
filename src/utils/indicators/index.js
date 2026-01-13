@@ -22,9 +22,33 @@ export { calculateATR } from './atr';
 export { calculateSupertrend } from './supertrend';
 
 // Volume
-export { calculateVolume } from './volume';
+export { calculateVolume, calculateVolumeMA, calculateEnhancedVolume } from './volume';
 export { calculateVWAP } from './vwap';
 
 // Market Profile
 export { calculateTPO, tpoToRenderData, getTPOStats } from './tpo';
+
+// First Red Candle Strategy
+export { calculateFirstCandle, getLatestFirstCandle } from './firstCandle';
+
+// Price Action Range Strategy
+export { calculatePriceActionRange, getLatestPriceActionRange } from './priceActionRange';
+
+// Range Breakout Strategy (Opening Range 9:30-10:00)
+export { calculateRangeBreakout, getLatestRangeBreakout } from './rangeBreakout';
+
+// ANN Strategy (Artificial Neural Network)
+export { calculateANNStrategy, getLatestANNSignal } from './annStrategy';
+
+// Hilenga-Milenga Indicator
+export { calculateHilengaMilenga, getLatestHilengaMilenga } from './hilengaMilenga';
+
+// ADX - Trend Strength
+export { calculateADX } from './adx';
+
+// Ichimoku Cloud
+export { calculateIchimoku, getCloudData } from './ichimoku';
+
+// Pivot Points
+export { calculatePivotPoints } from './pivotPoints';
 

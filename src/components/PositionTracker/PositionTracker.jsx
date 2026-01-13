@@ -4,10 +4,26 @@ import { Plus, X, Search } from 'lucide-react';
 import styles from './PositionTracker.module.css';
 import PositionTrackerItem from './PositionTrackerItem';
 import PositionTrackerHeader from './PositionTrackerHeader';
+import { SECTORS, getSector } from './sectorMapping';
 
 // Market timing constants (IST)
 const MARKET_OPEN = { hour: 9, minute: 15 };
 const MARKET_CLOSE = { hour: 15, minute: 30 };
+
+// Top N options for gainers/losers filter
+const TOP_N_OPTIONS = [5, 10, 15, 20];
+
+// Default column widths
+const DEFAULT_COLUMN_WIDTHS = {
+  rank: 32,
+  move: 40,
+  symbol: 80,
+  ltp: 70,
+  change: 60,
+  volume: 55,
+};
+
+const MIN_COLUMN_WIDTH = 35;
 
 const getMarketStatus = () => {
   const now = new Date();
@@ -45,10 +61,19 @@ const PositionTracker = ({
   const [showAddSymbol, setShowAddSymbol] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [marketState, setMarketState] = useState(() => getMarketStatus());
+  const [filterMode, setFilterMode] = useState('all'); // 'all' | 'gainers' | 'losers'
+  const [sectorFilter, setSectorFilter] = useState('All');
+  const [topNCount, setTopNCount] = useState(10);
+  const [focusedIndex, setFocusedIndex] = useState(-1); // Keyboard navigation
+  const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
+  const [resizing, setResizing] = useState(null);
   const searchInputRef = useRef(null);
+  const listRef = useRef(null);
   const previousRanksRef = useRef(new Map());
   const openingRanksRef = useRef(new Map()); // Stores rank at market open (9:15 AM)
   const hasSetOpeningRanks = useRef(false);  // Flag to capture only once per day
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
 
   // Update market status every minute
   useEffect(() => {
@@ -63,6 +88,40 @@ const PositionTracker = ({
       searchInputRef.current.focus();
     }
   }, [showAddSymbol]);
+
+  // Column resize handlers
+  const handleResizeStart = useCallback((e, column) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setResizing(column);
+    startXRef.current = e.clientX;
+    startWidthRef.current = columnWidths[column];
+  }, [columnWidths]);
+
+  useEffect(() => {
+    if (!resizing) return;
+
+    const handleMouseMove = (e) => {
+      const diff = e.clientX - startXRef.current;
+      const newWidth = Math.max(MIN_COLUMN_WIDTH, startWidthRef.current + diff);
+      setColumnWidths(prev => ({
+        ...prev,
+        [resizing]: newWidth
+      }));
+    };
+
+    const handleMouseUp = () => {
+      setResizing(null);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [resizing]);
 
   // Calculate % change from opening price (intraday) instead of prev_close
   const calculateIntradayChange = (item) => {
@@ -90,6 +149,7 @@ const PositionTracker = ({
         openPrice: parseFloat(item.open) || 0,
         volume: parseFloat(item.volume) || 0,
         percentChange: calculateIntradayChange(item),
+        sector: getSector(item.symbol),
       }));
     } else {
       // Custom mode - filter watchlistData to only show custom symbols
@@ -105,6 +165,7 @@ const PositionTracker = ({
           openPrice: parseFloat(item.open) || 0,
           volume: parseFloat(item.volume) || 0,
           percentChange: calculateIntradayChange(item),
+          sector: getSector(item.symbol),
         }));
     }
 
@@ -171,6 +232,36 @@ const PositionTracker = ({
     });
   }, [rankedData]);
 
+  // Filter data based on sector and filter mode
+  const filteredData = useMemo(() => {
+    // Apply sector filter first
+    let data = displayData;
+    if (sectorFilter !== 'All') {
+      data = data.filter(item => item.sector === sectorFilter);
+    }
+
+    // Then apply gainers/losers filter
+    if (filterMode === 'all') return data;
+
+    if (filterMode === 'gainers') {
+      // Filter positive % change, sort descending, take top N
+      return data
+        .filter(item => item.percentChange > 0)
+        .sort((a, b) => b.percentChange - a.percentChange)
+        .slice(0, topNCount);
+    }
+
+    if (filterMode === 'losers') {
+      // Filter negative % change, sort by most negative first, take top N
+      return data
+        .filter(item => item.percentChange < 0)
+        .sort((a, b) => a.percentChange - b.percentChange)
+        .slice(0, topNCount);
+    }
+
+    return data;
+  }, [displayData, filterMode, sectorFilter, topNCount]);
+
   const handleAddSymbol = useCallback((symbol, exchange = 'NSE') => {
     if (sourceMode !== 'custom') return;
 
@@ -193,6 +284,29 @@ const PositionTracker = ({
   }, [sourceMode, customSymbols, onCustomSymbolsChange]);
 
   const handleRowClick = useCallback((item) => {
+    onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
+  }, [onSymbolSelect]);
+
+  // Keyboard navigation handler
+  const handleKeyDown = useCallback((e) => {
+    if (filteredData.length === 0) return;
+
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setFocusedIndex(prev => prev < 0 ? 0 : Math.min(prev + 1, filteredData.length - 1));
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setFocusedIndex(prev => prev < 0 ? 0 : Math.max(prev - 1, 0));
+    } else if (e.key === 'Enter' && focusedIndex >= 0 && focusedIndex < filteredData.length) {
+      e.preventDefault();
+      const item = filteredData[focusedIndex];
+      if (item) onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
+    }
+  }, [filteredData, focusedIndex, onSymbolSelect]);
+
+  // Click handler that also updates focusedIndex
+  const handleItemClick = useCallback((item, index) => {
+    setFocusedIndex(index);
     onSymbolSelect({ symbol: item.symbol, exchange: item.exchange });
   }, [onSymbolSelect]);
 
@@ -238,14 +352,63 @@ const PositionTracker = ({
         symbolCount={rankedData.length}
       />
 
+      {/* Filter Tabs */}
+      <div className={styles.filterTabs}>
+        <button
+          className={`${styles.filterTab} ${filterMode === 'all' ? styles.filterTabActive : ''}`}
+          onClick={() => setFilterMode('all')}
+        >
+          All
+        </button>
+        <button
+          className={`${styles.filterTab} ${styles.filterTabGainers} ${filterMode === 'gainers' ? styles.filterTabActive : ''}`}
+          onClick={() => setFilterMode('gainers')}
+        >
+          Top {topNCount} Gainers
+        </button>
+        <button
+          className={`${styles.filterTab} ${styles.filterTabLosers} ${filterMode === 'losers' ? styles.filterTabActive : ''}`}
+          onClick={() => setFilterMode('losers')}
+        >
+          Top {topNCount} Losers
+        </button>
+        <select
+          className={styles.topNSelect}
+          value={topNCount}
+          onChange={(e) => setTopNCount(Number(e.target.value))}
+        >
+          {TOP_N_OPTIONS.map(n => (
+            <option key={n} value={n}>Top {n}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Sector Filter */}
+      <div className={styles.sectorFilter}>
+        <select
+          className={styles.sectorSelect}
+          value={sectorFilter}
+          onChange={(e) => setSectorFilter(e.target.value)}
+        >
+          {SECTORS.map(sector => (
+            <option key={sector} value={sector}>{sector}</option>
+          ))}
+        </select>
+      </div>
+
       {/* Column Headers */}
-      <div className={styles.columnHeaders}>
-        <span className={styles.colRank}>#</span>
-        <span className={styles.colMove}>Move</span>
-        <span className={styles.colSymbol}>Symbol</span>
-        <span className={styles.colLtp}>LTP</span>
-        <span className={styles.colChange}>% Chg</span>
-        <span className={styles.colVolume}>Vol</span>
+      <div className={classNames(styles.columnHeaders, { [styles.isResizing]: resizing })}>
+        <span className={styles.colRank} style={{ width: columnWidths.rank, minWidth: MIN_COLUMN_WIDTH }}>#</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'rank')} />
+        <span className={styles.colMove} style={{ width: columnWidths.move, minWidth: MIN_COLUMN_WIDTH }}>Move</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'move')} />
+        <span className={styles.colSymbol} style={{ width: columnWidths.symbol, minWidth: MIN_COLUMN_WIDTH }}>Symbol</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'symbol')} />
+        <span className={styles.colLtp} style={{ width: columnWidths.ltp, minWidth: MIN_COLUMN_WIDTH }}>LTP</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'ltp')} />
+        <span className={styles.colChange} style={{ width: columnWidths.change, minWidth: MIN_COLUMN_WIDTH }}>% Chg</span>
+        <div className={styles.resizeHandle} onMouseDown={(e) => handleResizeStart(e, 'change')} />
+        <span className={styles.colVolume} style={{ width: columnWidths.volume, minWidth: MIN_COLUMN_WIDTH }}>Vol</span>
         {sourceMode === 'custom' && <span className={styles.colAction} />}
       </div>
 
@@ -260,17 +423,24 @@ const PositionTracker = ({
           </div>
         ) : isLoading ? (
           renderSkeleton()
-        ) : displayData.length === 0 ? (
+        ) : filteredData.length === 0 ? (
           renderEmptyState()
         ) : (
-          <div className={styles.itemList}>
-            {displayData.map((item) => (
+          <div
+            className={styles.itemList}
+            ref={listRef}
+            tabIndex={0}
+            onKeyDown={handleKeyDown}
+          >
+            {filteredData.map((item, index) => (
               <PositionTrackerItem
                 key={`${item.symbol}-${item.exchange}`}
                 item={item}
-                onClick={() => handleRowClick(item)}
+                isFocused={index === focusedIndex}
+                onClick={() => handleItemClick(item, index)}
                 onRemove={sourceMode === 'custom' ? () => handleRemoveSymbol(item.symbol, item.exchange) : null}
                 showRemove={sourceMode === 'custom'}
+                columnWidths={columnWidths}
               />
             ))}
           </div>

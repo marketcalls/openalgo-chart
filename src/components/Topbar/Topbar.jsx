@@ -6,8 +6,9 @@ import { getIntervals } from '../../services/openalgo';
 import { logger } from '../../utils/logger.js';
 import Tooltip from '../Tooltip/Tooltip';
 import {
-    Plus, Star, Trash2, X, AlertCircle, Loader2, Layout as LayoutIcon
+    Plus, Star, Trash2, X, AlertCircle, Loader2, Layout as LayoutIcon, BarChart3, Bookmark
 } from 'lucide-react';
+
 
 const Topbar = ({
     symbol, interval, chartType, indicators, favoriteIntervals, customIntervals,
@@ -17,10 +18,11 @@ const Topbar = ({
     onUndo, onRedo, onMenuClick, theme, onToggleTheme,
     onDownloadImage, onCopyImage, onFullScreen,
     layout, onLayoutChange, onSaveLayout, onAlertClick, onCompareClick, onReplayClick,
-    isReplayMode = false, onSettingsClick, onTemplatesClick,
+    isReplayMode = false, onSettingsClick, onTemplatesClick, onChartTemplatesClick,
     onStraddleClick, strategyConfig = null,
-    onIndicatorSettingsClick, onOptionsClick
+    onOptionsClick, onHeatmapClick, onAddIndicator
 }) => {
+
     const [showIndicators, setShowIndicators] = useState(false);
     const [showTimeframes, setShowTimeframes] = useState(false);
     const [showChartTypes, setShowChartTypes] = useState(false);
@@ -648,43 +650,45 @@ const Topbar = ({
                                                             style={{ top: indicatorPos.top, left: indicatorPos.left }}
                                                         >
                                                             <div className={styles.dropdownSection}>Moving Averages</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.sma?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('sma'); }}>SMA ({indicators.sma?.period || 20})</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.ema?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('ema'); }}>EMA ({indicators.ema?.period || 20})</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('sma'); }}>SMA</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('ema'); }}>EMA</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Oscillators</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.rsi?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('rsi'); }}>RSI ({indicators.rsi?.period || 14})</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.stochastic?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('stochastic'); }}>Stochastic ({indicators.stochastic?.kPeriod || 14}, {indicators.stochastic?.dPeriod || 3})</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('rsi'); }}>RSI</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('stochastic'); }}>Stochastic</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('hilengaMilenga'); }}>Hilenga-Milenga</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Momentum</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.macd?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('macd'); }}>MACD ({indicators.macd?.fast || 12}, {indicators.macd?.slow || 26}, {indicators.macd?.signal || 9})</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('macd'); }}>MACD</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Volatility</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.bollingerBands?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('bollingerBands'); }}>Bollinger Bands ({indicators.bollingerBands?.period || 20}, {indicators.bollingerBands?.stdDev || 2})</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.atr?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('atr'); }}>ATR ({indicators.atr?.period || 14})</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('bollingerBands'); }}>Bollinger Bands</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('atr'); }}>ATR</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Trend</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.supertrend?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('supertrend'); }}>Supertrend ({indicators.supertrend?.period || 10}, {indicators.supertrend?.multiplier || 3})</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('supertrend'); }}>Supertrend</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('ichimoku'); }}>Ichimoku Cloud</div>
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div className={styles.dropdownSection}>Trend Strength</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('adx'); }}>ADX</div>
+                                                            <div className={styles.dropdownDivider}></div>
+                                                            <div className={styles.dropdownSection}>Support/Resistance</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('pivotPoints'); }}>Pivot Points</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Volume</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.volume?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('volume'); }}>Volume</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.vwap?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('vwap'); }}>VWAP</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('volume'); }}>Volume</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('vwap'); }}>VWAP</div>
                                                             <div className={styles.dropdownDivider}></div>
                                                             <div className={styles.dropdownSection}>Market Profile</div>
-                                                            <div className={classNames(styles.dropdownItem, { [styles.active]: indicators.tpo?.enabled })} onClick={(e) => { e.stopPropagation(); onToggleIndicator('tpo'); }}>TPO Profile (30m)</div>
-                                                            {/* Settings Button */}
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('tpo'); }}>TPO Profile (30m)</div>
                                                             <div className={styles.dropdownDivider}></div>
-                                                            <div
-                                                                className={classNames(styles.dropdownItem, styles.settingsItem)}
-                                                                onClick={(e) => { e.stopPropagation(); setShowIndicators(false); onIndicatorSettingsClick?.(); }}
-                                                            >
-                                                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                                    <circle cx="12" cy="12" r="3" />
-                                                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                                                                </svg>
-                                                                Indicator Settings
-                                                            </div>
+                                                            <div className={styles.dropdownSection}>Strategy</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('firstCandle'); }}>First Red Candle</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('rangeBreakout'); }}>Range Breakout</div>
+                                                            <div className={styles.dropdownItem} onClick={(e) => { e.stopPropagation(); onAddIndicator('annStrategy'); }}>ANN Strategy</div>
                                                         </div>
                                                     )}
+
                                                 </div>
                                             </div>
 
@@ -709,6 +713,14 @@ const Topbar = ({
                                                     </div>
                                                     <div className={styles.text}>Options</div>
                                                 </button>
+                                                <Tooltip content="Sector Heatmap" position="bottom">
+                                                    <button className={styles.button} aria-label="Sector Heatmap" onClick={onHeatmapClick}>
+                                                        <div className={styles.icon}>
+                                                            <BarChart3 size={20} strokeWidth={1.5} />
+                                                        </div>
+                                                        <div className={styles.text}>Heatmap</div>
+                                                    </button>
+                                                </Tooltip>
                                             </div>
 
                                             {/* Undo / Redo */}
@@ -780,8 +792,16 @@ const Topbar = ({
                                                         </div>
                                                     </button>
                                                 </Tooltip>
+                                                <Tooltip content="Chart Templates" position="bottom">
+                                                    <button className={classNames(styles.button, styles.iconButton)} aria-label="Chart Templates" onClick={onChartTemplatesClick}>
+                                                        <div className={styles.icon}>
+                                                            <Bookmark size={18} strokeWidth={1.5} />
+                                                        </div>
+                                                    </button>
+                                                </Tooltip>
 
                                                 <div className={styles.separatorWrap}><div className={styles.separator}></div></div>
+
 
                                                 {/* Theme Toggle */}
                                                 <button

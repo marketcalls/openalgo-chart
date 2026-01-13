@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import styles from './SettingsPopup.module.css';
-import { X, Eye, EyeOff } from 'lucide-react';
+import { X, Eye, EyeOff, Keyboard } from 'lucide-react';
+import ShortcutsSettings from '../ShortcutsSettings/ShortcutsSettings';
 import { LOG_LEVELS, LOG_LEVEL_LABELS, getLogLevel, setLogLevel } from '../../utils/logger';
 import { useFocusTrap } from '../../hooks/useFocusTrap';
 import { useKeyboardNav } from '../../hooks/useKeyboardNav';
@@ -35,6 +36,8 @@ const SettingsPopup = ({
     onApiKeySave,
     websocketUrl = '127.0.0.1:8765',
     onWebsocketUrlSave,
+    openalgoUsername = '',
+    onUsernameSave,
     // Chart Appearance settings
     chartAppearance = DEFAULT_CHART_APPEARANCE,
     onChartAppearanceChange,
@@ -46,6 +49,7 @@ const SettingsPopup = ({
     const [localHostUrl, setLocalHostUrl] = useState(hostUrl);
     const [localApiKey, setLocalApiKey] = useState(apiKey);
     const [localWsUrl, setLocalWsUrl] = useState(websocketUrl);
+    const [localUsername, setLocalUsername] = useState(openalgoUsername);
     const [hasChanges, setHasChanges] = useState(false);
     const [showApiKey, setShowApiKey] = useState(false);
     const [localAppearance, setLocalAppearance] = useState(chartAppearance);
@@ -55,9 +59,10 @@ const SettingsPopup = ({
         setLocalHostUrl(hostUrl);
         setLocalApiKey(apiKey);
         setLocalWsUrl(websocketUrl);
+        setLocalUsername(openalgoUsername);
         setLocalAppearance(chartAppearance);
         onClose();
-    }, [hostUrl, apiKey, websocketUrl, chartAppearance, onClose]);
+    }, [hostUrl, apiKey, websocketUrl, openalgoUsername, chartAppearance, onClose]);
 
     // Focus trap for accessibility
     const focusTrapRef = useFocusTrap(isOpen);
@@ -82,6 +87,10 @@ const SettingsPopup = ({
     }, [websocketUrl]);
 
     useEffect(() => {
+        setLocalUsername(openalgoUsername);
+    }, [openalgoUsername]);
+
+    useEffect(() => {
         setLocalAppearance(chartAppearance);
     }, [chartAppearance]);
 
@@ -90,9 +99,10 @@ const SettingsPopup = ({
         const hasHostChange = localHostUrl !== hostUrl;
         const hasApiKeyChange = localApiKey !== apiKey;
         const hasWsUrlChange = localWsUrl !== websocketUrl;
+        const hasUsernameChange = localUsername !== openalgoUsername;
         const hasAppearanceChange = JSON.stringify(localAppearance) !== JSON.stringify(chartAppearance);
-        setHasChanges(hasHostChange || hasApiKeyChange || hasWsUrlChange || hasAppearanceChange);
-    }, [localHostUrl, localApiKey, localWsUrl, localAppearance, hostUrl, apiKey, websocketUrl, chartAppearance]);
+        setHasChanges(hasHostChange || hasApiKeyChange || hasWsUrlChange || hasUsernameChange || hasAppearanceChange);
+    }, [localHostUrl, localApiKey, localWsUrl, localUsername, localAppearance, hostUrl, apiKey, websocketUrl, openalgoUsername, chartAppearance]);
 
     if (!isOpen) return null;
 
@@ -105,6 +115,9 @@ const SettingsPopup = ({
         }
         if (localWsUrl !== websocketUrl) {
             onWebsocketUrlSave?.(localWsUrl);
+        }
+        if (localUsername !== openalgoUsername) {
+            onUsernameSave?.(localUsername);
         }
         if (JSON.stringify(localAppearance) !== JSON.stringify(chartAppearance)) {
             onChartAppearanceChange?.(localAppearance);
@@ -144,6 +157,11 @@ const SettingsPopup = ({
                     <path d="M14 4a10 10 0 1 0 0 20 10 10 0 0 0 0-20ZM5 14a9 9 0 1 1 18 0 9 9 0 0 1-18 0Z" />
                     <path d="M14 8a6 6 0 0 0-6 6h12a6 6 0 0 0-6-6Z" />
                 </svg>
+            )
+        },
+        {
+            id: 'shortcuts', label: 'Keyboard Shortcuts', icon: (
+                <Keyboard size={18} />
             )
         }
     ];
@@ -282,6 +300,20 @@ const SettingsPopup = ({
                                     />
                                     <p className={styles.inputHint}>
                                         Default: 127.0.0.1:8765. Change to use a custom domain (e.g., openalgo.example.com:8765)
+                                    </p>
+                                </div>
+
+                                <div className={styles.inputGroup}>
+                                    <label className={styles.inputLabel}>OpenAlgo Username</label>
+                                    <input
+                                        type="text"
+                                        value={localUsername}
+                                        onChange={(e) => setLocalUsername(e.target.value)}
+                                        placeholder="Enter your OpenAlgo login username"
+                                        className={styles.input}
+                                    />
+                                    <p className={styles.inputHint}>
+                                        Your OpenAlgo login username (NOT Telegram username). Required for Telegram notifications.
                                     </p>
                                 </div>
                             </div>
@@ -470,6 +502,12 @@ const SettingsPopup = ({
                                 >
                                     Reset to Defaults
                                 </button>
+                            </div>
+                        )}
+
+                        {activeSection === 'shortcuts' && (
+                            <div className={styles.section}>
+                                <ShortcutsSettings embedded={true} />
                             </div>
                         )}
                     </div>
