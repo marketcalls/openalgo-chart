@@ -23,3 +23,7 @@ package-lock.json
 *.njsproj
 *.sln
 *.sw?
+
+# Temporary test and config files
+.playwright-mcp/
+.claude/
